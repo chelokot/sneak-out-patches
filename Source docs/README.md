@@ -14,6 +14,7 @@ Index of the current documentation.
 - `Gameplay/jugmaking-camera-indicator-bug.md` — why the seeker warning appears inverted during the jug-making task camera
 - `Gameplay/seeker-selection.md` — the seeker selection algorithm in the default mode
 - `Gameplay/crown-visual-pipeline.md` — how the visible crown is wired and what is still missing
+- `Gameplay/locker-open-attack-cooldown.md` — why seekers cannot attack immediately after opening a locker
 
 ## UI
 

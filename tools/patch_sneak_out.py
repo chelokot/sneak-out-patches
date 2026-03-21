@@ -6,10 +6,12 @@ import hashlib
 import os
 import platform
 import re
+import struct
 import sys
 import termios
 import textwrap
 import tty
+from tempfile import NamedTemporaryFile
 from argparse import ArgumentParser
 from dataclasses import dataclass
 from pathlib import Path
@@ -59,6 +61,7 @@ class PatchOption:
     details: str
     default_enabled: bool
     file_patch_groups: tuple[FilePatchGroup, ...]
+    custom_steps: tuple[str, ...] = ()
 
 
 @dataclass
@@ -81,35 +84,23 @@ MANAGED_FILES: tuple[ManagedFile, ...] = (
         relative_path="Sneak Out_Data/resources.assets",
         clean_sha256="50335a6501314dafcff9ae0711b5a1949a81c04d2bd3f61201a64c1fe3ac8adc",
     ),
+    ManagedFile(
+        relative_path="Sneak Out_Data/level0",
+        clean_sha256="059822a124c1178fe97674d3f8cfff298ff743191d7c352f5d937e6b6a211d7e",
+    ),
 )
 
 
 PATCH_OPTIONS: tuple[PatchOption, ...] = (
     PatchOption(
-        option_id="get-the-crown",
-        label="Switch mode to Get the Crown",
+        option_id="mode-selector",
+        label="Add Classic / Crown mode selector",
         details=(
-            "Turns private-host flow into Berek by forcing the room mode, map selection, "
-            "startup state transitions, and the Berek component wiring required by the live build."
+            "Adds a real Classic/Crown selector to the live portal popup, keeps Preferred role as a "
+            "separate control, and wires the selected mode into PortalPlayView play flow."
         ),
         default_enabled=True,
         file_patch_groups=(
-            FilePatchGroup(
-                relative_path="GameAssembly.dll",
-                patches=(
-                    BinaryPatch(0x67FA02, "747f", "eb19", "Force PrepareVictims into the Berek start coroutine instead of Default."),
-                    BinaryPatch(0x6971D7, "75", "eb", "Force BeforeSelectionState into the Berek branch."),
-                    BinaryPatch(0x6972C3, "e000", "0001", "Switch SelectionState pointer from default selection to BerekSelectionState."),
-                    BinaryPatch(0x7E15B9, "01", "02", "Replace the default game mode with Berek in portal play flow."),
-                    BinaryPatch(0x7E15E2, "01", "02", "Replace the default game mode with Berek in portal play flow."),
-                    BinaryPatch(0x803726, "8b4318", "6a0258", "Write Berek into the host session property creation path."),
-                    BinaryPatch(0x80373B, "8b5318", "6a025a", "Write Berek into the host session property creation path."),
-                    BinaryPatch(0x803FBD, "8b004883c428c3", "b8020000009090", "Force HostChosenGameMode getter to return Berek."),
-                    BinaryPatch(0x823201, "e86ab54a", "b8020000", "Force the host-chosen mode event path to use Berek."),
-                    BinaryPatch(0x823310, "e8db0de9ff", "b802000000", "Force the host map selection path to treat the room as Berek."),
-                    BinaryPatch(0x8233EE, "e8fd0ce9ff", "b802000000", "Force the host map selection path to treat the room as Berek."),
-                ),
-            ),
             FilePatchGroup(
                 relative_path="Sneak Out_Data/resources.assets",
                 patches=(
@@ -117,6 +108,7 @@ PATCH_OPTIONS: tuple[PatchOption, ...] = (
                 ),
             ),
         ),
+        custom_steps=("mode-selector",),
     ),
     PatchOption(
         option_id="fix-private-party-first-invite",
@@ -166,6 +158,27 @@ PATCH_OPTIONS: tuple[PatchOption, ...] = (
 
 
 PATCH_OPTION_BY_ID = {option.option_id: option for option in PATCH_OPTIONS}
+
+LEVEL0_PORTAL_SELECTOR_ROOT_TRANSFORM = 13300
+LEVEL0_BACKGROUND_TRANSFORM = 14710
+LEVEL0_PRIVATE_GAME_TRANSFORM = 14866
+LEVEL0_PORTAL_VIEW_COMPONENT = 24702
+
+GAMEASSEMBLY_MODE_SELECTOR_WRAPPER_OFFSET = 0x5E4EA0
+GAMEASSEMBLY_MODE_SELECTOR_LOADER_OFFSET = 0x5E4FC0
+GAMEASSEMBLY_ROLE_BUTTON_ENTRY_OFFSET = 0x7E10C0
+GAMEASSEMBLY_MODE_CALL_SITE_ONE_OFFSET = 0x7E15AD
+GAMEASSEMBLY_MODE_CALL_SITE_TWO_OFFSET = 0x7E15DC
+
+GAMEASSEMBLY_IMAGE_BASE = 0x180000000
+
+GAMEASSEMBLY_MODE_SELECTOR_ENTRY_BYTES = bytes.fromhex("40574883ec20")
+GAMEASSEMBLY_MODE_CALL_SITE_ONE_BYTES = bytes.fromhex("4533c0488bc8488bd8418d5001")
+GAMEASSEMBLY_MODE_CALL_SITE_TWO_BYTES = bytes.fromhex("4533c0418d5001")
+
+LEVEL0_GAME_MODE_LABEL_TEXT = b"Choose a mode!"
+LEVEL0_BEREK_LABEL_TEXT = b"Berek!"
+LEVEL0_CLASSIC_LABEL_TEXT = b"Normal"
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -414,6 +427,318 @@ def prepare_files(game_dir: Path) -> dict[str, PreparedFile]:
     }
 
 
+def _replace_qword(raw_bytes: bytearray, offset: int, value: int) -> None:
+    raw_bytes[offset : offset + 8] = struct.pack("<q", value)
+
+
+def _collect_level0_subtree(asset, root_transform_path_id: int) -> list[int]:
+    subtree_path_ids: list[int] = []
+
+    def walk(transform_path_id: int) -> None:
+        transform_tree = asset.objects[transform_path_id].read_typetree()
+        game_object_path_id = transform_tree["m_GameObject"]["m_PathID"]
+        game_object_tree = asset.objects[game_object_path_id].read_typetree()
+        subtree_path_ids.append(game_object_path_id)
+        subtree_path_ids.append(transform_path_id)
+        for component in game_object_tree["m_Component"]:
+            component_path_id = component["component"]["m_PathID"]
+            if component_path_id != transform_path_id:
+                subtree_path_ids.append(component_path_id)
+        for child in transform_tree["m_Children"]:
+            walk(child["m_PathID"])
+
+    walk(root_transform_path_id)
+    return subtree_path_ids
+
+
+def _patch_level0_mode_selector(prepared_file: PreparedFile) -> None:
+    import UnityPy
+    from UnityPy.files.ObjectReader import ObjectReader
+
+    with NamedTemporaryFile(suffix=".level0") as temp_file:
+        temp_file.write(bytes(prepared_file.working_bytes))
+        temp_file.flush()
+        environment = UnityPy.load(temp_file.name)
+        asset = next(iter(environment.files.values()))
+        source_bytes = bytes(prepared_file.working_bytes)
+
+        subtree_path_ids = _collect_level0_subtree(asset, LEVEL0_PORTAL_SELECTOR_ROOT_TRANSFORM)
+        next_path_id = max(asset.objects)
+        cloned_path_ids: dict[int, int] = {}
+        for source_path_id in subtree_path_ids:
+            next_path_id += 1
+            cloned_path_ids[source_path_id] = next_path_id
+
+        pointer_replacements = tuple(
+            (
+                b"\x00\x00\x00\x00" + struct.pack("<q", source_path_id),
+                b"\x00\x00\x00\x00" + struct.pack("<q", cloned_path_id),
+            )
+            for source_path_id, cloned_path_id in cloned_path_ids.items()
+        )
+
+        for source_path_id in subtree_path_ids:
+            source_object = asset.objects[source_path_id]
+            cloned_raw_bytes = bytearray(
+                source_bytes[source_object.byte_start : source_object.byte_start + source_object.byte_size]
+            )
+            for old_pointer, new_pointer in pointer_replacements:
+                cloned_raw_bytes = cloned_raw_bytes.replace(old_pointer, new_pointer)
+            cloned_object = ObjectReader(
+                asset,
+                source_object.reader,
+                cloned_path_ids[source_path_id],
+                source_object.type_id,
+                source_object.serialized_type,
+                source_object.class_id,
+                source_object.type,
+                source_object.byte_start,
+                len(cloned_raw_bytes),
+                source_object.is_destroyed,
+                source_object.is_stripped,
+                data=bytes(cloned_raw_bytes),
+                read_until=source_object._read_until,
+            )
+            asset.objects[cloned_object.path_id] = cloned_object
+
+        background_tree = asset.objects[LEVEL0_BACKGROUND_TRANSFORM].read_typetree()
+        background_tree["m_Children"].insert(
+            3,
+            {"m_FileID": 0, "m_PathID": cloned_path_ids[LEVEL0_PORTAL_SELECTOR_ROOT_TRANSFORM]},
+        )
+        asset.objects[LEVEL0_BACKGROUND_TRANSFORM].save_typetree(background_tree)
+
+        clone_root_tree = asset.objects[LEVEL0_PORTAL_SELECTOR_ROOT_TRANSFORM].read_typetree()
+        clone_root_tree["m_GameObject"]["m_PathID"] = cloned_path_ids[602]
+        clone_root_tree["m_Children"] = [
+            {"m_FileID": 0, "m_PathID": cloned_path_ids[child["m_PathID"]]}
+            for child in clone_root_tree["m_Children"]
+        ]
+        clone_root_tree["m_Father"] = {"m_FileID": 0, "m_PathID": LEVEL0_BACKGROUND_TRANSFORM}
+        clone_root_tree["m_AnchoredPosition"]["y"] = 308.0
+        asset.objects[cloned_path_ids[LEVEL0_PORTAL_SELECTOR_ROOT_TRANSFORM]].save_typetree(clone_root_tree)
+
+        private_game_tree = asset.objects[LEVEL0_PRIVATE_GAME_TRANSFORM].read_typetree()
+        private_game_tree["m_AnchoredPosition"]["y"] = 223.0
+        asset.objects[LEVEL0_PRIVATE_GAME_TRANSFORM].save_typetree(private_game_tree)
+
+        original_root_game_object = asset.objects[602].read_typetree()
+        original_root_game_object["m_Name"] = "GameModeBackground"
+        asset.objects[602].save_typetree(original_root_game_object)
+
+        original_button_game_object = asset.objects[1514].read_typetree()
+        original_button_game_object["m_Name"] = "GameMode"
+        asset.objects[1514].save_typetree(original_button_game_object)
+
+        cloned_root_game_object = asset.objects[cloned_path_ids[602]].read_typetree()
+        cloned_root_game_object["m_Name"] = "PreferredRoleBackgroundClone"
+        asset.objects[cloned_path_ids[602]].save_typetree(cloned_root_game_object)
+
+        cloned_button_game_object = asset.objects[cloned_path_ids[1514]].read_typetree()
+        cloned_button_game_object["m_Name"] = "PreferredRoleClone"
+        asset.objects[cloned_path_ids[1514]].save_typetree(cloned_button_game_object)
+
+        text_updates = {
+            19499: LEVEL0_GAME_MODE_LABEL_TEXT,
+            19339: LEVEL0_BEREK_LABEL_TEXT,
+            19520: LEVEL0_CLASSIC_LABEL_TEXT,
+        }
+        for text_component_path_id, updated_text in text_updates.items():
+            text_component = asset.objects[text_component_path_id]
+            raw_bytes = bytearray(
+                text_component.data
+                if text_component.data is not None
+                else source_bytes[text_component.byte_start : text_component.byte_start + text_component.byte_size]
+            )
+            raw_bytes[88:92] = struct.pack("<I", len(updated_text))
+            raw_bytes[92 : 92 + len(updated_text)] = updated_text
+            padded_text_end = 92 + ((len(updated_text) + 3) & ~3)
+            raw_bytes[92 + len(updated_text) : padded_text_end] = b"\x00" * (
+                padded_text_end - (92 + len(updated_text))
+            )
+            text_component.data = bytes(raw_bytes)
+
+        portal_view_component = asset.objects[LEVEL0_PORTAL_VIEW_COMPONENT]
+        portal_raw_bytes = bytearray(
+            source_bytes[
+                portal_view_component.byte_start : portal_view_component.byte_start + portal_view_component.byte_size
+            ]
+        )
+        repointed_component_paths = {
+            60: cloned_path_ids[867],
+            220: cloned_path_ids[20545],
+            232: cloned_path_ids[2548],
+            244: cloned_path_ids[3466],
+            288: cloned_path_ids[14656],
+            300: cloned_path_ids[16006],
+        }
+        for offset, path_id in repointed_component_paths.items():
+            _replace_qword(portal_raw_bytes, offset, path_id)
+        portal_view_component.data = bytes(portal_raw_bytes)
+
+        prepared_file.working_bytes = bytearray(asset.save())
+
+
+def _patch_gameassembly_mode_selector(prepared_file: PreparedFile) -> None:
+    from keystone import KS_ARCH_X86, KS_MODE_64, Ks
+
+    gameassembly_bytes = prepared_file.working_bytes
+
+    if bytes(
+        gameassembly_bytes[
+            GAMEASSEMBLY_ROLE_BUTTON_ENTRY_OFFSET : GAMEASSEMBLY_ROLE_BUTTON_ENTRY_OFFSET
+            + len(GAMEASSEMBLY_MODE_SELECTOR_ENTRY_BYTES)
+        ]
+    ) != GAMEASSEMBLY_MODE_SELECTOR_ENTRY_BYTES:
+        raise SystemExit("Unexpected PortalPlayView.OnChangeRoleButton prologue in clean GameAssembly.dll")
+
+    if bytes(
+        gameassembly_bytes[
+            GAMEASSEMBLY_MODE_CALL_SITE_ONE_OFFSET : GAMEASSEMBLY_MODE_CALL_SITE_ONE_OFFSET
+            + len(GAMEASSEMBLY_MODE_CALL_SITE_ONE_BYTES)
+        ]
+    ) != GAMEASSEMBLY_MODE_CALL_SITE_ONE_BYTES:
+        raise SystemExit("Unexpected first PortalPlayView.OnPlay mode literal in clean GameAssembly.dll")
+
+    if bytes(
+        gameassembly_bytes[
+            GAMEASSEMBLY_MODE_CALL_SITE_TWO_OFFSET : GAMEASSEMBLY_MODE_CALL_SITE_TWO_OFFSET
+            + len(GAMEASSEMBLY_MODE_CALL_SITE_TWO_BYTES)
+        ]
+    ) != GAMEASSEMBLY_MODE_CALL_SITE_TWO_BYTES:
+        raise SystemExit("Unexpected second PortalPlayView.OnPlay mode literal in clean GameAssembly.dll")
+
+    assembler = Ks(KS_ARCH_X86, KS_MODE_64)
+    wrapper_address = GAMEASSEMBLY_IMAGE_BASE + GAMEASSEMBLY_MODE_SELECTOR_WRAPPER_OFFSET
+    loader_address = GAMEASSEMBLY_IMAGE_BASE + GAMEASSEMBLY_MODE_SELECTOR_LOADER_OFFSET
+    wrapper_assembly = """
+        push rdi
+        sub rsp, 0x20
+        mov rdi, rcx
+        call 0x1834AF8B0
+        test rax, rax
+        je role_path
+        mov rcx, rax
+        call 0x18056EC70
+        mov [rsp+0x18], rax
+        test rax, rax
+        je role_path
+        mov rcx, rax
+        call 0x1832146A0
+        mov [rsp+0x10], rax
+        test rax, rax
+        je role_path
+        mov rcx, rax
+        call 0x1832410F0
+        cmp eax, 4
+        je have_button
+        mov rcx, [rsp+0x10]
+        call 0x18323D6B0
+        test rax, rax
+        je have_button
+        mov rcx, rax
+        call 0x18320FB30
+        mov [rsp+0x18], rax
+    have_button:
+        mov rcx, [rdi+0xF8]
+        test rcx, rcx
+        je role_path
+        call 0x18320FB30
+        mov rdx, [rsp+0x18]
+        mov rcx, rax
+        call 0x183219EB0
+        test al, al
+        jne role_path
+        cmp byte ptr [rdi+0x152], 0
+        sete al
+        mov byte ptr [rdi+0x152], al
+        mov rcx, [rsp+0x18]
+        call 0x1832146A0
+        test rax, rax
+        je mode_done
+        mov [rsp+0x10], rax
+        mov rcx, rax
+        mov edx, 1
+        call 0x18323D4F0
+        mov rcx, rax
+        call 0x18320FB30
+        movzx edx, byte ptr [rdi+0x152]
+        xor edx, 1
+        xor r8d, r8d
+        call 0x183213DF0
+        mov rcx, [rsp+0x10]
+        mov edx, 2
+        call 0x18323D4F0
+        mov rcx, rax
+        call 0x18320FB30
+        movzx edx, byte ptr [rdi+0x152]
+        xor r8d, r8d
+        call 0x183213DF0
+    mode_done:
+        add rsp, 0x20
+        pop rdi
+        ret
+    role_path:
+        jmp 0x1807E24C6
+    """
+    wrapper_bytes = bytes(assembler.asm(wrapper_assembly, addr=wrapper_address)[0])
+    loader_bytes = bytes(
+        assembler.asm(
+            "xor r8d, r8d; movzx edx, byte ptr [rdi+0x152]; inc edx; ret",
+            addr=loader_address,
+        )[0]
+    )
+
+    gameassembly_bytes[
+        GAMEASSEMBLY_MODE_SELECTOR_WRAPPER_OFFSET : GAMEASSEMBLY_MODE_SELECTOR_WRAPPER_OFFSET
+        + len(wrapper_bytes)
+    ] = wrapper_bytes
+    gameassembly_bytes[
+        GAMEASSEMBLY_MODE_SELECTOR_LOADER_OFFSET : GAMEASSEMBLY_MODE_SELECTOR_LOADER_OFFSET
+        + len(loader_bytes)
+    ] = loader_bytes
+
+    wrapper_jump = (
+        GAMEASSEMBLY_IMAGE_BASE + GAMEASSEMBLY_MODE_SELECTOR_WRAPPER_OFFSET
+    ) - (
+        GAMEASSEMBLY_IMAGE_BASE + GAMEASSEMBLY_ROLE_BUTTON_ENTRY_OFFSET + 5
+    )
+    gameassembly_bytes[
+        GAMEASSEMBLY_ROLE_BUTTON_ENTRY_OFFSET : GAMEASSEMBLY_ROLE_BUTTON_ENTRY_OFFSET + 6
+    ] = b"\xE9" + int(wrapper_jump).to_bytes(4, "little", signed=True) + b"\x90"
+
+    loader_call_one = (
+        GAMEASSEMBLY_IMAGE_BASE + GAMEASSEMBLY_MODE_SELECTOR_LOADER_OFFSET
+    ) - (
+        GAMEASSEMBLY_IMAGE_BASE + GAMEASSEMBLY_MODE_CALL_SITE_ONE_OFFSET + 11
+    )
+    gameassembly_bytes[
+        GAMEASSEMBLY_MODE_CALL_SITE_ONE_OFFSET : GAMEASSEMBLY_MODE_CALL_SITE_ONE_OFFSET + 13
+    ] = (
+        b"\x48\x8b\xc8\x48\x8b\xd8\xe8"
+        + int(loader_call_one).to_bytes(4, "little", signed=True)
+        + b"\x90\x90"
+    )
+
+    loader_call_two = (
+        GAMEASSEMBLY_IMAGE_BASE + GAMEASSEMBLY_MODE_SELECTOR_LOADER_OFFSET
+    ) - (
+        GAMEASSEMBLY_IMAGE_BASE + GAMEASSEMBLY_MODE_CALL_SITE_TWO_OFFSET + 5
+    )
+    gameassembly_bytes[
+        GAMEASSEMBLY_MODE_CALL_SITE_TWO_OFFSET : GAMEASSEMBLY_MODE_CALL_SITE_TWO_OFFSET + 7
+    ] = b"\xE8" + int(loader_call_two).to_bytes(4, "little", signed=True) + b"\x90\x90"
+
+
+def apply_custom_patch_steps(
+    prepared_files: dict[str, PreparedFile], selected_option_ids: tuple[str, ...]
+) -> None:
+    selected_option_ids_set = set(selected_option_ids)
+    if "mode-selector" in selected_option_ids_set:
+        _patch_gameassembly_mode_selector(prepared_files["GameAssembly.dll"])
+        _patch_level0_mode_selector(prepared_files["Sneak Out_Data/level0"])
+
+
 def apply_selected_patches(prepared_files: dict[str, PreparedFile], selected_option_ids: tuple[str, ...]) -> None:
     for option_id in selected_option_ids:
         option = PATCH_OPTION_BY_ID[option_id]
@@ -432,6 +757,7 @@ def apply_selected_patches(prepared_files: dict[str, PreparedFile], selected_opt
                     )
                 patch_end = patch.offset + len(patch.after)
                 prepared_file.working_bytes[patch.offset:patch_end] = patch.after
+    apply_custom_patch_steps(prepared_files, selected_option_ids)
 
 
 def write_prepared_files(prepared_files: dict[str, PreparedFile]) -> None:

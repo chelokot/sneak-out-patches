@@ -16,7 +16,6 @@ python3 tools/patch_sneak_out.py --rollback "/path/to/Sneak Out"
 
 Current verified result:
 
-- a private lobby can be created in `Berek`
-- the match launches on a berek map
-- the mode plays from start to finish
+- the patcher can now build a live `Normal / Berek` mode selector inside `PortalPlayView`
+- the first-invite private party fix and the uniform hunter-random fix remain available in the same CLI
 - the crown visual is still not fully fixed

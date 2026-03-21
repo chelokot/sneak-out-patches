@@ -1,18 +1,24 @@
-# Working Berek Patch
+# Working Mode Patch
 
-The final working set turned out to be smaller than the intermediate attempts.
+The current patch set no longer hardcodes `Berek`. It adds a live selector to the existing portal popup and keeps the older invite / random fixes alongside it.
 
 ## What is patched in the final version
 
 `GameAssembly.dll`
 
-- room and match startup are redirected into `Berek`
-- state flow is redirected into `BerekSelectionState`
-- a berek map is forced inside the host flow
+- `PortalPlayView.OnChangeRoleButton()` is wrapped so the original role control and the new mode control can coexist
+- `PortalPlayView.OnPlay()` loads `GameModeType` from a dedicated mode bit instead of a hardcoded `Default`
+- the first private-party invite fix and the uniform hunter-random fix remain as separate binary patches
+
+`Sneak Out_Data/level0`
+
+- the original preferred-role row is repurposed into a `Berek / Normal` mode row
+- a cloned preferred-role row is inserted below it and all `PortalPlayView` role references are moved to that clone
+- the private-game row is shifted down to fit the extra control without changing the play button structure
 
 `Sneak Out_Data/resources.assets`
 
-- `SpookedNetworkPlayer.EntityBerekComponent` is pre-wired on the `UnityPlayer` prefab
+- `SpookedNetworkPlayer.EntityBerekComponent` remains pre-wired on the `UnityPlayer` prefab so the crown-mode startup still has the component it expects
 
 ## Why the resources.assets patch was required
 
@@ -49,8 +55,8 @@ Properties:
 
 ## Current patch options
 
-- `get-the-crown`
-  switches the default match flow into `Berek`
+- `mode-selector`
+  adds a real `Normal / Berek` selector to the current portal popup while preserving the separate preferred-role selector
 - `fix-private-party-first-invite`
   routes invitation joins through the explicit lobby id carried by `JoinLobbyEvent`, which fixes the stale-lobby-id handoff on the first accepted invite
 - `uniform-hunter-random`
@@ -60,10 +66,11 @@ Properties:
 
 Confirmed:
 
-- the match is created as `game_mode=Berek`
-- the map switches into a berek map
-- the mode really plays from start to finish
+- the live portal popup now has room for a separate mode selector without stealing the preferred-role control
+- the script can deterministically rebuild that popup from a clean `level0`
+- the selector patch, invite fix, and uniform hunter-random patch can be applied together from the same script run
 
 Remaining known issue:
 
+- the selector still needs runtime validation inside the game client
 - the crown visual is still not fully fixed

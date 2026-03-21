@@ -115,6 +115,28 @@ Outcome:
 
 The crown visual still does not appear correctly, even though the mode is now functionally playable.
 
+## Current UI experiment
+
+### Redirect the portal popup into `GameModeViewV2`
+
+Observed facts behind the design:
+
+- `GameModeViewV2` is present in `level0`, but not wired into `GameUIManager`
+- `GameModeViewV2` root was disabled, but its own child `Canvas` was already disabled too
+- `OpenPortalPlayView()` still ends in a direct jump to `PortalPlayView.Open()`
+
+Current experiment:
+
+- set `GameModeViewV2` root active in `level0`
+- repurpose the dormant `OpenGameModeView()` body into a tiny runtime opener for `GameModeViewV2`
+- replace the final tail of `OpenPortalPlayView()` with a jump to that helper
+
+Why this experiment is cleaner than older UI attempts:
+
+- it does not swap serialized `PortalPlayView` references to an unrelated type
+- it does not rely on restoring the older `GameModeView`
+- it changes only the last step of portal opening, after the surrounding lobby cleanup logic already ran
+
 ## Runtime noise that should not be overinterpreted
 
 Recent live logs still contain unrelated UI exceptions such as:

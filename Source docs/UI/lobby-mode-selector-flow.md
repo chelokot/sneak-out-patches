@@ -60,3 +60,37 @@ If more UI recovery work is needed later, these areas are the most relevant:
 - scene objects inside `level0`
 - the point where the current lobby chooses what popup to open
 
+## Experimental `GameModeViewV2` route
+
+Later inspection showed that `GameModeViewV2` is a more realistic recovery target than the older `GameModeView`.
+
+Confirmed facts:
+
+- `GameModeViewV2` exists in `level0` as its own scene object
+- its root `GameObject` was disabled
+- its child `Canvas` was already disabled too
+- `GameUIManager` does not hold a serialized field for `GameModeViewV2`
+- `OpenPortalPlayView()` ends in a direct jump to `PortalPlayView.Open()`
+
+Practical implication:
+
+- a pure field-rewire inside `GameUIManager` is not enough
+- the safer route is a hybrid patch:
+  - keep `GameModeViewV2` root active in the scene so it can be found at runtime
+  - redirect the portal popup tail into a custom opener for `GameModeViewV2`
+
+Current experimental patch shape:
+
+1. set `GameModeViewV2` root `GameObject` active in `level0`
+2. replace `GameUIManager.OpenGameModeView()` with a small helper that:
+   - builds the managed string `GameModeViewV2`
+   - calls `GameObject.Find`
+   - calls `GameObject.GetComponent(string)`
+   - calls `GameModeViewV2.Open()`
+3. replace the final portal popup jump in `OpenPortalPlayView()` with a jump into that helper
+
+Why this route is attractive:
+
+- it avoids swapping unrelated serialized component types
+- it avoids restoring the much older `GameModeView`
+- it keeps the rest of the portal cleanup flow intact and only replaces the last open step

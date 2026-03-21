@@ -103,6 +103,10 @@ Observed behavior:
 - around `0x18063FA90`, it uses `_playerTransform`, `_canvasTransform`, and `_camera`
 - it computes world/camera-relative positions through several Unity helper calls
 - the visible seeker indicator lives inside this canvas as a fixed `RectTransform`, not as a separate directional arrow system
+- the key Unity calls in this path are:
+- `UnityEngine.Transform::get_position_Injected` at `0x183241820`
+- `UnityEngine.Quaternion::LookRotation_Injected` at `0x18321B7A0`
+- `UnityEngine.Transform::SetPositionAndRotation_Injected` at `0x18323FB30`
 
 Practical interpretation:
 

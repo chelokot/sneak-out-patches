@@ -120,6 +120,28 @@ Observed `RectTransform` values for `SeenBySeekerIndicator`:
 
 This matters because it rules out one simple explanation: the object itself is not swapping between left and right child arrows. It is a single fixed-position world-space UI element.
 
+### The player canvas is a world-space billboard
+
+Asset inspection of the `PlayerCanvas` object shows:
+
+- `Canvas.m_RenderMode = 2`
+- `Canvas.m_Camera = null`
+
+So this is a world-space canvas attached to the player object, not a screen-space overlay.
+
+`EntityCanvasComponent.LateUpdate()` then drives that canvas through Unity transform helpers:
+
+- `UnityEngine.Transform::get_position_Injected` at `0x183241820`
+- `UnityEngine.Quaternion::LookRotation_Injected` at `0x18321B7A0`
+- `UnityEngine.Transform::SetPositionAndRotation_Injected` at `0x18323FB30`
+
+That means the visible HUD marker is produced in two stages:
+
+- `HandleSeenBySeekerIndicator()` decides whether the fixed warning object is active
+- `LateUpdate()` billboards and repositions the whole canvas relative to the currently active camera
+
+This is the strongest current explanation for why the bug feels geometric: the indicator object itself is static, but the canvas that contains it is explicitly rotated to face the active camera every frame.
+
 ## Updated working explanation
 
 The current best explanation is no longer "the indicator projects the hunter into the wrong camera basis."
@@ -138,6 +160,7 @@ This matches the reported behavior better:
 - it appears only while the task camera interaction is active
 - it feels like a binary wrong-side state, not a drifting projection error
 - the indicator object itself is fixed, so the apparent "side" must come from the canvas/camera relationship rather than from a dedicated arrow-direction algorithm inside the object
+- the task camera is exactly the condition that changes that canvas/camera relationship
 
 ## What is still not fully proven
 

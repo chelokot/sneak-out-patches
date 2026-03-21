@@ -10,8 +10,8 @@ Contents:
 Quick start:
 
 ```bash
-python3 tools/patch_sneak_out_berek.py "/path/to/Sneak Out"
-python3 tools/patch_sneak_out_berek.py --rollback "/path/to/Sneak Out"
+python3 tools/patch_sneak_out.py "/path/to/Sneak Out"
+python3 tools/patch_sneak_out.py --rollback "/path/to/Sneak Out"
 ```
 
 Current verified result:

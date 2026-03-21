@@ -195,4 +195,4 @@ Known threshold set:
 
 The authoritative source for the exact byte-level patch set is:
 
-- `tools/patch_sneak_out_berek.py`
+- `tools/patch_sneak_out.py`

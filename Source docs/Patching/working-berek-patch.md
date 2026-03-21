@@ -35,7 +35,7 @@ Practical fix:
 
 Working patcher:
 
-- `tools/patch_sneak_out_berek.py`
+- `tools/patch_sneak_out.py`
 
 Properties:
 
@@ -43,7 +43,7 @@ Properties:
 - accepts an explicit game path through `--game-dir` or a positional path
 - shows an interactive checkbox menu for patch selection
 - restores script-managed backups before every apply and then reapplies the selected patch set on top of a clean baseline
-- creates local `.codex-berek.bak` backups when no trusted backup exists yet
+- creates local `.codex-sneak-out.bak` backups when no trusted backup exists yet
 - supports `--rollback`
 - supports `--patches` for non-interactive selection
 

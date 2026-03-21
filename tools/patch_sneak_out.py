@@ -19,7 +19,7 @@ RESET = "\033[0m"
 CLEAR_SCREEN = "\033[2J\033[H"
 STEAM_APP_ID = "2410490"
 GAME_DIRECTORY_NAME = "Sneak Out"
-BACKUP_SUFFIX = ".codex-berek.bak"
+BACKUP_SUFFIX = ".codex-sneak-out.bak"
 
 
 @dataclass(frozen=True)

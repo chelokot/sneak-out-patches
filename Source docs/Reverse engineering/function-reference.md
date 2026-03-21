@@ -107,10 +107,13 @@ Observed behavior:
 - `UnityEngine.Transform::get_position_Injected` at `0x183241820`
 - `UnityEngine.Quaternion::LookRotation_Injected` at `0x18321B7A0`
 - `UnityEngine.Transform::SetPositionAndRotation_Injected` at `0x18323FB30`
+- for most character types, the target canvas position is built with a hard-coded `+2.2f` world-`X` offset
+- for `dracula_bat`, that hard-coded world-`X` offset becomes `+5.5f`
 
 Practical interpretation:
 
 - once `HandleSeenBySeekerIndicator()` has toggled the warning object on, the apparent screen-side behavior is most likely determined here by canvas billboarding and camera-relative placement
+- the use of a fixed global-`X` offset makes this path especially sensitive to alternate camera angles such as jug-making task cameras
 
 ### `SpookedNetworkPlayer.AssignComponents()`
 

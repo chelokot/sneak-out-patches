@@ -135,6 +135,30 @@ So this is a world-space canvas attached to the player object, not a screen-spac
 - `UnityEngine.Quaternion::LookRotation_Injected` at `0x18321B7A0`
 - `UnityEngine.Transform::SetPositionAndRotation_Injected` at `0x18323FB30`
 
+The important detail is that the canvas is not positioned in camera-relative space. The function builds a new world-space target position by adding a hard-coded offset on the global `X` axis:
+
+- most character types: `+2.2f`
+- `dracula_bat`: `+5.5f`
+
+Those constants come from:
+
+- `0x18357FE70 = 2.2f`
+- `0x18357FE74 = 5.5f`
+
+The late-update logic is therefore approximately:
+
+```text
+playerPos = _playerTransform.position
+targetPos = playerPos + (2.2, 0.0, 0.0)
+if characterType == dracula_bat:
+    targetPos = playerPos + (5.5, 0.0, 0.0)
+
+canvasPos = _canvasTransform.position
+cameraPos = _camera.transform.position
+rotation = Quaternion.LookRotation(canvasPos - cameraPos)
+_canvasTransform.SetPositionAndRotation(targetPos, rotation)
+```
+
 That means the visible HUD marker is produced in two stages:
 
 - `HandleSeenBySeekerIndicator()` decides whether the fixed warning object is active
@@ -152,7 +176,7 @@ The better-supported explanation is:
 - the interaction also blocks the player into a stationary task state
 - while that task is active, the victim is likely replicated as `PlayerMobilityState.NotMoving`
 - `HandleSeenBySeekerIndicator()` uses that mobility state to toggle the seeker warning object
-- the visual result is perceived as an inverted side indicator because the warning object is static inside the world-space `PlayerCanvas`, while the whole canvas is billboarded and positioned relative to the active camera in `EntityCanvasComponent.LateUpdate()`
+- the visual result is perceived as an inverted side indicator because the warning object is static inside the world-space `PlayerCanvas`, while the whole canvas is billboarded to the active camera and positioned with a fixed global-`X` world offset rather than a player-relative or camera-relative side offset
 
 This matches the reported behavior better:
 
@@ -161,6 +185,7 @@ This matches the reported behavior better:
 - it feels like a binary wrong-side state, not a drifting projection error
 - the indicator object itself is fixed, so the apparent "side" must come from the canvas/camera relationship rather than from a dedicated arrow-direction algorithm inside the object
 - the task camera is exactly the condition that changes that canvas/camera relationship
+- a fixed global-`X` offset can look intuitive from the normal camera but obviously wrong from a close task camera with a different angle around the player
 
 ## What is still not fully proven
 
@@ -177,6 +202,6 @@ At the current evidence level, this should be treated as:
 
 - a real bug
 - specific to the jug-making close camera state
-- most likely caused by the seeker-warning HUD switching through the `PlayerMobilityState.NotMoving` path while the task interaction is active, with the visible wrong-side effect created by the fixed indicator object being rendered inside a world-space player canvas under a different camera geometry
+- most likely caused by the seeker-warning HUD switching through the `PlayerMobilityState.NotMoving` path while the task interaction is active, with the visible wrong-side effect created by a fixed indicator object inside a world-space player canvas that is billboarded to the camera but placed with a hard-coded global-`X` world offset
 
-The highest-value next reverse-engineering target is the exact billboard / screen-space mapping math inside `EntityCanvasComponent.LateUpdate()`, because that is now the most likely place where the task camera makes the fixed indicator appear on the opposite side from what the player expects.
+The highest-value next reverse-engineering target would now be confirming whether the fixed global-`X` offset is intentional everywhere or whether some missing task-specific override was supposed to replace it during close interaction cameras.

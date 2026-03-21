@@ -21,6 +21,8 @@ Index of the current documentation.
 
 - `Reverse engineering/client-structure.md` — the main client files, where things live, and what they are responsible for
 - `Reverse engineering/function-reference.md` — key functions, offsets, and why they matter
+- `Reverse engineering/install-and-runtime-layout.md` — Steam app paths, library locations, and runtime artifacts
+- `Reverse engineering/evidence-sources.md` — where current conclusions came from and how reliable each source is
 
 ## History
 

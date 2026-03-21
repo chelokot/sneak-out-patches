@@ -73,6 +73,25 @@ Practical interpretation:
 
 ## Player component wiring
 
+### `EntityCanvasComponent.HandleSeenBySeekerIndicator`
+
+Why it matters:
+
+- it is the concrete HUD path behind the victim-side seeker warning indicator
+
+Observed behavior:
+
+- around `0x18063EBE0`, it does not compute seeker direction directly
+- it resolves the indicator `GameObject`
+- reads `SpookedNetworkPlayer.PlayerMobilityState`
+- compares the value with `2`
+- calls `UnityEngine.GameObject::SetActive(System.Boolean)` with that result
+
+Practical interpretation:
+
+- the warning object is currently tied to mobility-state, specifically `PlayerMobilityState.NotMoving`
+- the jug-making bug is therefore better explained as a task-state / HUD-state mismatch than a simple camera-angle math bug inside this method
+
 ### `SpookedNetworkPlayer.AssignComponents()`
 
 Why it matters:
@@ -113,6 +132,21 @@ Observed behavior:
 Practical interpretation:
 
 - the visible crown is a GameObject activation problem, not a missing runtime spawn path
+
+### `SpookedNetworkPlayer.get_PlayerMobilityState()` / `set_PlayerMobilityState()`
+
+Why they matter:
+
+- they provide the networked state that `HandleSeenBySeekerIndicator()` consumes
+
+Observed behavior:
+
+- `get_PlayerMobilityState()` at `0x1806886F0` reads a single byte from the network state at offset `0x188`
+- `set_PlayerMobilityState()` at `0x180689640` writes the same byte
+
+Practical interpretation:
+
+- the seeker-warning HUD depends on a replicated player-state flag, not only on local camera/UI math
 
 ### `EntityBerekComponent.HasCrown`
 

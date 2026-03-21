@@ -59,42 +59,67 @@ The victim HUD / entity canvas owns the seeker warning image:
 - `_seenBySeekerIndicator` field exists on the player canvas object
 - the update method is `HandleSeenBySeekerIndicator()` at `0x18063EBE0`
 
-What matters here:
+What matters here is more specific than the earlier broad camera-space hypothesis.
 
-- this code path is generic player-HUD logic
-- there is no visible jug-making-specific branch in `HandleSeenBySeekerIndicator()`
-- there is also no obvious check there for `BlockInputsForJugMaking`
+### `HandleSeenBySeekerIndicator()` does not compute a left/right angle directly
 
-That makes this look like a generic camera-space issue rather than a bespoke bug in `JugMakingTaskView`.
+The key call chain inside `EntityCanvasComponent.HandleSeenBySeekerIndicator()` is:
 
-## Most likely explanation
+- `UnityEngine.Object` null/equality helper at `0x183219EB0`
+- `UnityEngine.Component::get_gameObject()` at `0x18320FB30`
+- `SpookedNetworkPlayer.get_PlayerMobilityState()` at `0x1806886F0`
+- `UnityEngine.GameObject::SetActive(System.Boolean)` at `0x183213DF0`
 
-The most likely cause is that the seeker-direction indicator is calculated relative to the currently active camera / canvas orientation, and the `JugMaking` task camera changes that orientation in a way the indicator code does not compensate for.
+The relevant logic shape is:
 
-In other words:
+- if the indicator component is valid, get its `GameObject`
+- read `SpookedNetworkPlayer.PlayerMobilityState`
+- compare it to `2`
+- call `GameObject.SetActive(al == 2)`
 
-- world-space seeker position is still correct
-- indicator logic is still running
-- but its left/right projection uses the task camera basis instead of the normal gameplay camera basis
-- that task camera basis is effectively mirrored or rotated relative to the player's expected left/right reference
+That comparison value is confirmed from `dump.cs`:
 
-This fits all currently confirmed facts:
+- `PlayerMobilityState.None = 0`
+- `PlayerMobilityState.Moving = 1`
+- `PlayerMobilityState.NotMoving = 2`
 
-- `JugMakingTask` definitely activates a dedicated camera mode
-- the seeker indicator is handled by shared HUD logic
-- the indicator code does not appear to disable itself or switch into a task-aware mode during jug making
+So the seeker warning path is not taking a hunter position vector and deciding "left" vs "right" inside this method. It is toggling a dedicated warning object based on whether the player is in the `NotMoving` mobility state.
 
-## What is not yet proven
+### `PlayerMobilityState` is not generic noise here
 
-The exact sign error is not fully proven yet.
+`SpookedNetworkPlayer.get_PlayerMobilityState()` is a thin getter over the network state byte at offset `0x188`, and the matching setter writes that same byte:
 
-The remaining unknown is whether the inversion comes from:
+- `get_PlayerMobilityState()` at `0x1806886F0`
+- `set_PlayerMobilityState()` at `0x180689640`
 
-- the task camera transform itself facing the opposite direction
-- a mirrored canvas-space conversion
-- a helper inside `HandleSeenBySeekerIndicator()` that classifies the side from a camera-relative value
+In the current binary, the getter is referenced only from this seeker-indicator path. That makes the dependency look intentional rather than incidental.
 
-That part needs deeper tracing of the helper calls used by `HandleSeenBySeekerIndicator()`.
+## Updated working explanation
+
+The current best explanation is no longer "the indicator projects the hunter into the wrong camera basis."
+
+The better-supported explanation is:
+
+- `JugMakingTask` switches into a dedicated close task camera
+- the interaction also blocks the player into a stationary task state
+- while that task is active, the victim is likely replicated as `PlayerMobilityState.NotMoving`
+- `HandleSeenBySeekerIndicator()` uses that mobility state to toggle the seeker warning object
+- the visual result is perceived as an inverted side indicator, but the root trigger is the mobility-state branch, not a direct left/right computation inside this method
+
+This matches the reported behavior better:
+
+- the bug is stable, not noisy
+- it appears only while the task camera interaction is active
+- it feels like a binary wrong-side state, not a drifting projection error
+
+## What is still not fully proven
+
+Two details are still open:
+
+- where exactly the player is switched into `PlayerMobilityState.NotMoving` during jug making
+- whether the visible "wrong side" comes from a dedicated left/right child object, a mirrored canvas layout, or a sprite/layout state under the toggled `GameObject`
+
+So the current evidence says the bug is tightly coupled to task-induced stationary state, but the final visual mapping still needs one more tracing pass.
 
 ## Practical takeaway
 
@@ -102,6 +127,6 @@ At the current evidence level, this should be treated as:
 
 - a real bug
 - specific to the jug-making close camera state
-- most likely caused by the indicator using the wrong camera-space basis while the task camera is active
+- most likely caused by the seeker-warning HUD switching through the `PlayerMobilityState.NotMoving` path while the task interaction is active
 
-The highest-value next reverse-engineering target is the helper chain under `HandleSeenBySeekerIndicator()` to identify the exact left/right sign decision.
+The highest-value next reverse-engineering target is the visual object structure behind `_seenBySeekerIndicator`, to see how that active/inactive state becomes the perceived left/right inversion on screen.

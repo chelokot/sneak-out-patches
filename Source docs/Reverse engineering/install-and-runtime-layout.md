@@ -50,13 +50,18 @@ Practical implication:
 
 Current observation:
 
-- `/run/media/chelokot/second` is not mounted in the current shell session
-- the external `SteamLibrary` is therefore unavailable right now
+- `/run/media/chelokot/second` is mounted and readable
+- the retail game binaries and assets are currently accessible from the shell
+
+Confirmed live paths:
+
+- `/run/media/chelokot/second/SteamLibrary/steamapps/common/Sneak Out/GameAssembly.dll`
+- `/run/media/chelokot/second/SteamLibrary/steamapps/common/Sneak Out/Sneak Out_Data/resources.assets`
+- `/run/media/chelokot/second/SteamLibrary/steamapps/common/Sneak Out/Sneak Out_Data/level0`
 
 Practical implication:
 
-- active binary inspection depends on the external drive being mounted
-- documentation work can continue from local metadata, history, and prior verified notes even when the library is absent
+- active binary inspection can currently rely on the exact mounted retail build
 
 ## Steam metadata artifacts currently accessible
 
@@ -75,9 +80,9 @@ Historically important runtime log path:
 - Proton compatdata path under app `2410490`
 - `Player.log` in the `LocalLow/Kinguin Studios/Sneak Out` subtree
 
-Current limitation:
+Confirmed current log path:
 
-- the exact previously used compatdata log path is not currently available through the missing external library path
+- `/run/media/chelokot/second/SteamLibrary/steamapps/compatdata/2410490/pfx/drive_c/users/steamuser/AppData/LocalLow/Kinguin Studios/Sneak Out/Player.log`
 
 ## Research workflow implication
 
@@ -94,4 +99,3 @@ When the external Steam library is not available:
 2. use Steam metadata
 3. use local session history
 4. record what remains unverified until the library is mounted again
-

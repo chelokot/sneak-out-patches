@@ -115,3 +115,14 @@ Outcome:
 
 The crown visual still does not appear correctly, even though the mode is now functionally playable.
 
+## Runtime noise that should not be overinterpreted
+
+Recent live logs still contain unrelated UI exceptions such as:
+
+- `BattlepassView.OnOnWebplayerRefreshEvent`
+- `FinishBattlepassProgressView.SetProgress`
+
+Practical conclusion:
+
+- these exceptions are noisy, but they do not by themselves explain the crown issue
+- the useful crown investigation surface is still the berek buff and component path

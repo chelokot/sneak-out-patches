@@ -35,6 +35,11 @@ Why it matters:
 Observed behavior:
 
 - once the room and map patches were correct, this coroutine really started executing
+- around `0x1806A4EBE`, it calls the late berek startup chain in a stable order:
+- remove the initial input block
+- `GivePlayerCrown`
+- `GiveStunToNotCrownedPlayers`
+- `InitializeBerekComponents`
 
 ### `InitializeBerekComponents`
 
@@ -50,6 +55,21 @@ Practical interpretation:
 
 - berek startup was no longer blocked at higher layers
 - a berek-specific player component was missing or not wired
+
+### `GivePlayerCrown`
+
+Why it matters:
+
+- this is the point where berek assigns crown ownership during startup
+
+Observed behavior:
+
+- around `0x18067F690`, it routes through the host buff path
+- it uses buff type `0xC0`
+
+Practical interpretation:
+
+- the crown is expected to be represented by a normal buff, not by an entirely separate gameplay actor
 
 ## Player component wiring
 
@@ -77,6 +97,36 @@ Why it matters:
 Confirmed fix path:
 
 - patch the serialized slot on the player prefab in `resources.assets`
+
+### `EntityBerekComponent.HandleCrown`
+
+Why it matters:
+
+- this is the direct crown-visual toggle path
+
+Observed behavior:
+
+- around `0x180639490`, it checks buff type `0xC0`
+- when the buff is present, it enables the cached crown object
+- when the buff is absent, it disables the cached crown object
+
+Practical interpretation:
+
+- the visible crown is a GameObject activation problem, not a missing runtime spawn path
+
+### `EntityBerekComponent.HasCrown`
+
+Why it matters:
+
+- it provides the crown-ownership query for the berek component
+
+Observed behavior:
+
+- around `0x180639520`, it checks the same buff type `0xC0`
+
+Practical interpretation:
+
+- gameplay crown ownership and visual crown ownership should be driven by the same state source
 
 ## Lobby and mode selection
 

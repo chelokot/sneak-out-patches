@@ -12,6 +12,7 @@ Index of the current documentation.
 - `Gameplay/tasks-and-task-steps.md` — why the end-of-match task stats look strange
 - `Gameplay/hunters-modes-and-berek.md` — hunters, abilities, modes, and confirmed Berek facts
 - `Gameplay/seeker-selection.md` — the seeker selection algorithm in the default mode
+- `Gameplay/crown-visual-pipeline.md` — how the visible crown is wired and what is still missing
 
 ## UI
 
@@ -21,6 +22,7 @@ Index of the current documentation.
 
 - `Reverse engineering/client-structure.md` — the main client files, where things live, and what they are responsible for
 - `Reverse engineering/function-reference.md` — key functions, offsets, and why they matter
+- `Reverse engineering/berek-startup-flow.md` — the startup chain that had to be repaired to make Berek playable
 - `Reverse engineering/install-and-runtime-layout.md` — Steam app paths, library locations, and runtime artifacts
 - `Reverse engineering/evidence-sources.md` — where current conclusions came from and how reliable each source is
 

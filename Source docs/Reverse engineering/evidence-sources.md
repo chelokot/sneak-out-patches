@@ -11,6 +11,7 @@ Examples:
 - `GameAssembly.dll`
 - `Sneak Out_Data/resources.assets`
 - scene assets such as `level0`
+- the live mounted retail build under `/run/media/chelokot/second/SteamLibrary`
 
 Why they matter:
 
@@ -25,6 +26,7 @@ Why they matter:
 Examples:
 
 - `Player.log`
+- Proton compatdata logs under app `2410490`
 
 Why they matter:
 
@@ -98,4 +100,3 @@ Whenever a temporary source produced an important conclusion, the durable part s
 - why a patch worked or failed
 
 That prevents future work from depending on `/tmp` or on chat memory.
-

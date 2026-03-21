@@ -85,17 +85,33 @@ That makes the problem more specific:
 - the accept click is reaching the intended PGOS join flow
 - the breakage happens later, during the party / Photon transition
 
-## Most likely minimal patch direction
+## Working patch direction
 
-If this bug needs to be patched, the cleanest target is not the invitation UI. The likely patch point is the failure branch in `NakamaController.<JoinParty>d__38.MoveNext`.
+The most reliable minimal fix is earlier than the async `JoinParty` failure branch.
 
-The most promising minimal strategies are:
+`PgosLobby.OnJoinLobbyEvent()` already receives a `JoinLobbyEvent` object that carries:
 
-1. Prevent the `Ok == false` fallback from doing `LeaveParty -> TryCreatePartyAndJoinToPhotonLobby()` on invitation joins.
-2. Retry the host-lobby join instead of recreating the invitee's own lobby.
-3. Delay the Photon join until the required party state is definitely initialized, if the failure is caused by ordering rather than hard rejection.
+- `LobbyId` at offset `0x18`
+- `Region` at offset `0x20`
 
-The first option is the smallest binary patch surface, but it is only safe if the failure branch is specific enough to invitation joins. Otherwise it could affect legitimate recovery behavior in other lobby scenarios.
+The vanilla handler updates current region state from the event, but then tail-calls `SpookedLobbyUtils.JoinLobby()` without arguments. That no-arg path falls back to cached lobby state, which matches the stale-lobby-id symptom seen in guest logs.
+
+The patchable fix is to replace the final tail with a direct call to:
+
+- `SpookedLobbyUtils.JoinLobby(string lobbyId, string region)` at `0x180606760`
+
+and to pass:
+
+- `JoinLobbyEvent.LobbyId`
+- the already extracted event region
+
+In the tested build this is a single contiguous patch in `GameAssembly.dll`:
+
+- function: `PgosLobby.OnJoinLobbyEvent`
+- VA: `0x180816D3E`
+- raw offset: `0x81593E`
+
+This patch keeps the event flow intact and only stops the client from discarding the explicit lobby id that came from the invitation.
 
 ## Evidence quality
 

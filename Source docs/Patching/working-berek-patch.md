@@ -51,6 +51,8 @@ Properties:
 
 - `get-the-crown`
   switches the default match flow into `Berek`
+- `fix-private-party-first-invite`
+  routes invitation joins through the explicit lobby id carried by `JoinLobbyEvent`, which fixes the stale-lobby-id handoff on the first accepted invite
 - `uniform-hunter-random`
   expands the first default-mode seeker fairness threshold from `0.1` to `1.0`, which makes the normal hunter pick effectively uniform across the preferred-role candidate pool
 

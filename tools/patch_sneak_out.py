@@ -8,10 +8,12 @@ import platform
 import re
 import sys
 import termios
+import textwrap
 import tty
 from argparse import ArgumentParser
 from dataclasses import dataclass
 from pathlib import Path
+from shutil import get_terminal_size
 
 
 GREEN = "\033[32m"
@@ -54,6 +56,7 @@ class FilePatchGroup:
 class PatchOption:
     option_id: str
     label: str
+    details: str
     default_enabled: bool
     file_patch_groups: tuple[FilePatchGroup, ...]
 
@@ -85,6 +88,10 @@ PATCH_OPTIONS: tuple[PatchOption, ...] = (
     PatchOption(
         option_id="get-the-crown",
         label="Switch mode to Get the Crown",
+        details=(
+            "Turns private-host flow into Berek by forcing the room mode, map selection, "
+            "startup state transitions, and the Berek component wiring required by the live build."
+        ),
         default_enabled=True,
         file_patch_groups=(
             FilePatchGroup(
@@ -112,8 +119,34 @@ PATCH_OPTIONS: tuple[PatchOption, ...] = (
         ),
     ),
     PatchOption(
+        option_id="fix-private-party-first-invite",
+        label="Fix private party join on first invite",
+        details=(
+            "Makes the invitation join flow use the explicit lobby id from JoinLobbyEvent instead "
+            "of the stale cached lobby id, so the first accepted invite joins the host lobby."
+        ),
+        default_enabled=True,
+        file_patch_groups=(
+            FilePatchGroup(
+                relative_path="GameAssembly.dll",
+                patches=(
+                    BinaryPatch(
+                        0x81593E,
+                        "488b4e104885c9741633d2488b5c2430488b7424384883c4205fe973fadeffe81ee8ccffcccccccccccccccccccccccccccc",
+                        "488b4e104885c974214885ff741c488b57184c8bc3e808fadeff488b5c2430488b7424384883c4205fc3e813e8ccff909090",
+                        "Pass JoinLobbyEvent.LobbyId and Region into SpookedLobbyUtils.JoinLobby instead of using the stale no-arg path.",
+                    ),
+                ),
+            ),
+        ),
+    ),
+    PatchOption(
         option_id="uniform-hunter-random",
         label="Make hunter random selection uniform",
+        details=(
+            "Removes the first default-mode seeker fairness bucket by expanding the 0.1 threshold "
+            "to 1.0, which makes the normal candidate pool choose uniformly in practice."
+        ),
         default_enabled=True,
         file_patch_groups=(
             FilePatchGroup(
@@ -287,6 +320,9 @@ def choose_patch_options_interactively() -> tuple[str, ...]:
     selected = [option.default_enabled for option in PATCH_OPTIONS]
     cursor = 0
     while True:
+        selected_option = PATCH_OPTIONS[cursor]
+        terminal_width = max(get_terminal_size(fallback=(100, 24)).columns, 60)
+        wrapped_details = textwrap.wrap(selected_option.details, width=max(terminal_width - 2, 20))
         lines = [
             CLEAR_SCREEN,
             f"{GREEN}Use ↑/↓ to move, Space to toggle, Enter to apply.{RESET}",
@@ -297,6 +333,9 @@ def choose_patch_options_interactively() -> tuple[str, ...]:
             marker = ">" if index == cursor else " "
             checkbox = "x" if selected[index] else " "
             lines.append(f"{marker} [{checkbox}] {option.label}")
+        lines.append("")
+        lines.append(f"{GREEN}{selected_option.option_id}{RESET}")
+        lines.extend(wrapped_details)
         lines.append("")
         lines.append("Press q to cancel.")
         sys.stdout.write("\n".join(lines))
@@ -446,6 +485,7 @@ def build_parser() -> ArgumentParser:
 def print_patch_list() -> None:
     for option in PATCH_OPTIONS:
         print(f"{option.option_id}: {option.label}")
+        print(f"  {option.details}")
 
 
 def main() -> int:

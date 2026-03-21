@@ -43,3 +43,28 @@ If `GamesFinishedCount == 0`, the player goes into the last fallback bucket inst
 ## Important caveat
 
 `GetRandomSeeker()` has a separate branch for `Berek`, so this logic should not be assumed to apply to crown mode.
+
+## Confirmed implementation points
+
+- `ShouldStartState.GetRandomSeeker()` is at `GameAssembly.dll` RVA `0x6A2E60`
+- `ShouldStartState.RandomizeSeeker()` is at `GameAssembly.dll` RVA `0x6A36B0`
+- the four default-mode thresholds are loaded inside `GetRandomSeeker()` from a small `.rdata` constant block
+- the first threshold is the `0.1f` constant at raw offset `0x357E7C0`
+
+## Minimal uniform-random patch
+
+The smallest practical patch for removing the default fairness buckets is:
+
+- `GameAssembly.dll`
+- raw offset `0x357E7C0`
+- `cdcccc3d` -> `0000803f`
+
+That changes the first threshold from `0.1f` to `1.0f`.
+
+Practical effect:
+
+- preferred-role filtering still happens first
+- almost all normal players still land in the first bucket
+- the final pick inside that bucket remains the game's existing fair uniform random selection
+
+This does not fully rewrite the selection function. It deliberately leaves edge cases such as `GamesFinishedCount == 0` to the original fallback behavior.

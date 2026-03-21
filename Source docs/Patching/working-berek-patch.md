@@ -39,11 +39,20 @@ Working patcher:
 
 Properties:
 
-- accepts the game root path
-- strictly validates `SHA-256`
-- creates local `.codex-berek.bak` backups
+- detects the OS and tries to find the Steam install and `Sneak Out` automatically
+- accepts an explicit game path through `--game-dir` or a positional path
+- shows an interactive checkbox menu for patch selection
+- restores script-managed backups before every apply and then reapplies the selected patch set on top of a clean baseline
+- creates local `.codex-berek.bak` backups when no trusted backup exists yet
 - supports `--rollback`
-- is idempotent
+- supports `--patches` for non-interactive selection
+
+## Current patch options
+
+- `get-the-crown`
+  switches the default match flow into `Berek`
+- `uniform-hunter-random`
+  expands the first default-mode seeker fairness threshold from `0.1` to `1.0`, which makes the normal hunter pick effectively uniform across the preferred-role candidate pool
 
 ## Current state
 

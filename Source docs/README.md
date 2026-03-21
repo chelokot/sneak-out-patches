@@ -11,6 +11,7 @@ Index of the current documentation.
 
 - `Gameplay/tasks-and-task-steps.md` — why the end-of-match task stats look strange
 - `Gameplay/hunters-modes-and-berek.md` — hunters, abilities, modes, and confirmed Berek facts
+- `Gameplay/jugmaking-camera-indicator-bug.md` — why the seeker warning appears inverted during the jug-making task camera
 - `Gameplay/seeker-selection.md` — the seeker selection algorithm in the default mode
 - `Gameplay/crown-visual-pipeline.md` — how the visible crown is wired and what is still missing
 

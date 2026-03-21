@@ -94,6 +94,32 @@ So the seeker warning path is not taking a hunter position vector and deciding "
 
 In the current binary, the getter is referenced only from this seeker-indicator path. That makes the dependency look intentional rather than incidental.
 
+### The indicator object itself does not contain left/right substructure
+
+Asset inspection of `Sneak Out_Data/resources.assets` confirms that:
+
+- `SeenBySeekerIndicator` is a single `GameObject`
+- it has no child transforms
+- it sits under `TopPanel -> PlayerCanvas -> UnityPlayer`
+- its `RectTransform` is static rather than procedural
+
+Observed prefab layout:
+
+- `UnityPlayer` (`path_id 2143`)
+  - `PlayerCanvas` (`path_id 3093`)
+    - `TopPanel` (`path_id 2225`)
+      - `SeenBySeekerIndicator` (`path_id 2799`)
+
+Observed `RectTransform` values for `SeenBySeekerIndicator`:
+
+- anchored position `(2.4, -0.318)`
+- size `(0.3, 0.3)`
+- anchor min `(0.0, 1.0)`
+- anchor max `(0.0, 1.0)`
+- no child transforms
+
+This matters because it rules out one simple explanation: the object itself is not swapping between left and right child arrows. It is a single fixed-position world-space UI element.
+
 ## Updated working explanation
 
 The current best explanation is no longer "the indicator projects the hunter into the wrong camera basis."
@@ -104,22 +130,23 @@ The better-supported explanation is:
 - the interaction also blocks the player into a stationary task state
 - while that task is active, the victim is likely replicated as `PlayerMobilityState.NotMoving`
 - `HandleSeenBySeekerIndicator()` uses that mobility state to toggle the seeker warning object
-- the visual result is perceived as an inverted side indicator, but the root trigger is the mobility-state branch, not a direct left/right computation inside this method
+- the visual result is perceived as an inverted side indicator because the warning object is static inside the world-space `PlayerCanvas`, while the whole canvas is billboarded and positioned relative to the active camera in `EntityCanvasComponent.LateUpdate()`
 
 This matches the reported behavior better:
 
 - the bug is stable, not noisy
 - it appears only while the task camera interaction is active
 - it feels like a binary wrong-side state, not a drifting projection error
+- the indicator object itself is fixed, so the apparent "side" must come from the canvas/camera relationship rather than from a dedicated arrow-direction algorithm inside the object
 
 ## What is still not fully proven
 
 Two details are still open:
 
 - where exactly the player is switched into `PlayerMobilityState.NotMoving` during jug making
-- whether the visible "wrong side" comes from a dedicated left/right child object, a mirrored canvas layout, or a sprite/layout state under the toggled `GameObject`
+- which exact step in `EntityCanvasComponent.LateUpdate()` makes the world-space canvas appear mirrored or opposite to player intuition during the task camera
 
-So the current evidence says the bug is tightly coupled to task-induced stationary state, but the final visual mapping still needs one more tracing pass.
+So the current evidence says the bug is tightly coupled to task-induced stationary state plus world-space canvas geometry under the task camera, but the final canvas-space mapping still needs one more tracing pass.
 
 ## Practical takeaway
 
@@ -127,6 +154,6 @@ At the current evidence level, this should be treated as:
 
 - a real bug
 - specific to the jug-making close camera state
-- most likely caused by the seeker-warning HUD switching through the `PlayerMobilityState.NotMoving` path while the task interaction is active
+- most likely caused by the seeker-warning HUD switching through the `PlayerMobilityState.NotMoving` path while the task interaction is active, with the visible wrong-side effect created by the fixed indicator object being rendered inside a world-space player canvas under a different camera geometry
 
-The highest-value next reverse-engineering target is the visual object structure behind `_seenBySeekerIndicator`, to see how that active/inactive state becomes the perceived left/right inversion on screen.
+The highest-value next reverse-engineering target is the exact billboard / screen-space mapping math inside `EntityCanvasComponent.LateUpdate()`, because that is now the most likely place where the task camera makes the fixed indicator appear on the opposite side from what the player expects.

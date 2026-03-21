@@ -92,6 +92,22 @@ Practical interpretation:
 - the warning object is currently tied to mobility-state, specifically `PlayerMobilityState.NotMoving`
 - the jug-making bug is therefore better explained as a task-state / HUD-state mismatch than a simple camera-angle math bug inside this method
 
+### `EntityCanvasComponent.LateUpdate`
+
+Why it matters:
+
+- it is the generic world-space player-canvas update path
+
+Observed behavior:
+
+- around `0x18063FA90`, it uses `_playerTransform`, `_canvasTransform`, and `_camera`
+- it computes world/camera-relative positions through several Unity helper calls
+- the visible seeker indicator lives inside this canvas as a fixed `RectTransform`, not as a separate directional arrow system
+
+Practical interpretation:
+
+- once `HandleSeenBySeekerIndicator()` has toggled the warning object on, the apparent screen-side behavior is most likely determined here by canvas billboarding and camera-relative placement
+
 ### `SpookedNetworkPlayer.AssignComponents()`
 
 Why it matters:

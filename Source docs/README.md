@@ -1,19 +1,18 @@
 # Source Docs
 
-Индекс текущей документации.
+Index of the current documentation.
 
 ## Patching
 
-- `Patching/working-berek-patch.md` — финальный рабочий набор патчей
-- `Patching/patch-history.md` — что сработало, что не сработало, и почему
+- `Patching/working-berek-patch.md` — the final working patch set
+- `Patching/patch-history.md` — what worked, what failed, and why
 
 ## Gameplay
 
-- `Gameplay/tasks-and-task-steps.md` — почему статистика задач выглядит странно
-- `Gameplay/hunters-modes-and-berek.md` — хантеры, их абилки, режимы и найденные факты по Berek
-- `Gameplay/seeker-selection.md` — алгоритм выбора хантера в обычном режиме
+- `Gameplay/tasks-and-task-steps.md` — why the end-of-match task stats look strange
+- `Gameplay/hunters-modes-and-berek.md` — hunters, abilities, modes, and confirmed Berek facts
+- `Gameplay/seeker-selection.md` — the seeker selection algorithm in the default mode
 
 ## Reverse engineering
 
-- `Reverse engineering/client-structure.md` — основные файлы клиента, где что лежит и что за что отвечает
-
+- `Reverse engineering/client-structure.md` — the main client files, where things live, and what they are responsible for

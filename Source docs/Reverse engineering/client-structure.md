@@ -1,60 +1,59 @@
 # Client Structure
 
-## Основные файлы
+## Main files
 
 ### `GameAssembly.dll`
 
-Где:
+What it is:
 
-- основной нативный IL2CPP код клиента
+- the main native IL2CPP client binary
 
-Что там искать:
+What to look for there:
 
-- state machine матча
+- match state machine
 - host flow
 - matchmaking
 - UI flow
-- gameplay logic, которую нельзя увидеть в asset-ах
+- gameplay logic that is not visible in asset files
 
 ### `Sneak Out_Data/resources.assets`
 
-Где:
+What it is:
 
-- prefab-ы и часть сериализованных данных
+- prefabs and part of the serialized data
 
-Что там искать:
+What to look for there:
 
 - `UnityPlayer` prefab
 - MonoBehaviour serialized slots
-- связи между компонентами на prefab-ах
+- links between components on prefabs
 
 ### `Sneak Out_Data/level0`
 
-Что важно:
+Why it matters:
 
-- сцена лобби
-- старые UI view вроде selector-а режима могут физически лежать здесь, даже если не подключены к текущему flow
+- the lobby scene lives here
+- old UI views such as the mode selector can physically still exist here even if they are disconnected from the current flow
 
 ### `Player.log`
 
-Что это:
+What it is:
 
-- главный runtime log клиента
+- the main runtime client log
 
-Зачем нужен:
+Why it matters:
 
-- подтверждать реальный `game_mode`
-- подтверждать `scene_type`
-- ловить падения state machine
-- различать “не тот режим пришёл” и “режим пришёл, но потом сломался”
+- verify the real `game_mode`
+- verify `scene_type`
+- catch state machine crashes
+- distinguish "the wrong mode arrived" from "the right mode arrived and then broke later"
 
-## Практический рабочий процесс
+## Practical workflow
 
-1. сначала смотреть `Player.log`
-2. потом решать, это баг UI, session props, state machine или prefab wiring
-3. если падение позднее и связано с компонентом игрока, проверять не только `GameAssembly.dll`, но и prefab wiring в `resources.assets`
+1. inspect `Player.log` first
+2. then decide whether the issue belongs to UI, session properties, state machine, or prefab wiring
+3. if the crash happens late and is tied to a player component, inspect not only `GameAssembly.dll` but also prefab wiring in `resources.assets`
 
-## Полезные артефакты
+## Useful artifacts
 
-Временные дампы IL2CPP могут лежать в `/tmp`, но на них нельзя полагаться как на долговременное хранилище. Итоговые выводы нужно переносить в эту репу.
-
+Temporary IL2CPP dumps may exist in `/tmp`, but they should not be treated as long-term storage. Final findings should be copied into this repository.

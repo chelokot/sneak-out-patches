@@ -1,78 +1,77 @@
 # Patch History
 
-## Что не сработало
+## What did not work
 
-### Простое включение старого UI mode selector
+### Simply enabling the old UI mode selector
 
-Попытка:
+Attempt:
 
-- включать старые `GameModeView` объекты в сцене
-- редиректить портал на старый экран выбора режима
+- enable the old `GameModeView` objects in the scene
+- redirect the portal into the old mode selection screen
 
-Итог:
+Result:
 
-- давало чёрный экран или ломало раннюю инициализацию клиента
-- старый UI остался в билде, но не был безопасно встроен в текущий flow
+- it caused a black screen or broke early client initialization
+- the old UI still exists in the build, but it is not safely integrated into the current flow
 
-### Глобальный форс `GameState.get_GameMode() = Berek`
+### Global force of `GameState.get_GameMode() = Berek`
 
-Попытка:
+Attempt:
 
-- жёстко возвращать `Berek` из runtime getter-а
+- hard-force the runtime getter to return `Berek`
 
-Итог:
+Result:
 
-- ломало старт клиента ещё до нормального лобби
-- по логам сыпались ранние DI/Autofac ошибки
+- it broke the client before the normal lobby loaded
+- the logs showed early DI/Autofac failures
 
-### Форс `CharacterType -> victim_penguin`
+### Force `CharacterType -> victim_penguin`
 
-Попытка:
+Attempt:
 
-- подменять тип выбранного игрока на пингвина слишком рано
+- replace the selected player's type with a penguin too early
 
-Итог:
+Result:
 
-- получалось состояние `два пингвина без короны`
-- это был неверный слой фикса
+- it produced the `two penguins without a crown` state
+- this was the wrong layer to patch
 
-## Что сработало
+## What worked
 
-### Сетевой режим и карта
+### Network mode and map
 
-Рабочая часть:
+Working part:
 
-- принудительно записывать `Berek` в host flow
-- принудительно вести host map selection в berek-ветку
-- переводить `BeforeSelectionState` в `BerekSelectionState`
+- force `Berek` into the host flow
+- force host map selection into the berek branch
+- redirect `BeforeSelectionState` into `BerekSelectionState`
 
-Результат:
+Result:
 
 - `game_mode=Berek`
-- `scene_type` уходит на berek-карту
+- `scene_type` switches into a berek map
 
 ### Berek component wiring
 
-Рабочая часть:
+Working part:
 
-- не продолжать ломать state machine
-- вместо этого исправить реальную причину падения в `InitializeBerekComponents()`
-- привязать `EntityBerekComponent` к `SpookedNetworkPlayer` через prefab asset
+- stop forcing more state machine behavior
+- fix the real crash source in `InitializeBerekComponents()`
+- bind `EntityBerekComponent` to `SpookedNetworkPlayer` through the prefab asset
 
-Результат:
+Result:
 
-- berek матч проходит от начала до конца
+- the berek match runs from start to finish
 
-## Логи, которые были ключевыми
+## Logs that were critical
 
-Главный runtime log:
+Main runtime log:
 
-- `Player.log` в `compatdata/2410490/.../LocalLow/Kinguin Studios/Sneak Out/Player.log`
+- `Player.log` in `compatdata/2410490/.../LocalLow/Kinguin Studios/Sneak Out/Player.log`
 
-Наиболее полезные признаки:
+Most useful markers:
 
 - `game_mode=Berek`
-- `scene_type=Map05_TagGame` или другая berek-карта
+- `scene_type=Map05_TagGame` or another berek map
 - `Chosen seeker`
-- `NullReferenceException` в `GameStartController.InitializeBerekComponents()`
-
+- `NullReferenceException` in `GameStartController.InitializeBerekComponents()`

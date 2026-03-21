@@ -1,8 +1,8 @@
 # Hunters, Modes And Berek
 
-## Хантеры
+## Hunters
 
-Подтверждённые игровые хантеры:
+Confirmed playable hunters:
 
 - Clown
 - Ripper
@@ -11,11 +11,11 @@
 - Mummy
 - Dracula
 
-Дополнительный seeker-type:
+Additional seeker-type:
 
 - `dracula_bat`
 
-## Абилки хантеров
+## Hunter abilities
 
 ### Ripper
 
@@ -47,43 +47,42 @@
 - Bat change
 - Fly
 
-## Мумия
+## Mummy
 
-Найден важный разрыв между слоями:
+An important cross-layer split was confirmed:
 
-- в runtime Мумия остаётся полноценным хантером
-- в мета-слое списка персонажей её уже нет
+- in runtime, Mummy is still a full hunter
+- in the meta-layer character list, Mummy is already gone
 
-Практический вывод:
+Practical conclusion:
 
-- Мумия не вырезана полностью
-- но для обычного выбора персонажа она выглядит скрытой или отключённой
+- Mummy is not fully removed
+- but for regular character selection it looks hidden or disabled
 
-## Режимы
+## Modes
 
-В текущем коде матча подтверждены:
+Confirmed match modes in the current code:
 
 - `Default`
 - `Berek`
 
-`Berek` соответствует режиму `Capture the Crown`.
+`Berek` corresponds to `Capture the Crown`.
 
-## Что удалось подтвердить по Berek
+## Confirmed Berek facts
 
-- у режима есть своя логика короны
-- у него есть отдельные match states
-- у него есть отдельные berek-карты
-- старый selector режима в клиенте существует, но в активный UI не выведен
+- the mode has its own crown logic
+- it has separate match states
+- it has separate berek maps
+- the old mode selector still exists in the client, but is not exposed in the active UI
 
-## Текущее состояние Berek patch
+## Current Berek patch state
 
-Подтверждено локально:
+Confirmed locally:
 
-- комната реально создаётся как `Berek`
-- карта реально уходит на berek map
-- матч полностью проходит
+- the room is really created as `Berek`
+- the map really switches into a berek map
+- the match completes successfully
 
-Известный остаточный дефект:
+Known remaining issue:
 
-- визуал короны пока не доведён
-
+- the crown visual is still not fully fixed

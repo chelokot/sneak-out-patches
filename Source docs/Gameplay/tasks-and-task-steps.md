@@ -1,18 +1,18 @@
 # Tasks And Task Steps
 
-Главный вывод: экран конца матча считает не только завершённые задачи, а именно шаги задач.
+Main takeaway: the end-of-match screen counts task steps, not just fully completed tasks.
 
-## Почему числа выглядят странно
+## Why the numbers look strange
 
-В reward/stat logic категория `TaskCompleted` привязана к `TasksStepCount`, а не к числу полностью завершённых задач.
+In the reward/stat logic, the `TaskCompleted` category is bound to `TasksStepCount`, not to the number of fully completed tasks.
 
-Из этого следует:
+That means:
 
-- одна задача может дать в статистику больше `+1`
-- сумма по экрану может оказаться больше, чем ожидаемое количество “тасок”
-- это не похоже на баг округления процентов
+- a single task can contribute more than `+1` to the match stats
+- the sum on the screen can be larger than the expected number of "tasks"
+- this does not look like a percentage rounding bug
 
-## Подтверждённые значения шагов
+## Confirmed step counts
 
 - `CleanTable` — `5`
 - `Toilet` — `1`
@@ -21,17 +21,16 @@
 - `JugPlace` — `5`
 - `JugMaking` — `1`
 
-Практический пример:
+Practical example:
 
-- стол с пятью кнопками даёт `+5` в матчевую статистику задач
+- a table task with five buttons contributes `+5` to the end-of-match task stat
 
-## Рабочая гипотеза по UI
+## Working UI hypothesis
 
-Конечный экран смешивает разные метрики:
+The end screen mixes different metrics:
 
-- где-то считает число задач
-- где-то считает шаги
-- рядом ещё могут жить task points
+- in one place it counts tasks
+- in another it counts steps
+- task points likely exist nearby as well
 
-Именно из-за этого итог визуально выглядит как “сумма больше общего количества”.
-
+That is why the result visually looks like "the sum is larger than the total".

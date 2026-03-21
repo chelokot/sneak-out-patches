@@ -1,59 +1,58 @@
 # Working Berek Patch
 
-Финальный рабочий набор оказался минимальнее, чем промежуточные попытки.
+The final working set turned out to be smaller than the intermediate attempts.
 
-## Что в итоге патчится
+## What is patched in the final version
 
 `GameAssembly.dll`
 
-- перевод комнаты и старта матча в `Berek`
-- перевод state flow в `BerekSelectionState`
-- форс berek-карты в host flow
+- room and match startup are redirected into `Berek`
+- state flow is redirected into `BerekSelectionState`
+- a berek map is forced inside the host flow
 
 `Sneak Out_Data/resources.assets`
 
-- предустановка `SpookedNetworkPlayer.EntityBerekComponent` на prefab `UnityPlayer`
+- `SpookedNetworkPlayer.EntityBerekComponent` is pre-wired on the `UnityPlayer` prefab
 
-## Почему понадобился патч resources.assets
+## Why the resources.assets patch was required
 
-Критический поздний баг был не в самом matchmaking, а в `InitializeBerekComponents()`.
+The critical late bug was not in matchmaking itself, but in `InitializeBerekComponents()`.
 
-Что удалось подтвердить:
+Confirmed facts:
 
-- `UnityPlayer` prefab уже содержит `EntityBerekComponent`
-- `SpookedNetworkPlayer` в runtime ожидал ссылку на этот компонент в поле `EntityBerekComponent`
-- `AssignComponents()` заполнял много player-компонентов, но не заполнял этот slot
-- в результате berek flow доходил до `HandleBerekModeStart`, а затем падал на `NullReferenceException`
+- the `UnityPlayer` prefab already contains `EntityBerekComponent`
+- at runtime, `SpookedNetworkPlayer` expects a reference to that component in `EntityBerekComponent`
+- `AssignComponents()` fills many player component fields, but does not fill this slot
+- as a result, the berek flow reached `HandleBerekModeStart` and then crashed with `NullReferenceException`
 
-Практический фикс:
+Practical fix:
 
-- в `resources.assets` у `SpookedNetworkPlayer` был нулевой serialized slot
-- этот slot был привязан к `EntityBerekComponent` prefab-а
-- после этого berek матч стал проходить до конца
+- in `resources.assets`, `SpookedNetworkPlayer` had a zeroed serialized slot
+- that slot was bound to the prefab's `EntityBerekComponent`
+- after that, the berek match could run to completion
 
-## Скрипт
+## Script
 
-Рабочий патчер:
+Working patcher:
 
 - `tools/patch_sneak_out_berek.py`
 
-Свойства:
+Properties:
 
-- принимает путь к корню игры
-- строго проверяет `SHA-256`
-- делает локальные `.codex-berek.bak`
-- умеет `--rollback`
-- идемпотентен
+- accepts the game root path
+- strictly validates `SHA-256`
+- creates local `.codex-berek.bak` backups
+- supports `--rollback`
+- is idempotent
 
-## Текущее состояние
+## Current state
 
-Подтверждено:
+Confirmed:
 
-- матч создаётся как `game_mode=Berek`
-- карта уходит в berek map
-- режим реально отыгрывается от начала до конца
+- the match is created as `game_mode=Berek`
+- the map switches into a berek map
+- the mode really plays from start to finish
 
-Оставшийся известный нюанс:
+Remaining known issue:
 
-- визуал короны пока не доведён
-
+- the crown visual is still not fully fixed

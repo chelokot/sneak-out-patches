@@ -1,46 +1,45 @@
 # Seeker Selection
 
-Это относится к обычному режиму старта матча, не к `Berek`.
+This applies to the default match start flow, not to `Berek`.
 
-## Алгоритм
+## Algorithm
 
-Игра не выбирает хантера равномерно по всем игрокам.
+The game does not choose a hunter uniformly across all players.
 
-Что она делает:
+What it does:
 
-1. берёт только игроков с `CanBeSeeker = true`
-2. считает для каждого отношение `GamesPlayedAsSeeker / GamesFinishedCount`
-3. раскладывает игроков по bucket-ам
-4. берёт первый непустой bucket с наименьшей долей
-5. внутри bucket-а выбирает игрока равномерно случайно
+1. takes only players with `CanBeSeeker = true`
+2. computes `GamesPlayedAsSeeker / GamesFinishedCount` for each one
+3. splits players into buckets
+4. takes the first non-empty bucket with the smallest ratio
+5. chooses uniformly at random inside that bucket
 
-## Bucket-ы
+## Buckets
 
 - `< 0.1`
 - `< 0.2`
 - `< 0.4`
 - `< 0.6`
-- всё остальное
+- everything else
 
-Приоритет идёт сверху вниз:
+Priority goes top to bottom:
 
-1. меньше 10%
-2. потом меньше 20%
-3. потом меньше 40%
-4. потом меньше 60%
-5. потом все остальные
+1. below 10%
+2. then below 20%
+3. then below 40%
+4. then below 60%
+5. then everyone else
 
-## Особый случай
+## Special case
 
-Если `GamesFinishedCount == 0`, игрок уходит в последний fallback bucket, а не получает максимальный приоритет.
+If `GamesFinishedCount == 0`, the player goes into the last fallback bucket instead of getting top priority.
 
-## Практический смысл
+## Practical meaning
 
-- игра старается выбирать того, кто реже был хантером относительно количества сыгранных матчей
-- preferred role влияет через `CanBeSeeker`
-- при нескольких игроках в одном bucket-е уже идёт честный случайный выбор
+- the game tries to pick the player who has been hunter less often relative to total finished matches
+- preferred role affects the result through `CanBeSeeker`
+- if multiple players are in the same bucket, the final choice is a fair random pick among them
 
-## Важная оговорка
+## Important caveat
 
-Для `Berek` у `GetRandomSeeker()` есть отдельная ветка, поэтому эта схема не должна автоматически переноситься на crown-mode.
-
+`GetRandomSeeker()` has a separate branch for `Berek`, so this logic should not be assumed to apply to crown mode.

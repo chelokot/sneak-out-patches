@@ -1,23 +1,22 @@
 # Sneakout
 
-Локальная рабочая репа для reverse engineering и документирования `Sneak Out`.
+A local working repository for `Sneak Out` reverse engineering and documentation.
 
-Что здесь лежит:
+Contents:
 
-- `tools/` — рабочие скрипты и патчеры
-- `Source docs/` — структурированная документация по файлам, логике, игровым механикам и истории патчей
+- `tools/` — working scripts and patchers
+- `Source docs/` — structured documentation for files, logic, gameplay mechanics, and patch history
 
-Быстрый старт:
+Quick start:
 
 ```bash
 python3 tools/patch_sneak_out_berek.py "/path/to/Sneak Out"
 python3 tools/patch_sneak_out_berek.py --rollback "/path/to/Sneak Out"
 ```
 
-Текущий проверенный результат:
+Current verified result:
 
-- приватное лобби реально создаётся в `Berek`
-- матч запускается на berek-карте
-- режим полностью отыгрывается от начала до конца
-- визуал самой короны пока не доведён
-
+- a private lobby can be created in `Berek`
+- the match launches on a berek map
+- the mode plays from start to finish
+- the crown visual is still not fully fixed

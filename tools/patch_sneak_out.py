@@ -451,6 +451,20 @@ def _collect_level0_subtree(asset, root_transform_path_id: int) -> list[int]:
     return subtree_path_ids
 
 
+def _remap_typetree_path_ids(node, cloned_path_ids: dict[int, int]):
+    if isinstance(node, dict):
+        remapped: dict[object, object] = {}
+        for key, value in node.items():
+            if key == "m_PathID" and isinstance(value, int):
+                remapped[key] = cloned_path_ids.get(value, value)
+            else:
+                remapped[key] = _remap_typetree_path_ids(value, cloned_path_ids)
+        return remapped
+    if isinstance(node, list):
+        return [_remap_typetree_path_ids(item, cloned_path_ids) for item in node]
+    return node
+
+
 def _patch_level0_mode_selector(prepared_file: PreparedFile) -> None:
     import UnityPy
     from UnityPy.files.ObjectReader import ObjectReader
@@ -501,6 +515,15 @@ def _patch_level0_mode_selector(prepared_file: PreparedFile) -> None:
             )
             asset.objects[cloned_object.path_id] = cloned_object
 
+        for source_path_id in subtree_path_ids:
+            source_object = asset.objects[source_path_id]
+            cloned_object = asset.objects[cloned_path_ids[source_path_id]]
+            try:
+                source_tree = source_object.read_typetree()
+            except Exception:
+                continue
+            cloned_object.save_typetree(_remap_typetree_path_ids(source_tree, cloned_path_ids))
+
         background_tree = asset.objects[LEVEL0_BACKGROUND_TRANSFORM].read_typetree()
         background_tree["m_Children"].insert(
             3,
@@ -530,11 +553,15 @@ def _patch_level0_mode_selector(prepared_file: PreparedFile) -> None:
         original_button_game_object["m_Name"] = "GameMode"
         asset.objects[1514].save_typetree(original_button_game_object)
 
-        cloned_root_game_object = asset.objects[cloned_path_ids[602]].read_typetree()
+        cloned_root_game_object = _remap_typetree_path_ids(
+            asset.objects[602].read_typetree(), cloned_path_ids
+        )
         cloned_root_game_object["m_Name"] = "PreferredRoleBackgroundClone"
         asset.objects[cloned_path_ids[602]].save_typetree(cloned_root_game_object)
 
-        cloned_button_game_object = asset.objects[cloned_path_ids[1514]].read_typetree()
+        cloned_button_game_object = _remap_typetree_path_ids(
+            asset.objects[1514].read_typetree(), cloned_path_ids
+        )
         cloned_button_game_object["m_Name"] = "PreferredRoleClone"
         asset.objects[cloned_path_ids[1514]].save_typetree(cloned_button_game_object)
 

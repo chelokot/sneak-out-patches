@@ -144,8 +144,8 @@ PATCH_OPTIONS: tuple[PatchOption, ...] = (
         option_id="uniform-hunter-random",
         label="Make hunter random selection uniform",
         details=(
-            "Removes the first default-mode seeker fairness bucket by expanding the 0.1 threshold "
-            "to 1.0, which makes the normal candidate pool choose uniformly in practice."
+            "Redirects the first seeker-threshold load inside ShouldStartState.GetRandomSeeker() "
+            "from 0.1 to an existing 1.0 constant without touching the shared global 0.1 value."
         ),
         default_enabled=True,
         file_patch_groups=(
@@ -153,10 +153,10 @@ PATCH_OPTIONS: tuple[PatchOption, ...] = (
                 relative_path="GameAssembly.dll",
                 patches=(
                     BinaryPatch(
-                        0x357E7C0,
-                        "cdcccc3d",
-                        "0000803f",
-                        "Expand the first default-mode seeker fairness threshold from 0.1 to 1.0.",
+                        0x6A1D8F,
+                        "f3440f101528cced02",
+                        "f3440f101559cced02",
+                        "Load 1.0 for the first seeker bucket inside ShouldStartState.GetRandomSeeker instead of the shared 0.1 constant.",
                     ),
                 ),
             ),

@@ -48,18 +48,21 @@ If `GamesFinishedCount == 0`, the player goes into the last fallback bucket inst
 
 - `ShouldStartState.GetRandomSeeker()` is at `GameAssembly.dll` RVA `0x6A2E60`
 - `ShouldStartState.RandomizeSeeker()` is at `GameAssembly.dll` RVA `0x6A36B0`
-- the four default-mode thresholds are loaded inside `GetRandomSeeker()` from a small `.rdata` constant block
-- the first threshold is the `0.1f` constant at raw offset `0x357E7C0`
+- the first two thresholds are loaded from `.rdata` near `0x357E7C0`
+- the `0.4` and `0.6` thresholds are loaded from separate `.rdata` addresses
+- the first threshold load itself is the `movss` at VA `0x1806A318F`
 
 ## Minimal uniform-random patch
 
-The smallest practical patch for removing the default fairness buckets is:
+The safe practical patch is to retarget only the first threshold load inside `GetRandomSeeker()`, not to overwrite the shared global `0.1f` literal.
+
+Patch:
 
 - `GameAssembly.dll`
-- raw offset `0x357E7C0`
-- `cdcccc3d` -> `0000803f`
+- raw offset `0x6A1D8F`
+- `f3440f101528cced02` -> `f3440f101559cced02`
 
-That changes the first threshold from `0.1f` to `1.0f`.
+That changes the first bucket check to load an existing `1.0f` constant instead of the shared `0.1f` constant.
 
 Practical effect:
 
@@ -68,3 +71,5 @@ Practical effect:
 - the final pick inside that bucket remains the game's existing fair uniform random selection
 
 This does not fully rewrite the selection function. It deliberately leaves edge cases such as `GamesFinishedCount == 0` to the original fallback behavior.
+
+The older global-literal patch at `0x357E7C0` is unsafe because that `0.1f` value is reused by many unrelated systems.

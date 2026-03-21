@@ -173,6 +173,12 @@ Known threshold set:
 - `0.4`
 - `0.6`
 
+Important implementation note:
+
+- the first threshold is loaded at `0x1806A318F`
+- patching the shared `.rdata` literal `0x18357FDC0` globally is unsafe because it is reused outside seeker selection
+- the safe uniform-random patch is to retarget that single `movss` to an existing `1.0f` constant instead
+
 ## Patch offsets used by the current working script
 
 `GameAssembly.dll`
@@ -188,6 +194,8 @@ Known threshold set:
 - `0x823201`
 - `0x823310`
 - `0x8233EE`
+- `0x81593E`
+- `0x6A1D8F`
 
 `Sneak Out_Data/resources.assets`
 

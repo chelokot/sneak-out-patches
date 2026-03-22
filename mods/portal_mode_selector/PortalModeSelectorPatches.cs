@@ -1,4 +1,5 @@
 using HarmonyLib;
+using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using Networking.PGOS;
 using Types;
 using UI.Views.Lobby;
@@ -69,5 +70,26 @@ internal static class MatchmakerPrepareMatchPatch
     private static void Prefix(ref GameModeType gameModeType)
     {
         PortalModeSelectorRuntime.TryOverrideMatchMode(ref gameModeType);
+    }
+}
+
+[HarmonyPatch(typeof(SceneTypeExtension), nameof(SceneTypeExtension.GetRandomScene))]
+internal static class SceneTypeExtensionGetRandomScenePatch
+{
+    private static bool Prefix(Il2CppStructArray<SceneType> mapsToPlayOn, GameModeType gameModeType, ref SceneType __result)
+    {
+        try
+        {
+            if (PortalModeSelectorRuntime.TryOverrideRandomScene(mapsToPlayOn, gameModeType, ref __result))
+            {
+                return false;
+            }
+        }
+        catch (Exception exception)
+        {
+            PortalModeSelectorRuntime.LogError("Portal selector GetRandomScene prefix failed", exception);
+        }
+
+        return true;
     }
 }

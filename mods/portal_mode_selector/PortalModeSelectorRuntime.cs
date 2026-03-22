@@ -1,6 +1,7 @@
 using BepInEx.Logging;
 using DG.Tweening;
 using HarmonyLib;
+using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using TMPro;
 using Types;
 using UI.Buttons;
@@ -14,16 +15,39 @@ namespace SneakOut.PortalModeSelector;
 
 internal static class PortalModeSelectorRuntime
 {
+    public static readonly SceneType[] ClassicMapPool =
+    {
+        SceneType.Map01,
+        SceneType.Map02,
+        SceneType.Map03,
+        SceneType.Map04,
+        SceneType.Map_East01,
+        SceneType.Map_East02
+    };
+
+    public static readonly SceneType[] CrownMapPool =
+    {
+        SceneType.Map_School01,
+        SceneType.Map_School02,
+        SceneType.Map05_TagGame
+    };
+
     private static readonly Dictionary<IntPtr, PortalModeUiState> UiStateByView = new();
     private static readonly Dictionary<IntPtr, GameModeType> SelectedModeByView = new();
+    private static readonly Dictionary<IntPtr, PortalMapSelectionState> SelectedMapsByView = new();
     private static readonly Color ClassicModeColor = new(0.08627451f, 0.5372549f, 0.654902f, 1f);
     private static readonly Color CrownModeColor = new(0.8117647f, 0.62352943f, 0f, 1f);
+    private static readonly Color MapOptionHoverColor = new(1f, 1f, 1f, 0.16f);
+    private static readonly Color MapOptionPressedColor = new(1f, 1f, 1f, 0.24f);
+    private static readonly Color MapCheckboxOutlineColor = new(1f, 1f, 1f, 0.92f);
+    private static readonly Color MapCheckboxOffFillColor = new(0.04f, 0.06f, 0.12f, 0.9f);
     private const float ToggleAnimationDuration = 0.36f;
 
     private static ManualLogSource? _logger;
     private static Harmony? _harmony;
     private static IntPtr _pendingPlayViewPointer;
     private static bool _portalTreeLogged;
+    private static bool _mapsToPlayOnLogged;
     private static Sprite? _crownIconSprite;
     private static bool _crownIconSearchCompleted;
 
@@ -44,8 +68,13 @@ internal static class PortalModeSelectorRuntime
 
         if (UiStateByView.TryGetValue(viewPointer, out var existingState) && existingState.IsAlive)
         {
+            EnforcePrivateGame(existingState.View);
             LayoutModeRow(existingState);
             RefreshModeRow(existingState, false);
+            if (existingState.MapOptions.Length > 0)
+            {
+                RefreshMapSection(existingState);
+            }
             return true;
         }
 
@@ -81,6 +110,12 @@ internal static class PortalModeSelectorRuntime
         {
             _portalTreeLogged = true;
             LogPortalViewTree(view, roleSectionRoot, roleRowRoot, privateSectionRoot, privateRowRoot);
+        }
+
+        if (!_mapsToPlayOnLogged)
+        {
+            _mapsToPlayOnLogged = true;
+            LogMapsToPlayOn(view);
         }
 
         var playSectionRoot = FindPlaySectionRoot(view);
@@ -205,6 +240,55 @@ internal static class PortalModeSelectorRuntime
             return false;
         }
 
+        var mapSectionObject = new GameObject("CodexMapSection");
+        mapSectionObject.transform.SetParent(contentRoot, false);
+        var mapSectionRect = mapSectionObject.AddComponent<RectTransform>();
+        mapSectionRect.anchorMin = roleSectionRect.anchorMin;
+        mapSectionRect.anchorMax = roleSectionRect.anchorMax;
+        mapSectionRect.pivot = roleSectionRect.pivot;
+        mapSectionRect.localScale = roleSectionRect.localScale;
+
+        var mapTitleObject = UnityEngine.Object.Instantiate(labelText.gameObject, mapSectionObject.transform, false).TryCast<GameObject>();
+        if (mapTitleObject is null)
+        {
+            UnityEngine.Object.Destroy(modeSectionObject);
+            UnityEngine.Object.Destroy(mapSectionObject);
+            _logger?.LogWarning("Portal selector setup skipped: failed to clone map title");
+            return false;
+        }
+
+        mapTitleObject.name = "CodexMapTitle";
+        var mapTitleText = mapTitleObject.GetComponent<TMP_Text>();
+        if (mapTitleText is null)
+        {
+            UnityEngine.Object.Destroy(modeSectionObject);
+            UnityEngine.Object.Destroy(mapSectionObject);
+            _logger?.LogWarning("Portal selector setup skipped: cloned map title does not contain TMP_Text");
+            return false;
+        }
+
+        mapTitleText.text = "Maps";
+        mapTitleText.fontSize = 13f;
+        var mapSelectionState = SelectedMapsByView.TryGetValue(viewPointer, out var existingMapSelectionState)
+            ? existingMapSelectionState
+            : new PortalMapSelectionState();
+        SelectedMapsByView[viewPointer] = mapSelectionState;
+        var mapOptions = CreateMapOptions(
+            viewPointer,
+            mapSectionObject.transform,
+            leftText,
+            leftPanelImage.sprite,
+            checkboxOutlineImage.sprite,
+            checkboxBackgroundImage.sprite
+        );
+        if (mapOptions.Length == 0)
+        {
+            _logger?.LogWarning("Portal selector map section disabled: failed to create any map options");
+            UnityEngine.Object.Destroy(mapSectionObject);
+            mapSectionObject = modeSectionObject;
+            mapTitleText = labelText;
+        }
+
         var leftClassicX = -78.87f;
         var leftCrownX = 0.06f;
         var rightClassicX = -0.07f;
@@ -241,6 +325,9 @@ internal static class PortalModeSelectorRuntime
             rightClassicX,
             rightCrownX,
             checkboxHunterImage.sprite,
+            mapSectionObject,
+            mapTitleText,
+            mapOptions,
             playSectionRoot.gameObject,
             contentRoot.gameObject,
             popupRoot.gameObject,
@@ -260,12 +347,18 @@ internal static class PortalModeSelectorRuntime
             SelectedModeByView[viewPointer] = GameModeType.Default;
         }
 
+        EnforcePrivateGame(view);
+
         _logger?.LogInfo(
             $"Mode row positions prepared: leftClassic={leftClassicX}, leftCrown={leftCrownX}, rightClassic={rightClassicX}, rightCrown={rightCrownX}, checkbox={checkboxRect?.anchoredPosition}, " +
             $"sourceVictim={view._victimMovingPanel?.anchoredPosition}, sourceHunter={view._hunterMovingPanel?.anchoredPosition}");
 
         LayoutModeRow(modeState);
         RefreshModeRow(modeState, false);
+        if (modeState.MapOptions.Length > 0)
+        {
+            RefreshMapSection(modeState);
+        }
         _logger?.LogInfo($"Portal selector injected for view 0x{viewPointer:x}");
         return true;
     }
@@ -295,6 +388,10 @@ internal static class PortalModeSelectorRuntime
         var nextMode = GetSelectedMode(view) == GameModeType.Berek ? GameModeType.Default : GameModeType.Berek;
         SelectedModeByView[view.Pointer] = nextMode;
         RefreshModeRow(state, true);
+        if (state.MapOptions.Length > 0)
+        {
+            RefreshMapSection(state);
+        }
         _logger?.LogInfo($"Portal mode toggled to {nextMode}");
         return true;
     }
@@ -319,11 +416,16 @@ internal static class PortalModeSelectorRuntime
         var nextMode = state.SelectedMode == GameModeType.Berek ? GameModeType.Default : GameModeType.Berek;
         SelectedModeByView[viewPointer] = nextMode;
         RefreshModeRow(state, true);
+        if (state.MapOptions.Length > 0)
+        {
+            RefreshMapSection(state);
+        }
         _logger?.LogInfo($"Portal mode button clicked, toggled to {nextMode}");
     }
 
     public static void RememberPendingPlayView(PortalPlayView view)
     {
+        EnforcePrivateGame(view);
         _pendingPlayViewPointer = view.Pointer;
         _logger?.LogInfo($"Portal play pressed with requested mode {GetSelectedMode(view)}");
     }
@@ -342,6 +444,31 @@ internal static class PortalModeSelectorRuntime
 
         gameModeType = selectedMode;
         _logger?.LogInfo($"PrepareMatch overridden to {selectedMode}");
+        return true;
+    }
+
+    public static bool TryOverrideRandomScene(Il2CppStructArray<SceneType> mapsToPlayOn, GameModeType gameModeType, ref SceneType sceneType)
+    {
+        if (_pendingPlayViewPointer == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        if (!SelectedMapsByView.TryGetValue(_pendingPlayViewPointer, out var mapSelectionState))
+        {
+            return false;
+        }
+
+        var selectedPool = mapSelectionState.GetSelectedMaps(gameModeType).ToArray();
+        if (selectedPool.Length == 0)
+        {
+            return false;
+        }
+
+        sceneType = selectedPool[UnityEngine.Random.Range(0, selectedPool.Length)];
+        _logger?.LogInfo(
+            $"GetRandomScene overridden to {sceneType} for mode {gameModeType}; sourceMaps=[{string.Join(", ", mapsToPlayOn.Select(map => map.ToString()))}], selectedPool=[{string.Join(", ", selectedPool.Select(map => map.ToString()))}]");
+        _pendingPlayViewPointer = IntPtr.Zero;
         return true;
     }
 
@@ -366,25 +493,28 @@ internal static class PortalModeSelectorRuntime
         }
 
         var verticalDelta = state.OriginalRoleSectionPosition.y - state.OriginalPrivateSectionPosition.y;
-        modeSectionRect.anchoredPosition = state.OriginalRoleSectionPosition;
+        var topMarginReduction = verticalDelta * 0.48f;
+        var roleLift = verticalDelta * 0.64f;
+        var playLift = verticalDelta * 0.48f;
+        var groupOffsetDown = new Vector2(0f, -verticalDelta * 0.5f);
+        modeSectionRect.anchoredPosition = state.OriginalRoleSectionPosition + new Vector2(0f, verticalDelta + topMarginReduction) + groupOffsetDown;
         modeSectionRect.sizeDelta = roleSectionRect.sizeDelta;
         modeSectionRect.anchorMin = roleSectionRect.anchorMin;
         modeSectionRect.anchorMax = roleSectionRect.anchorMax;
         modeSectionRect.pivot = roleSectionRect.pivot;
         modeSectionRect.localScale = roleSectionRect.localScale;
 
-        roleSectionRect.anchoredPosition = state.OriginalPrivateSectionPosition;
-        privateSectionRect.anchoredPosition = state.OriginalPrivateSectionPosition - new Vector2(0f, verticalDelta);
-        playSectionRect.anchoredPosition = state.OriginalPlaySectionPosition - new Vector2(0f, verticalDelta);
+        roleSectionRect.anchoredPosition = state.OriginalPrivateSectionPosition - new Vector2(0f, verticalDelta) + new Vector2(0f, roleLift) + groupOffsetDown;
+        privateSectionRect.gameObject.SetActive(false);
+        playSectionRect.anchoredPosition = state.OriginalPlaySectionPosition - new Vector2(0f, verticalDelta) + new Vector2(0f, playLift) + groupOffsetDown;
 
-        contentRootRect.sizeDelta = state.OriginalContentSize + new Vector2(0f, verticalDelta);
-        contentRootRect.anchoredPosition = state.OriginalContentPosition - new Vector2(0f, verticalDelta * 0.5f);
-        popupRootRect.sizeDelta = state.OriginalPopupSize + new Vector2(0f, verticalDelta);
-        popupRootRect.anchoredPosition = state.OriginalPopupPosition - new Vector2(0f, verticalDelta * 0.5f);
+        contentRootRect.sizeDelta = state.OriginalContentSize + new Vector2(0f, verticalDelta * 1.2f);
+        contentRootRect.anchoredPosition = state.OriginalContentPosition;
+        popupRootRect.sizeDelta = state.OriginalPopupSize + new Vector2(0f, verticalDelta * 1.2f);
+        popupRootRect.anchoredPosition = state.OriginalPopupPosition;
 
         modeSectionRect.SetSiblingIndex(state.OriginalRoleSectionSiblingIndex);
         roleSectionRect.SetSiblingIndex(state.OriginalRoleSectionSiblingIndex + 1);
-        privateSectionRect.SetSiblingIndex(state.OriginalRoleSectionSiblingIndex + 2);
     }
 
     private static void RefreshModeRow(PortalModeUiState state, bool animate)
@@ -414,6 +544,263 @@ internal static class PortalModeSelectorRuntime
         ApplyModeCheckboxVisual(state, classicSelected, animate);
         _logger?.LogInfo(
             $"Mode row refresh: selected={state.SelectedMode}, leftPos={DescribeRectDetailed(state.LeftMovingPanel)}, rightPos={DescribeRectDetailed(state.RightMovingPanel)}");
+    }
+
+    private static void RefreshMapSection(PortalModeUiState state)
+    {
+        var modeSectionRect = state.ModeSectionObject.GetComponent<RectTransform>();
+        var roleSectionRect = state.RoleSectionObject.GetComponent<RectTransform>();
+        var mapSectionRect = state.MapSectionObject.GetComponent<RectTransform>();
+        if (modeSectionRect is null || roleSectionRect is null || mapSectionRect is null)
+        {
+            return;
+        }
+
+        var topBoundary = modeSectionRect.anchoredPosition.y - modeSectionRect.sizeDelta.y * 0.52f - 36f;
+        var bottomBoundary = roleSectionRect.anchoredPosition.y + roleSectionRect.sizeDelta.y * 0.52f;
+        var sectionHeight = Mathf.Max(98f, topBoundary - bottomBoundary);
+        mapSectionRect.anchoredPosition = new Vector2(state.OriginalRoleSectionPosition.x, (topBoundary + bottomBoundary) * 0.5f);
+        mapSectionRect.sizeDelta = new Vector2(modeSectionRect.sizeDelta.x, sectionHeight);
+
+        var titleRect = state.MapTitleText.GetComponent<RectTransform>();
+        if (titleRect is not null)
+        {
+            titleRect.anchorMin = new Vector2(0.5f, 1f);
+            titleRect.anchorMax = new Vector2(0.5f, 1f);
+            titleRect.pivot = new Vector2(0.5f, 1f);
+            titleRect.anchoredPosition = new Vector2(0f, -2f);
+            titleRect.sizeDelta = new Vector2(modeSectionRect.sizeDelta.x, 24f);
+        }
+
+        state.MapTitleText.fontSize = 20f;
+        var lineStartY = -44f;
+        var lineSpacing = 28f;
+        var leftX = -84f;
+        var rightX = 34f;
+        var singleX = -84f;
+        var activeMode = state.SelectedMode == GameModeType.Berek ? GameModeType.Berek : GameModeType.Default;
+        var activeSelections = SelectedMapsByView[state.View.Pointer].GetSelectedMaps(activeMode);
+
+        var classicLayout = new Dictionary<SceneType, Vector2>
+        {
+            [SceneType.Map01] = new Vector2(leftX, lineStartY),
+            [SceneType.Map02] = new Vector2(rightX, lineStartY),
+            [SceneType.Map03] = new Vector2(leftX, lineStartY - lineSpacing),
+            [SceneType.Map04] = new Vector2(rightX, lineStartY - lineSpacing),
+            [SceneType.Map_East01] = new Vector2(singleX, lineStartY - lineSpacing * 2f),
+            [SceneType.Map_East02] = new Vector2(singleX, lineStartY - lineSpacing * 3f)
+        };
+
+        var crownLayout = new Dictionary<SceneType, Vector2>
+        {
+            [SceneType.Map_School01] = new Vector2(singleX, lineStartY),
+            [SceneType.Map_School02] = new Vector2(singleX, lineStartY - lineSpacing),
+            [SceneType.Map05_TagGame] = new Vector2(singleX, lineStartY - lineSpacing * 2f)
+        };
+
+        foreach (var option in state.MapOptions)
+        {
+            var optionModeMatches = option.GameModeType == activeMode;
+            option.RootObject.SetActive(optionModeMatches);
+            if (!optionModeMatches)
+            {
+                continue;
+            }
+
+            var optionRect = option.RootObject.GetComponent<RectTransform>();
+            if (optionRect is null)
+            {
+                continue;
+            }
+
+            optionRect.anchorMin = new Vector2(0.5f, 1f);
+            optionRect.anchorMax = new Vector2(0.5f, 1f);
+            optionRect.pivot = new Vector2(0.5f, 1f);
+            optionRect.sizeDelta = option.GameModeType == GameModeType.Default ? new Vector2(150f, 24f) : new Vector2(196f, 24f);
+            optionRect.anchoredPosition = option.GameModeType == GameModeType.Default
+                ? classicLayout[option.SceneType]
+                : crownLayout[option.SceneType];
+
+            option.LabelText.fontSize = 18f;
+            option.LabelText.alignment = TextAlignmentOptions.Left;
+            option.LabelText.text = option.SceneType.ToString();
+            RefreshMapOptionVisual(option, activeSelections.Contains(option.SceneType), activeMode);
+        }
+    }
+
+    private static PortalMapOptionUiState[] CreateMapOptions(
+        IntPtr viewPointer,
+        Transform mapSectionTransform,
+        TMP_Text textTemplate,
+        Sprite? rowBackgroundSprite,
+        Sprite? checkboxOutlineSprite,
+        Sprite? checkboxFillSprite
+    )
+    {
+        var options = new List<PortalMapOptionUiState>();
+
+        foreach (var map in ClassicMapPool)
+        {
+            var option = CreateMapOption(viewPointer, mapSectionTransform, textTemplate, rowBackgroundSprite, checkboxOutlineSprite, checkboxFillSprite, map, GameModeType.Default);
+            if (option is not null)
+            {
+                options.Add(option);
+            }
+        }
+
+        foreach (var map in CrownMapPool)
+        {
+            var option = CreateMapOption(viewPointer, mapSectionTransform, textTemplate, rowBackgroundSprite, checkboxOutlineSprite, checkboxFillSprite, map, GameModeType.Berek);
+            if (option is not null)
+            {
+                options.Add(option);
+            }
+        }
+
+        return options.ToArray();
+    }
+
+    private static PortalMapOptionUiState? CreateMapOption(
+        IntPtr viewPointer,
+        Transform mapSectionTransform,
+        TMP_Text textTemplate,
+        Sprite? rowBackgroundSprite,
+        Sprite? checkboxOutlineSprite,
+        Sprite? checkboxFillSprite,
+        SceneType sceneType,
+        GameModeType gameModeType
+    )
+    {
+        try
+        {
+            var optionObject = new GameObject($"CodexMapOption_{sceneType}");
+            optionObject.transform.SetParent(mapSectionTransform, false);
+
+            var optionRect = optionObject.AddComponent<RectTransform>();
+            optionRect.localScale = Vector3.one;
+
+            var backgroundImage = optionObject.AddComponent<Image>();
+            backgroundImage.sprite = rowBackgroundSprite;
+            backgroundImage.type = Image.Type.Sliced;
+            backgroundImage.color = new Color(0f, 0f, 0f, 0f);
+            backgroundImage.raycastTarget = true;
+
+            var button = optionObject.AddComponent<Button>();
+            button.targetGraphic = backgroundImage;
+            button.onClick = new Button.ButtonClickedEvent();
+            button.transition = Selectable.Transition.ColorTint;
+            button.colors = new ColorBlock
+            {
+                normalColor = new Color(1f, 1f, 1f, 0f),
+                highlightedColor = MapOptionHoverColor,
+                pressedColor = MapOptionPressedColor,
+                selectedColor = MapOptionHoverColor,
+                disabledColor = new Color(1f, 1f, 1f, 0.02f),
+                colorMultiplier = 1f,
+                fadeDuration = 0.1f
+            };
+
+            var checkboxObject = new GameObject("Checkbox");
+            checkboxObject.transform.SetParent(optionObject.transform, false);
+            var checkboxRect = checkboxObject.AddComponent<RectTransform>();
+            checkboxRect.anchorMin = new Vector2(0f, 0.5f);
+            checkboxRect.anchorMax = new Vector2(0f, 0.5f);
+            checkboxRect.pivot = new Vector2(0f, 0.5f);
+            checkboxRect.anchoredPosition = new Vector2(0f, 0f);
+            checkboxRect.sizeDelta = new Vector2(20f, 20f);
+
+            var checkboxOutlineImage = checkboxObject.AddComponent<Image>();
+            checkboxOutlineImage.sprite = null;
+            checkboxOutlineImage.color = MapCheckboxOutlineColor;
+            checkboxOutlineImage.raycastTarget = false;
+
+            var checkboxFillObject = new GameObject("Fill");
+            checkboxFillObject.transform.SetParent(checkboxObject.transform, false);
+            var checkboxFillRect = checkboxFillObject.AddComponent<RectTransform>();
+            checkboxFillRect.anchorMin = new Vector2(0.5f, 0.5f);
+            checkboxFillRect.anchorMax = new Vector2(0.5f, 0.5f);
+            checkboxFillRect.pivot = new Vector2(0.5f, 0.5f);
+            checkboxFillRect.anchoredPosition = Vector2.zero;
+            checkboxFillRect.sizeDelta = new Vector2(12f, 12f);
+
+            var checkboxFillImage = checkboxFillObject.AddComponent<Image>();
+            checkboxFillImage.sprite = null;
+            checkboxFillImage.color = MapCheckboxOffFillColor;
+            checkboxFillImage.raycastTarget = false;
+
+            var labelObject = UnityEngine.Object.Instantiate(textTemplate.gameObject, optionObject.transform, false).TryCast<GameObject>();
+            if (labelObject is null)
+            {
+                UnityEngine.Object.Destroy(optionObject);
+                return null;
+            }
+
+            labelObject.name = "Label";
+            var labelText = labelObject.GetComponent<TMP_Text>();
+            if (labelText is null)
+            {
+                UnityEngine.Object.Destroy(optionObject);
+                return null;
+            }
+
+            var labelRect = labelObject.GetComponent<RectTransform>();
+            if (labelRect is not null)
+            {
+                labelRect.anchorMin = new Vector2(0f, 0.5f);
+                labelRect.anchorMax = new Vector2(0f, 0.5f);
+                labelRect.pivot = new Vector2(0f, 0.5f);
+                labelRect.anchoredPosition = new Vector2(30f, 0f);
+                labelRect.sizeDelta = new Vector2(190f, 22f);
+            }
+
+            labelText.raycastTarget = false;
+            var clickAction = (UnityAction)(() => ToggleMap(viewPointer, sceneType, gameModeType));
+            button.onClick.AddListener(clickAction);
+            return new PortalMapOptionUiState(sceneType, gameModeType, optionObject, backgroundImage, checkboxOutlineImage, checkboxFillImage, labelText, button, clickAction);
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogError($"CreateMapOption failed for {sceneType} / {gameModeType}: {exception}");
+            return null;
+        }
+    }
+
+    private static void ToggleMap(IntPtr viewPointer, SceneType sceneType, GameModeType gameModeType)
+    {
+        if (!SelectedMapsByView.TryGetValue(viewPointer, out var mapSelectionState))
+        {
+            return;
+        }
+
+        var activeSelections = mapSelectionState.GetSelectedMaps(gameModeType);
+        if (activeSelections.Contains(sceneType))
+        {
+            if (activeSelections.Count == 1)
+            {
+                _logger?.LogInfo($"Map toggle ignored for {sceneType}: would clear the last available map for {gameModeType}");
+                return;
+            }
+
+            activeSelections.Remove(sceneType);
+        }
+        else
+        {
+            activeSelections.Add(sceneType);
+        }
+
+        if (UiStateByView.TryGetValue(viewPointer, out var state) && state.IsAlive)
+        {
+            RefreshMapSection(state);
+        }
+
+        _logger?.LogInfo($"Map selection toggled for {gameModeType}: [{string.Join(", ", activeSelections.Select(map => map.ToString()))}]");
+    }
+
+    private static void RefreshMapOptionVisual(PortalMapOptionUiState option, bool selected, GameModeType activeMode)
+    {
+        option.RowBackgroundImage.color = new Color(1f, 1f, 1f, 0f);
+        option.CheckboxOutlineImage.color = MapCheckboxOutlineColor;
+        option.CheckboxFillImage.color = selected ? ClassicModeColor : MapCheckboxOffFillColor;
     }
 
     private static Transform? FindRowRootFromButton(Transform buttonTransform)
@@ -459,6 +846,37 @@ internal static class PortalModeSelectorRuntime
         _logger?.LogInfo($"Popup root: {DescribeTransform(FindCommonAncestor(roleSectionRoot, privateSectionRoot, FindPlaySectionRoot(view)))}");
         LogChildren(roleSectionRoot, 0, 4);
         LogChildren(privateSectionRoot, 0, 4);
+    }
+
+    private static void LogMapsToPlayOn(PortalPlayView view)
+    {
+        try
+        {
+            var maps = view._spookedSettings?.MapsToPlayOn;
+            if (maps is null)
+            {
+                _logger?.LogWarning("MapsToPlayOn log skipped: _spookedSettings or MapsToPlayOn is null");
+                return;
+            }
+
+            var sceneNames = new List<string>();
+            foreach (var sceneType in maps)
+            {
+                sceneNames.Add(sceneType.ToString());
+            }
+
+            _logger?.LogInfo($"MapsToPlayOn: [{string.Join(", ", sceneNames)}]");
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogError($"MapsToPlayOn log failed: {exception}");
+        }
+    }
+
+    private static void EnforcePrivateGame(PortalPlayView view)
+    {
+        view._PrivateGame_k__BackingField = true;
+        view.PrivateGame = true;
     }
 
     private static void LogChildren(Transform root, int depth, int maxDepth)

@@ -36,6 +36,9 @@ internal sealed record PortalModeUiState(
     float RightClassicX,
     float RightCrownX,
     Sprite ClassicIconSprite,
+    GameObject MapSectionObject,
+    TMP_Text MapTitleText,
+    PortalMapOptionUiState[] MapOptions,
     GameObject PlaySectionObject,
     GameObject ContentRootObject,
     GameObject PopupRootObject,
@@ -95,6 +98,13 @@ internal sealed record PortalModeUiState(
         && CheckboxHunterImage.Pointer != IntPtr.Zero
         && ClassicIconSprite is not null
         && ClassicIconSprite.Pointer != IntPtr.Zero
+        && MapSectionObject is not null
+        && MapSectionObject.Pointer != IntPtr.Zero
+        && MapTitleText is not null
+        && MapTitleText.Pointer != IntPtr.Zero
+        && MapOptions is not null
+        && MapOptions.Length > 0
+        && MapOptions.All(option => option.IsAlive)
         && PlaySectionObject is not null
         && PlaySectionObject.Pointer != IntPtr.Zero
         && ContentRootObject is not null

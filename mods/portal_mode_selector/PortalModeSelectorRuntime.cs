@@ -3,6 +3,7 @@ using DG.Tweening;
 using Events;
 using HarmonyLib;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
+using Kinguinverse.DataUtils.Events;
 using Networking.PGOS;
 using TMPro;
 using Types;
@@ -386,6 +387,7 @@ internal static class PortalModeSelectorRuntime
 
         var nextMode = GetSelectedMode(view) == GameModeType.Berek ? GameModeType.Default : GameModeType.Berek;
         SelectedModeByView[view.Pointer] = nextMode;
+        PublishRequestedGameMode(nextMode);
         RefreshModeRow(state, true);
         if (state.MapOptions.Length > 0)
         {
@@ -414,6 +416,7 @@ internal static class PortalModeSelectorRuntime
 
         var nextMode = state.SelectedMode == GameModeType.Berek ? GameModeType.Default : GameModeType.Berek;
         SelectedModeByView[viewPointer] = nextMode;
+        PublishRequestedGameMode(nextMode);
         RefreshModeRow(state, true);
         if (state.MapOptions.Length > 0)
         {
@@ -426,6 +429,7 @@ internal static class PortalModeSelectorRuntime
     {
         _pendingPlayViewPointer = view.Pointer;
         var selectedMode = GetSelectedMode(view);
+        PublishRequestedGameMode(selectedMode);
         _logger?.LogInfo($"Portal play pressed with requested mode {selectedMode}");
         return false;
     }
@@ -502,7 +506,10 @@ internal static class PortalModeSelectorRuntime
             return false;
         }
 
-        var selectedPool = mapSelectionState.GetSelectedMaps(gameModeType).ToArray();
+        var effectiveMode = SelectedModeByView.TryGetValue(_pendingPlayViewPointer, out var selectedMode)
+            ? selectedMode
+            : gameModeType;
+        var selectedPool = mapSelectionState.GetSelectedMaps(effectiveMode).ToArray();
         if (selectedPool.Length == 0)
         {
             return false;
@@ -510,9 +517,22 @@ internal static class PortalModeSelectorRuntime
 
         sceneType = selectedPool[UnityEngine.Random.Range(0, selectedPool.Length)];
         _logger?.LogInfo(
-            $"GetRandomScene overridden to {sceneType} for mode {gameModeType}; sourceMaps=[{string.Join(", ", mapsToPlayOn.Select(map => map.ToString()))}], selectedPool=[{string.Join(", ", selectedPool.Select(map => map.ToString()))}]");
+            $"GetRandomScene overridden to {sceneType} for mode {effectiveMode} (incoming {gameModeType}); sourceMaps=[{string.Join(", ", mapsToPlayOn.Select(map => map.ToString()))}], selectedPool=[{string.Join(", ", selectedPool.Select(map => map.ToString()))}]");
         _pendingPlayViewPointer = IntPtr.Zero;
         return true;
+    }
+
+    private static void PublishRequestedGameMode(GameModeType selectedMode)
+    {
+        try
+        {
+            GameEventsManager.Publish<RequestChangeGameModeEvent>(null, new RequestChangeGameModeEvent(selectedMode));
+            _logger?.LogInfo($"Published RequestChangeGameModeEvent: {selectedMode}");
+        }
+        catch (Exception exception)
+        {
+            LogError("Portal selector failed to publish RequestChangeGameModeEvent", exception);
+        }
     }
 
     public static GameModeType GetSelectedMode(PortalPlayView view)
@@ -537,17 +557,17 @@ internal static class PortalModeSelectorRuntime
 
         var verticalDelta = state.OriginalRoleSectionPosition.y - state.OriginalPrivateSectionPosition.y;
         var groupOffsetDown = new Vector2(0f, -verticalDelta * 0.06f);
-        modeSectionRect.anchoredPosition = state.OriginalRoleSectionPosition + new Vector2(0f, verticalDelta * 1.48f) + groupOffsetDown;
+        modeSectionRect.anchoredPosition = state.OriginalRoleSectionPosition + new Vector2(0f, verticalDelta * 1.58f) + groupOffsetDown;
         modeSectionRect.sizeDelta = roleSectionRect.sizeDelta;
         modeSectionRect.anchorMin = roleSectionRect.anchorMin;
         modeSectionRect.anchorMax = roleSectionRect.anchorMax;
         modeSectionRect.pivot = roleSectionRect.pivot;
         modeSectionRect.localScale = roleSectionRect.localScale;
 
-        roleSectionRect.anchoredPosition = state.OriginalRoleSectionPosition - new Vector2(0f, verticalDelta * 0.76f) + groupOffsetDown;
+        roleSectionRect.anchoredPosition = state.OriginalRoleSectionPosition - new Vector2(0f, verticalDelta * 0.90f) + groupOffsetDown;
         privateSectionRect.gameObject.SetActive(true);
-        privateSectionRect.anchoredPosition = state.OriginalPrivateSectionPosition - new Vector2(0f, verticalDelta * 0.96f) + groupOffsetDown;
-        playSectionRect.anchoredPosition = state.OriginalPlaySectionPosition - new Vector2(0f, verticalDelta * 1.18f) + groupOffsetDown;
+        privateSectionRect.anchoredPosition = state.OriginalPrivateSectionPosition - new Vector2(0f, verticalDelta * 1.12f) + groupOffsetDown;
+        playSectionRect.anchoredPosition = state.OriginalPlaySectionPosition - new Vector2(0f, verticalDelta * 1.34f) + groupOffsetDown;
 
         contentRootRect.sizeDelta = state.OriginalContentSize + new Vector2(0f, verticalDelta * 1.88f);
         contentRootRect.anchoredPosition = state.OriginalContentPosition + new Vector2(0f, verticalDelta * 0.08f);

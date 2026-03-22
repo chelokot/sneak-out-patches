@@ -16,8 +16,9 @@ internal static class PortalModeSelectorRuntime
 {
     private static readonly Dictionary<IntPtr, PortalModeUiState> UiStateByView = new();
     private static readonly Dictionary<IntPtr, GameModeType> SelectedModeByView = new();
-    private static readonly Color ClassicModeColor = new(0.15f, 0.73f, 0.90f, 1f);
-    private static readonly Color CrownModeColor = new(0.96f, 0.78f, 0.18f, 1f);
+    private static readonly Color ClassicModeColor = new(0.08627451f, 0.5372549f, 0.654902f, 1f);
+    private static readonly Color CrownModeColor = new(0.8117647f, 0.62352943f, 0f, 1f);
+    private const float ToggleAnimationDuration = 0.36f;
 
     private static ManualLogSource? _logger;
     private static Harmony? _harmony;
@@ -513,9 +514,9 @@ internal static class PortalModeSelectorRuntime
         }
 
         ShortcutExtensions.DOKill(panel, false);
-        DOTweenModuleUI.DOAnchorMin(panel, anchorMin, 0.18f, false);
-        DOTweenModuleUI.DOAnchorMax(panel, anchorMax, 0.18f, false);
-        ShortcutExtensions.DOLocalMoveX(panel, localX, 0.18f, false);
+        DOTweenModuleUI.DOAnchorMin(panel, anchorMin, ToggleAnimationDuration, false);
+        DOTweenModuleUI.DOAnchorMax(panel, anchorMax, ToggleAnimationDuration, false);
+        ShortcutExtensions.DOLocalMoveX(panel, localX, ToggleAnimationDuration, false);
     }
 
     private static void ApplyModeCheckboxVisual(PortalModeUiState state, bool classicSelected, bool animate)
@@ -538,7 +539,7 @@ internal static class PortalModeSelectorRuntime
         }
 
         ShortcutExtensions.DOKill(state.CheckboxBackgroundImage, false);
-        DOTweenModuleUI.DOColor(state.CheckboxBackgroundImage, targetColor, 0.18f);
+        DOTweenModuleUI.DOColor(state.CheckboxBackgroundImage, targetColor, ToggleAnimationDuration);
     }
 
     private static Sprite? ResolveCrownIconSprite()

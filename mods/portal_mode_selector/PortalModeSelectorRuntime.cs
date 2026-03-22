@@ -544,10 +544,10 @@ internal static class PortalModeSelectorRuntime
         modeSectionRect.pivot = roleSectionRect.pivot;
         modeSectionRect.localScale = roleSectionRect.localScale;
 
-        roleSectionRect.anchoredPosition = state.OriginalRoleSectionPosition - new Vector2(0f, verticalDelta * 0.52f) + groupOffsetDown;
+        roleSectionRect.anchoredPosition = state.OriginalRoleSectionPosition - new Vector2(0f, verticalDelta * 0.76f) + groupOffsetDown;
         privateSectionRect.gameObject.SetActive(true);
-        privateSectionRect.anchoredPosition = state.OriginalPrivateSectionPosition - new Vector2(0f, verticalDelta * 0.62f) + groupOffsetDown;
-        playSectionRect.anchoredPosition = state.OriginalPlaySectionPosition - new Vector2(0f, verticalDelta * 0.78f) + groupOffsetDown;
+        privateSectionRect.anchoredPosition = state.OriginalPrivateSectionPosition - new Vector2(0f, verticalDelta * 0.96f) + groupOffsetDown;
+        playSectionRect.anchoredPosition = state.OriginalPlaySectionPosition - new Vector2(0f, verticalDelta * 1.18f) + groupOffsetDown;
 
         contentRootRect.sizeDelta = state.OriginalContentSize + new Vector2(0f, verticalDelta * 1.88f);
         contentRootRect.anchoredPosition = state.OriginalContentPosition + new Vector2(0f, verticalDelta * 0.08f);

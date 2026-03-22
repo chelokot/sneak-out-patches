@@ -53,6 +53,11 @@ The current validator checks:
 - the installed files exactly match the deterministic result rebuilt from the clean backups and the selected patch set
 - every known executable patch region in `GameAssembly.dll` fully disassembles
 - hook targets for the selector loader and selector wrapper resolve to the expected helper stubs
+- helper stubs keep sane ABI invariants:
+  - stack alignment before `call`
+  - allowed stack deltas on `ret`
+  - allowed tail-jump targets
+  - no RIP-relative writes back into executable sections
 
 This is strong enough to catch malformed `GameAssembly.dll` edits before blaming Proton or Unity runtime behavior.
 

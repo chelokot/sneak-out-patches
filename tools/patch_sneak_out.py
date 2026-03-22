@@ -43,6 +43,16 @@ class BinaryPatch:
 
 
 @dataclass(frozen=True)
+class ExecutableRegionLintSpec:
+    offset: int
+    code_bytes: bytes
+    description: str
+    entry_rsp_mod16: int | None = None
+    allowed_ret_deltas: frozenset[int] = frozenset()
+    allowed_tail_jumps: tuple[tuple[int, int], ...] = ()
+
+
+@dataclass(frozen=True)
 class ManagedFile:
     relative_path: str
     clean_sha256: str
@@ -544,31 +554,245 @@ def _section_is_executable(pe, raw_offset: int) -> bool:
     return False
 
 
-def _validate_gameassembly_static(clean_bytes: bytes, patched_bytes: bytes, selected_option_ids: tuple[str, ...]) -> None:
-    import pefile
-
-    pe = pefile.PE(data=patched_bytes, fast_load=True)
-    executable_regions: list[tuple[int, bytes, str]] = []
+def _build_executable_region_specs(selected_option_ids: tuple[str, ...]) -> list[ExecutableRegionLintSpec]:
+    region_specs: list[ExecutableRegionLintSpec] = []
     for option_id in selected_option_ids:
         option = PATCH_OPTION_BY_ID[option_id]
         for file_patch_group in option.file_patch_groups:
             if file_patch_group.relative_path != "GameAssembly.dll":
                 continue
             for patch in file_patch_group.patches:
-                executable_regions.append((patch.offset, patch.after, patch.description))
+                region_specs.append(
+                    ExecutableRegionLintSpec(
+                        offset=patch.offset,
+                        code_bytes=patch.after,
+                        description=patch.description,
+                    )
+                )
 
     if "mode-selector" in selected_option_ids:
-        for offset, region_bytes in _build_gameassembly_mode_selector_regions().items():
-            executable_regions.append((offset, region_bytes, f"mode-selector region 0x{offset:x}"))
-
-    for offset, region_bytes, description in executable_regions:
-        if not _section_is_executable(pe, offset):
-            continue
-        _disassemble_exact(
-            region_bytes,
-            _gameassembly_raw_to_va(offset),
-            f"{description} in section {_section_name_for_offset(pe, offset)}",
+        mode_regions = _build_gameassembly_mode_selector_regions()
+        region_specs.extend(
+            (
+                ExecutableRegionLintSpec(
+                    offset=GAMEASSEMBLY_MODE_SELECTOR_RESOLVE_PANEL_OFFSET,
+                    code_bytes=mode_regions[GAMEASSEMBLY_MODE_SELECTOR_RESOLVE_PANEL_OFFSET],
+                    description="mode-selector resolve-panel helper",
+                    entry_rsp_mod16=8,
+                    allowed_ret_deltas=frozenset({0}),
+                ),
+                ExecutableRegionLintSpec(
+                    offset=GAMEASSEMBLY_MODE_SELECTOR_RESOLVE_BACKGROUND_OFFSET,
+                    code_bytes=mode_regions[GAMEASSEMBLY_MODE_SELECTOR_RESOLVE_BACKGROUND_OFFSET],
+                    description="mode-selector resolve-background helper",
+                    entry_rsp_mod16=8,
+                    allowed_ret_deltas=frozenset({0}),
+                ),
+                ExecutableRegionLintSpec(
+                    offset=GAMEASSEMBLY_MODE_SELECTOR_WRAPPER_OFFSET,
+                    code_bytes=mode_regions[GAMEASSEMBLY_MODE_SELECTOR_WRAPPER_OFFSET],
+                    description="mode-selector role-button wrapper",
+                    entry_rsp_mod16=8,
+                    allowed_ret_deltas=frozenset({0}),
+                    allowed_tail_jumps=((0x1807E10C6, -40),),
+                ),
+                ExecutableRegionLintSpec(
+                    offset=GAMEASSEMBLY_MODE_SELECTOR_SETUP_OFFSET,
+                    code_bytes=mode_regions[GAMEASSEMBLY_MODE_SELECTOR_SETUP_OFFSET],
+                    description="mode-selector setup helper",
+                    entry_rsp_mod16=8,
+                    allowed_ret_deltas=frozenset({0}),
+                ),
+                ExecutableRegionLintSpec(
+                    offset=GAMEASSEMBLY_MODE_SELECTOR_REFRESH_OFFSET,
+                    code_bytes=mode_regions[GAMEASSEMBLY_MODE_SELECTOR_REFRESH_OFFSET],
+                    description="mode-selector refresh helper",
+                    entry_rsp_mod16=8,
+                    allowed_ret_deltas=frozenset({0}),
+                ),
+                ExecutableRegionLintSpec(
+                    offset=GAMEASSEMBLY_MODE_SELECTOR_OPEN_TAIL_STUB_OFFSET,
+                    code_bytes=mode_regions[GAMEASSEMBLY_MODE_SELECTOR_OPEN_TAIL_STUB_OFFSET],
+                    description="mode-selector open-tail stub",
+                    entry_rsp_mod16=0,
+                    allowed_ret_deltas=frozenset({40}),
+                ),
+                ExecutableRegionLintSpec(
+                    offset=GAMEASSEMBLY_MODE_SELECTOR_LOADER_OFFSET,
+                    code_bytes=mode_regions[GAMEASSEMBLY_MODE_SELECTOR_LOADER_OFFSET],
+                    description="mode-selector game-mode loader",
+                    entry_rsp_mod16=8,
+                    allowed_ret_deltas=frozenset({0}),
+                ),
+                ExecutableRegionLintSpec(
+                    offset=GAMEASSEMBLY_ROLE_BUTTON_ENTRY_OFFSET,
+                    code_bytes=mode_regions[GAMEASSEMBLY_ROLE_BUTTON_ENTRY_OFFSET],
+                    description="mode-selector role-button entry hook",
+                ),
+                ExecutableRegionLintSpec(
+                    offset=GAMEASSEMBLY_OPEN_TAIL_ENTRY_OFFSET,
+                    code_bytes=mode_regions[GAMEASSEMBLY_OPEN_TAIL_ENTRY_OFFSET],
+                    description="mode-selector open-tail entry hook",
+                ),
+                ExecutableRegionLintSpec(
+                    offset=GAMEASSEMBLY_MODE_CALL_SITE_ONE_OFFSET,
+                    code_bytes=mode_regions[GAMEASSEMBLY_MODE_CALL_SITE_ONE_OFFSET],
+                    description="mode-selector first OnPlay loader hook",
+                ),
+                ExecutableRegionLintSpec(
+                    offset=GAMEASSEMBLY_MODE_CALL_SITE_TWO_OFFSET,
+                    code_bytes=mode_regions[GAMEASSEMBLY_MODE_CALL_SITE_TWO_OFFSET],
+                    description="mode-selector second OnPlay loader hook",
+                ),
+            )
         )
+    return region_specs
+
+
+def _instruction_stack_delta(instruction) -> int:
+    from capstone import CS_OP_IMM, CS_OP_REG
+
+    if instruction.mnemonic == "push":
+        return -8
+    if instruction.mnemonic == "pop":
+        return 8
+    if instruction.mnemonic in {"sub", "add"} and len(instruction.operands) == 2:
+        left_operand, right_operand = instruction.operands
+        if (
+            left_operand.type == CS_OP_REG
+            and instruction.reg_name(left_operand.reg) == "rsp"
+            and right_operand.type == CS_OP_IMM
+        ):
+            immediate = int(right_operand.imm)
+            return -immediate if instruction.mnemonic == "sub" else immediate
+    return 0
+
+
+def _lint_executable_region(pe, region_spec: ExecutableRegionLintSpec) -> None:
+    from capstone import CS_AC_WRITE, CS_ARCH_X86, CS_MODE_64, CS_OP_IMM, CS_OP_MEM, Cs
+    from capstone.x86_const import X86_REG_RIP
+
+    _disassemble_exact(
+        region_spec.code_bytes,
+        _gameassembly_raw_to_va(region_spec.offset),
+        f"{region_spec.description} in section {_section_name_for_offset(pe, region_spec.offset)}",
+    )
+
+    if region_spec.entry_rsp_mod16 is None:
+        return
+
+    disassembler = Cs(CS_ARCH_X86, CS_MODE_64)
+    disassembler.detail = True
+    instructions = list(
+        disassembler.disasm(region_spec.code_bytes, _gameassembly_raw_to_va(region_spec.offset))
+    )
+    instruction_by_address = {instruction.address: instruction for instruction in instructions}
+    region_start = _gameassembly_raw_to_va(region_spec.offset)
+    region_end = region_start + len(region_spec.code_bytes)
+    allowed_tail_jumps = dict(region_spec.allowed_tail_jumps)
+    pending_states: list[tuple[int, int]] = [(region_start, 0)]
+    seen_states: dict[int, int] = {}
+
+    while pending_states:
+        address, stack_delta = pending_states.pop()
+        recorded_delta = seen_states.get(address)
+        if recorded_delta is not None:
+            if recorded_delta != stack_delta:
+                raise SystemExit(
+                    f"ABI lint failed for {region_spec.description}\n"
+                    f"conflicting stack states at 0x{address:x}: {recorded_delta} vs {stack_delta}"
+                )
+            continue
+        seen_states[address] = stack_delta
+
+        instruction = instruction_by_address.get(address)
+        if instruction is None:
+            raise SystemExit(
+                f"ABI lint failed for {region_spec.description}\n"
+                f"control flow reached unknown address 0x{address:x}"
+            )
+
+        current_rsp_mod16 = (region_spec.entry_rsp_mod16 + stack_delta) % 16
+        if instruction.mnemonic == "call" and current_rsp_mod16 != 0:
+            raise SystemExit(
+                f"ABI lint failed for {region_spec.description}\n"
+                f"misaligned stack before call at 0x{instruction.address:x}: rsp mod 16 = {current_rsp_mod16}"
+            )
+
+        for operand in instruction.operands:
+            if operand.type != CS_OP_MEM:
+                continue
+            if operand.access & CS_AC_WRITE == 0:
+                continue
+            if operand.mem.base != X86_REG_RIP:
+                continue
+            memory_target = instruction.address + instruction.size + operand.mem.disp
+            raw_target = GAMEASSEMBLY_IL2CPP_RAW_START + (
+                memory_target - GAMEASSEMBLY_IMAGE_BASE - GAMEASSEMBLY_IL2CPP_RVA_START
+            )
+            if _section_is_executable(pe, raw_target):
+                raise SystemExit(
+                    f"ABI lint failed for {region_spec.description}\n"
+                    f"self-modifying write into executable section at 0x{instruction.address:x}"
+                )
+
+        next_stack_delta = stack_delta + _instruction_stack_delta(instruction)
+        next_address = instruction.address + instruction.size
+
+        if instruction.mnemonic == "ret":
+            if next_stack_delta not in region_spec.allowed_ret_deltas:
+                raise SystemExit(
+                    f"ABI lint failed for {region_spec.description}\n"
+                    f"unexpected stack delta before ret at 0x{instruction.address:x}: {next_stack_delta}"
+                )
+            continue
+
+        if instruction.mnemonic == "jmp":
+            if len(instruction.operands) != 1 or instruction.operands[0].type != CS_OP_IMM:
+                raise SystemExit(
+                    f"ABI lint failed for {region_spec.description}\n"
+                    f"unsupported indirect jmp at 0x{instruction.address:x}"
+                )
+            target = int(instruction.operands[0].imm)
+            if region_start <= target < region_end:
+                pending_states.append((target, next_stack_delta))
+                continue
+            allowed_delta = allowed_tail_jumps.get(target)
+            if allowed_delta is None or allowed_delta != next_stack_delta:
+                raise SystemExit(
+                    f"ABI lint failed for {region_spec.description}\n"
+                    f"unexpected tail jmp at 0x{instruction.address:x} -> 0x{target:x} with stack delta {next_stack_delta}"
+                )
+            continue
+
+        if instruction.mnemonic.startswith("j") and instruction.mnemonic != "jmp":
+            if len(instruction.operands) != 1 or instruction.operands[0].type != CS_OP_IMM:
+                raise SystemExit(
+                    f"ABI lint failed for {region_spec.description}\n"
+                    f"unsupported conditional branch at 0x{instruction.address:x}"
+                )
+            target = int(instruction.operands[0].imm)
+            if not (region_start <= target < region_end):
+                raise SystemExit(
+                    f"ABI lint failed for {region_spec.description}\n"
+                    f"conditional branch escapes region at 0x{instruction.address:x} -> 0x{target:x}"
+                )
+            pending_states.append((target, next_stack_delta))
+            pending_states.append((next_address, next_stack_delta))
+            continue
+
+        if next_address < region_end:
+            pending_states.append((next_address, next_stack_delta))
+
+
+def _validate_gameassembly_static(clean_bytes: bytes, patched_bytes: bytes, selected_option_ids: tuple[str, ...]) -> None:
+    import pefile
+
+    pe = pefile.PE(data=patched_bytes, fast_load=True)
+    for region_spec in _build_executable_region_specs(selected_option_ids):
+        if not _section_is_executable(pe, region_spec.offset):
+            continue
+        _lint_executable_region(pe, region_spec)
 
     if "mode-selector" in selected_option_ids:
         if patched_bytes[GAMEASSEMBLY_ROLE_BUTTON_ENTRY_OFFSET + 5] != 0x90:

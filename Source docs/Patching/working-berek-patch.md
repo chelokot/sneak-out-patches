@@ -59,6 +59,7 @@ Properties:
 - supports `--validate`
 - supports `--patches` for non-interactive selection
 - runs static validation after apply before treating the result as successful
+- validates ABI-style hook invariants on known `GameAssembly.dll` helper regions, not just byte equality
 
 ## Current patch options
 

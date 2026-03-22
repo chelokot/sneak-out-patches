@@ -7,6 +7,7 @@ import os
 import platform
 import re
 import struct
+import subprocess
 import sys
 import termios
 import textwrap
@@ -24,6 +25,9 @@ CLEAR_SCREEN = "\033[2J\033[H"
 STEAM_APP_ID = "2410490"
 GAME_DIRECTORY_NAME = "Sneak Out"
 BACKUP_SUFFIX = ".codex-sneak-out.bak"
+ABSENT_MARKER_SUFFIX = ".codex-sneak-out.absent"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+RUNTIME_MOD_DOTNET = REPO_ROOT / ".tmp/runtime-mod/dotnet/dotnet"
 
 
 @dataclass(frozen=True)
@@ -72,6 +76,24 @@ class PatchOption:
     default_enabled: bool
     file_patch_groups: tuple[FilePatchGroup, ...]
     custom_steps: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class RuntimeModOption:
+    option_id: str
+    label: str
+    details: str
+    default_enabled: bool
+    project_relative_path: str
+    assembly_name: str
+
+    @property
+    def project_path(self) -> Path:
+        return REPO_ROOT / self.project_relative_path
+
+    @property
+    def built_dll_path(self) -> Path:
+        return self.project_path.parent / "bin/Release/net6.0" / f"{self.assembly_name}.dll"
 
 
 @dataclass
@@ -190,6 +212,27 @@ PATCH_OPTIONS: tuple[PatchOption, ...] = (
 
 
 PATCH_OPTION_BY_ID = {option.option_id: option for option in PATCH_OPTIONS}
+
+RUNTIME_MOD_OPTIONS: tuple[RuntimeModOption, ...] = (
+    RuntimeModOption(
+        option_id="portal-mode-selector",
+        label="Install Portal Mode Selector runtime mod",
+        details="Builds and installs the BepInEx runtime mod that replaces fragile raw portal UI scene edits.",
+        default_enabled=False,
+        project_relative_path="mods/portal_mode_selector/PortalModeSelector.csproj",
+        assembly_name="SneakOut.PortalModeSelector",
+    ),
+    RuntimeModOption(
+        option_id="mummy-unlock",
+        label="Install Mummy Unlock runtime mod",
+        details="Builds and installs the BepInEx runtime mod used for restoring Mummy-related runtime hooks.",
+        default_enabled=False,
+        project_relative_path="mods/mummy_unlock/MummyUnlock.csproj",
+        assembly_name="SneakOut.MummyUnlock",
+    ),
+)
+
+RUNTIME_MOD_OPTION_BY_ID = {option.option_id: option for option in RUNTIME_MOD_OPTIONS}
 
 LEVEL0_PORTAL_SELECTOR_ROOT_TRANSFORM = 13300
 LEVEL0_BACKGROUND_TRANSFORM = 14710
@@ -371,22 +414,25 @@ def read_key() -> str:
         termios.tcsetattr(file_descriptor, termios.TCSADRAIN, old_settings)
 
 
-def choose_patch_options_interactively() -> tuple[str, ...]:
+def choose_options_interactively(
+    options: tuple[PatchOption | RuntimeModOption, ...],
+    title: str,
+) -> tuple[str, ...]:
     if not sys.stdin.isatty() or not sys.stdout.isatty():
-        raise SystemExit("Interactive patch selection requires a TTY. Use --patches to select options non-interactively.")
-    selected = [option.default_enabled for option in PATCH_OPTIONS]
+        raise SystemExit("Interactive selection requires a TTY. Use command-line selection flags instead.")
+    selected = [option.default_enabled for option in options]
     cursor = 0
     while True:
-        selected_option = PATCH_OPTIONS[cursor]
+        selected_option = options[cursor]
         terminal_width = max(get_terminal_size(fallback=(100, 24)).columns, 60)
         wrapped_details = textwrap.wrap(selected_option.details, width=max(terminal_width - 2, 20))
         lines = [
             CLEAR_SCREEN,
             f"{GREEN}Use ↑/↓ to move, Space to toggle, Enter to apply.{RESET}",
             "",
-            "Patch options:",
+            title,
         ]
-        for index, option in enumerate(PATCH_OPTIONS):
+        for index, option in enumerate(options):
             marker = ">" if index == cursor else " "
             checkbox = "x" if selected[index] else " "
             lines.append(f"{marker} [{checkbox}] {option.label}")
@@ -399,35 +445,66 @@ def choose_patch_options_interactively() -> tuple[str, ...]:
         sys.stdout.flush()
         key = read_key()
         if key == "up":
-            cursor = (cursor - 1) % len(PATCH_OPTIONS)
+            cursor = (cursor - 1) % len(options)
         elif key == "down":
-            cursor = (cursor + 1) % len(PATCH_OPTIONS)
+            cursor = (cursor + 1) % len(options)
         elif key == "space":
             selected[cursor] = not selected[cursor]
         elif key == "enter":
             sys.stdout.write(CLEAR_SCREEN)
             sys.stdout.flush()
-            return tuple(option.option_id for option, is_selected in zip(PATCH_OPTIONS, selected) if is_selected)
+            return tuple(option.option_id for option, is_selected in zip(options, selected) if is_selected)
         elif key == "quit":
             raise SystemExit(1)
 
 
-def parse_patch_selection(raw_selection: str) -> tuple[str, ...]:
+def choose_patch_options_interactively() -> tuple[str, ...]:
+    return choose_options_interactively(PATCH_OPTIONS, "Patch options (1/2):")
+
+
+def choose_runtime_mod_options_interactively() -> tuple[str, ...]:
+    return choose_options_interactively(RUNTIME_MOD_OPTIONS, "Runtime mod options (2/2):")
+
+
+def choose_installation_plan_interactively() -> tuple[tuple[str, ...], tuple[str, ...]]:
+    return (
+        choose_patch_options_interactively(),
+        choose_runtime_mod_options_interactively(),
+    )
+
+
+def parse_selection(
+    raw_selection: str,
+    option_by_id: dict[str, PatchOption | RuntimeModOption],
+    label: str,
+) -> tuple[str, ...]:
     if not raw_selection.strip():
         return ()
     option_ids = tuple(part.strip() for part in raw_selection.split(",") if part.strip())
-    unknown_option_ids = [option_id for option_id in option_ids if option_id not in PATCH_OPTION_BY_ID]
+    unknown_option_ids = [option_id for option_id in option_ids if option_id not in option_by_id]
     if unknown_option_ids:
-        available_option_ids = ", ".join(sorted(PATCH_OPTION_BY_ID))
+        available_option_ids = ", ".join(sorted(option_by_id))
         raise SystemExit(
-            f"Unknown patch option(s): {', '.join(unknown_option_ids)}\n"
-            f"Available patch ids: {available_option_ids}"
+            f"Unknown {label} option(s): {', '.join(unknown_option_ids)}\n"
+            f"Available {label} ids: {available_option_ids}"
         )
     return option_ids
 
 
+def parse_patch_selection(raw_selection: str) -> tuple[str, ...]:
+    return parse_selection(raw_selection, PATCH_OPTION_BY_ID, "patch")
+
+
+def parse_runtime_mod_selection(raw_selection: str) -> tuple[str, ...]:
+    return parse_selection(raw_selection, RUNTIME_MOD_OPTION_BY_ID, "runtime mod")
+
+
 def default_patch_selection() -> tuple[str, ...]:
     return tuple(option.option_id for option in PATCH_OPTIONS if option.default_enabled)
+
+
+def default_runtime_mod_selection() -> tuple[str, ...]:
+    return tuple(option.option_id for option in RUNTIME_MOD_OPTIONS if option.default_enabled)
 
 
 def prepare_file(game_dir: Path, managed_file: ManagedFile) -> PreparedFile:
@@ -1210,6 +1287,103 @@ def write_prepared_files(prepared_files: dict[str, PreparedFile]) -> None:
             print(f"restored:  {prepared_file.backup_path}")
 
 
+def resolve_runtime_mod_install_path(game_dir: Path, runtime_mod: RuntimeModOption) -> Path:
+    bepinex_dir = game_dir / "BepInEx"
+    if not bepinex_dir.is_dir():
+        raise SystemExit(f"Missing BepInEx directory: {bepinex_dir}")
+    plugins_dir = bepinex_dir / "plugins"
+    plugins_dir.mkdir(parents=True, exist_ok=True)
+    return plugins_dir / f"{runtime_mod.assembly_name}.dll"
+
+
+def build_runtime_mod(runtime_mod: RuntimeModOption) -> Path:
+    if not runtime_mod.project_path.is_file():
+        raise SystemExit(f"Missing runtime mod project: {runtime_mod.project_path}")
+    if not RUNTIME_MOD_DOTNET.is_file():
+        raise SystemExit(f"Missing local runtime-mod dotnet SDK: {RUNTIME_MOD_DOTNET}")
+    command = [
+        str(RUNTIME_MOD_DOTNET),
+        "build",
+        str(runtime_mod.project_path.relative_to(REPO_ROOT)),
+        "-c",
+        "Release",
+    ]
+    completed = subprocess.run(
+        command,
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise SystemExit(
+            f"Runtime mod build failed for {runtime_mod.label}\n"
+            f"command: {' '.join(command)}\n"
+            f"stdout:\n{completed.stdout}\n"
+            f"stderr:\n{completed.stderr}"
+        )
+    if not runtime_mod.built_dll_path.is_file():
+        raise SystemExit(f"Missing built runtime mod DLL: {runtime_mod.built_dll_path}")
+    return runtime_mod.built_dll_path
+
+
+def install_runtime_mod(game_dir: Path, runtime_mod: RuntimeModOption, built_dll_path: Path) -> None:
+    install_path = resolve_runtime_mod_install_path(game_dir, runtime_mod)
+    backup_path = install_path.with_name(install_path.name + BACKUP_SUFFIX)
+    absent_marker_path = install_path.with_name(install_path.name + ABSENT_MARKER_SUFFIX)
+    backup_created = False
+    absent_marker_created = False
+
+    if install_path.is_file():
+        if not backup_path.is_file():
+            backup_path.write_bytes(install_path.read_bytes())
+            backup_created = True
+        if absent_marker_path.exists():
+            absent_marker_path.unlink()
+    else:
+        if not absent_marker_path.exists():
+            absent_marker_path.write_text("absent\n", encoding="utf-8")
+            absent_marker_created = True
+
+    built_bytes = built_dll_path.read_bytes()
+    current_bytes = install_path.read_bytes() if install_path.is_file() else None
+    if current_bytes == built_bytes:
+        print(f"unchanged: {install_path}")
+    else:
+        install_path.write_bytes(built_bytes)
+        print(f"updated:   {install_path}")
+
+    if backup_created:
+        print(f"backup:    {backup_path}")
+    if absent_marker_created:
+        print(f"created:   {absent_marker_path}")
+
+def install_selected_runtime_mods(game_dir: Path, selected_runtime_mod_option_ids: tuple[str, ...]) -> None:
+    for option_id in selected_runtime_mod_option_ids:
+        runtime_mod = RUNTIME_MOD_OPTION_BY_ID[option_id]
+        built_dll_path = build_runtime_mod(runtime_mod)
+        install_runtime_mod(game_dir, runtime_mod, built_dll_path)
+
+
+def validate_installed_runtime_mods(game_dir: Path, selected_runtime_mod_option_ids: tuple[str, ...]) -> None:
+    for option_id in selected_runtime_mod_option_ids:
+        runtime_mod = RUNTIME_MOD_OPTION_BY_ID[option_id]
+        built_dll_path = build_runtime_mod(runtime_mod)
+        install_path = resolve_runtime_mod_install_path(game_dir, runtime_mod)
+        if not install_path.is_file():
+            raise SystemExit(f"Missing installed runtime mod: {install_path}")
+        expected_bytes = built_dll_path.read_bytes()
+        actual_bytes = install_path.read_bytes()
+        if actual_bytes != expected_bytes:
+            diff_offset = first_diff_offset(expected_bytes, actual_bytes)
+            if diff_offset is None:
+                raise SystemExit(f"Validation failed for {install_path}")
+            raise SystemExit(
+                f"Validation failed for {install_path}\n"
+                + format_diff_window(expected_bytes, actual_bytes, diff_offset)
+            )
+
+
 def rollback(game_dir: Path) -> None:
     for managed_file in MANAGED_FILES:
         path = game_dir / managed_file.relative_path
@@ -1233,20 +1407,49 @@ def rollback(game_dir: Path) -> None:
         print(f"restored: {path}")
         print(f"from:     {backup_path}")
 
+    for runtime_mod in RUNTIME_MOD_OPTIONS:
+        install_path = resolve_runtime_mod_install_path(game_dir, runtime_mod)
+        backup_path = install_path.with_name(install_path.name + BACKUP_SUFFIX)
+        absent_marker_path = install_path.with_name(install_path.name + ABSENT_MARKER_SUFFIX)
+        if backup_path.is_file():
+            backup_bytes = backup_path.read_bytes()
+            current_bytes = install_path.read_bytes() if install_path.is_file() else None
+            if current_bytes == backup_bytes:
+                print(f"already clean: {install_path}")
+            else:
+                install_path.write_bytes(backup_bytes)
+                print(f"restored: {install_path}")
+                print(f"from:     {backup_path}")
+            continue
+        if absent_marker_path.is_file():
+            if install_path.is_file():
+                install_path.unlink()
+                print(f"removed:  {install_path}")
+            else:
+                print(f"already absent: {install_path}")
+
 
 def build_parser() -> ArgumentParser:
-    parser = ArgumentParser(description="Interactive Sneak Out patcher.")
+    parser = ArgumentParser(description="Interactive Sneak Out patcher and runtime mod installer.")
     parser.add_argument("game_dir", nargs="?", help="Explicit Sneak Out directory.")
     parser.add_argument("--game-dir", dest="game_dir_option", help="Explicit Sneak Out directory.")
     parser.add_argument("--patches", help="Comma-separated patch ids. Skips the interactive checkbox menu.")
+    parser.add_argument("--mods", help="Comma-separated runtime mod ids. Skips the interactive mod checkbox menu.")
     parser.add_argument("--rollback", action="store_true", help="Restore script-managed backups and exit.")
     parser.add_argument("--validate", action="store_true", help="Validate the currently installed files against the selected patch set and exit.")
     parser.add_argument("--list-patches", action="store_true", help="Print patch ids and exit.")
+    parser.add_argument("--list-mods", action="store_true", help="Print runtime mod ids and exit.")
     return parser
 
 
 def print_patch_list() -> None:
     for option in PATCH_OPTIONS:
+        print(f"{option.option_id}: {option.label}")
+        print(f"  {option.details}")
+
+
+def print_runtime_mod_list() -> None:
+    for option in RUNTIME_MOD_OPTIONS:
         print(f"{option.option_id}: {option.label}")
         print(f"  {option.details}")
 
@@ -1257,6 +1460,9 @@ def main() -> int:
 
     if args.list_patches:
         print_patch_list()
+        return 0
+    if args.list_mods:
+        print_runtime_mod_list()
         return 0
 
     explicit_game_dir = args.game_dir_option or args.game_dir
@@ -1271,28 +1477,56 @@ def main() -> int:
         return 0
 
     if args.validate:
-        selected_option_ids = parse_patch_selection(args.patches) if args.patches is not None else default_patch_selection()
-        validate_installed_files(game_dir, selected_option_ids)
+        selected_patch_option_ids = (
+            parse_patch_selection(args.patches) if args.patches is not None else default_patch_selection()
+        )
+        selected_runtime_mod_option_ids = (
+            parse_runtime_mod_selection(args.mods) if args.mods is not None else default_runtime_mod_selection()
+        )
+        if selected_patch_option_ids:
+            validate_installed_files(game_dir, selected_patch_option_ids)
+        if selected_runtime_mod_option_ids:
+            validate_installed_runtime_mods(game_dir, selected_runtime_mod_option_ids)
         print("validated")
         return 0
 
-    if args.patches is not None:
-        selected_option_ids = parse_patch_selection(args.patches)
+    if args.patches is None and args.mods is None:
+        selected_patch_option_ids, selected_runtime_mod_option_ids = choose_installation_plan_interactively()
     else:
-        selected_option_ids = choose_patch_options_interactively()
+        if args.patches is not None:
+            selected_patch_option_ids = parse_patch_selection(args.patches)
+        else:
+            selected_patch_option_ids = choose_patch_options_interactively()
 
-    prepared_files = prepare_files(game_dir)
-    apply_selected_patches(prepared_files, selected_option_ids)
-    validate_prepared_files(prepared_files, selected_option_ids)
-    write_prepared_files(prepared_files)
-    validate_installed_files(game_dir, selected_option_ids)
+        if args.mods is not None:
+            selected_runtime_mod_option_ids = parse_runtime_mod_selection(args.mods)
+        else:
+            selected_runtime_mod_option_ids = choose_runtime_mod_options_interactively()
 
-    if selected_option_ids:
+    if selected_patch_option_ids:
+        prepared_files = prepare_files(game_dir)
+        apply_selected_patches(prepared_files, selected_patch_option_ids)
+        validate_prepared_files(prepared_files, selected_patch_option_ids)
+        write_prepared_files(prepared_files)
+        validate_installed_files(game_dir, selected_patch_option_ids)
+
+    if selected_runtime_mod_option_ids:
+        install_selected_runtime_mods(game_dir, selected_runtime_mod_option_ids)
+        validate_installed_runtime_mods(game_dir, selected_runtime_mod_option_ids)
+
+    if selected_patch_option_ids:
         print("enabled patches:")
-        for option_id in selected_option_ids:
+        for option_id in selected_patch_option_ids:
             print(f"- {PATCH_OPTION_BY_ID[option_id].label}")
     else:
         print("enabled patches: none")
+
+    if selected_runtime_mod_option_ids:
+        print("installed runtime mods:")
+        for option_id in selected_runtime_mod_option_ids:
+            print(f"- {RUNTIME_MOD_OPTION_BY_ID[option_id].label}")
+    else:
+        print("installed runtime mods: none")
     print("done")
     return 0
 

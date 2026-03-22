@@ -14,6 +14,8 @@
   How the visible crown is wired and what is still missing.
 - `gameplay/locker-open-attack-cooldown.md`
   Why seekers cannot attack immediately after opening a locker.
+- `gameplay/mummy-unlock-research.md`
+  Runtime facts and entry points for restoring Mummy as a selectable hunter.
 
 ## patching
 

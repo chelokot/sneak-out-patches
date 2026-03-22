@@ -2,6 +2,7 @@ using HarmonyLib;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using Networking.PGOS;
 using Types;
+using UI;
 using UI.Views.Lobby;
 
 namespace SneakOut.PortalModeSelector;
@@ -58,9 +59,18 @@ internal static class PortalPlayViewOnChangeRoleButtonPatch
 [HarmonyPatch(typeof(PortalPlayView), nameof(PortalPlayView.OnPlay))]
 internal static class PortalPlayViewOnPlayPatch
 {
-    private static void Prefix(PortalPlayView __instance)
+    private static bool Prefix(PortalPlayView __instance)
     {
-        PortalModeSelectorRuntime.RememberPendingPlayView(__instance);
+        try
+        {
+            return !PortalModeSelectorRuntime.TryHandlePlay(__instance);
+        }
+        catch (Exception exception)
+        {
+            PortalModeSelectorRuntime.LogError("Portal selector play prefix failed", exception);
+        }
+
+        return true;
     }
 }
 

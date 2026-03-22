@@ -4,8 +4,8 @@
     <LangVersion>latest</LangVersion>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <AssemblyName>SneakOut.PortalModeSelector</AssemblyName>
-    <RootNamespace>SneakOut.PortalModeSelector</RootNamespace>
+    <AssemblyName>SneakOut.MummyUnlock</AssemblyName>
+    <RootNamespace>SneakOut.MummyUnlock</RootNamespace>
     <BepInExCoreDir Condition="'$(BepInExCoreDir)' == ''">$(MSBuildThisFileDirectory)../../.tmp/runtime-mod/bepinex/BepInEx/core</BepInExCoreDir>
     <InteropDir Condition="'$(InteropDir)' == ''">/run/media/chelokot/second/SteamLibrary/steamapps/common/Sneak Out/BepInEx/interop</InteropDir>
   </PropertyGroup>
@@ -39,10 +39,6 @@
       <HintPath>$(InteropDir)/Assembly-CSharp.dll</HintPath>
       <Private>false</Private>
     </Reference>
-    <Reference Include="Kinguinverse">
-      <HintPath>$(InteropDir)/Kinguinverse.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
     <Reference Include="Il2Cppmscorlib">
       <HintPath>$(InteropDir)/Il2Cppmscorlib.dll</HintPath>
       <Private>false</Private>
@@ -55,16 +51,12 @@
       <HintPath>$(InteropDir)/UnityEngine.UI.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="UnityEngine.ImageConversionModule">
+      <HintPath>$(InteropDir)/UnityEngine.ImageConversionModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="Unity.TextMeshPro">
       <HintPath>$(InteropDir)/Unity.TextMeshPro.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="DOTween">
-      <HintPath>$(InteropDir)/DOTween.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="DOTween.Modules">
-      <HintPath>$(InteropDir)/DOTween.Modules.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>

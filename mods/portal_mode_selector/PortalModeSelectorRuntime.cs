@@ -1,7 +1,9 @@
 using BepInEx.Logging;
 using DG.Tweening;
+using Events;
 using HarmonyLib;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
+using Networking.PGOS;
 using TMPro;
 using Types;
 using UI.Buttons;
@@ -68,7 +70,6 @@ internal static class PortalModeSelectorRuntime
 
         if (UiStateByView.TryGetValue(viewPointer, out var existingState) && existingState.IsAlive)
         {
-            EnforcePrivateGame(existingState.View);
             LayoutModeRow(existingState);
             RefreshModeRow(existingState, false);
             if (existingState.MapOptions.Length > 0)
@@ -347,8 +348,6 @@ internal static class PortalModeSelectorRuntime
             SelectedModeByView[viewPointer] = GameModeType.Default;
         }
 
-        EnforcePrivateGame(view);
-
         _logger?.LogInfo(
             $"Mode row positions prepared: leftClassic={leftClassicX}, leftCrown={leftCrownX}, rightClassic={rightClassicX}, rightCrown={rightCrownX}, checkbox={checkboxRect?.anchoredPosition}, " +
             $"sourceVictim={view._victimMovingPanel?.anchoredPosition}, sourceHunter={view._hunterMovingPanel?.anchoredPosition}");
@@ -423,11 +422,55 @@ internal static class PortalModeSelectorRuntime
         _logger?.LogInfo($"Portal mode button clicked, toggled to {nextMode}");
     }
 
-    public static void RememberPendingPlayView(PortalPlayView view)
+    public static bool TryHandlePlay(PortalPlayView view)
     {
-        EnforcePrivateGame(view);
         _pendingPlayViewPointer = view.Pointer;
-        _logger?.LogInfo($"Portal play pressed with requested mode {GetSelectedMode(view)}");
+        var selectedMode = GetSelectedMode(view);
+        _logger?.LogInfo($"Portal play pressed with requested mode {selectedMode}");
+        return false;
+    }
+
+    public static void LogPortalPlayViewClose(PortalPlayView view)
+    {
+        _logger?.LogInfo($"PortalPlayView.Close invoked for view 0x{view.Pointer:x}");
+    }
+
+    public static void LogGameUiLobbyPlay(UI.GameUIManager gameUiManager, string stage)
+    {
+        var openedViews = new List<string>();
+        foreach (var viewType in UI.GameUIManager.CurrentViewsOpened)
+        {
+            openedViews.Add(viewType.ToString());
+        }
+
+        _logger?.LogInfo(
+            $"GameUIManager.OnLobbyPlayButton {stage}: currentUI={UI.GameUIManager.CurrentUIOpened}, opened=[{string.Join(", ", openedViews)}]");
+    }
+
+    public static void LogMatchmakerOnStart(Matchmaker matchmaker, Il2CppSystem.Object? sender, Il2CppSystem.EventArgs? args, string stage)
+    {
+        var senderDescription = sender is null ? "<null>" : sender.GetType().FullName ?? sender.GetType().Name;
+        var argsDescription = args is null ? "<null>" : args.GetType().FullName ?? args.GetType().Name;
+        _logger?.LogInfo(
+            $"Matchmaker.OnStartMatchmaking {stage}: sender={senderDescription}, args={argsDescription}, currentTicket={matchmaker.CurrentMatchmakingTicket ?? "<null>"}");
+    }
+
+    public static void LogFindPlayersByMatchmaking(Matchmaker matchmaker, GameModeType gameModeType, string stage)
+    {
+        _logger?.LogInfo(
+            $"Matchmaker.FindPlayersByMatchmaking {stage}: requestedMode={gameModeType}, ticket={matchmaker.CurrentMatchmakingTicket ?? "<null>"}, isInMatchmaking={matchmaker.IsInMatchmaking}");
+    }
+
+    public static void LogMatchmakingView(MatchmakingView matchmakingView, string stage)
+    {
+        _logger?.LogInfo(
+            $"MatchmakingView {stage}: playButtonsPanelActive={matchmakingView._playButtonsPanel?.activeSelf}, waitingPanelActive={matchmakingView._waitingPanel?.activeSelf}");
+    }
+
+    public static void LogMatchmakingViewState(MatchmakingView matchmakingView, Gameplay.LobbyMatchmakingStateType state, string stage)
+    {
+        _logger?.LogInfo(
+            $"MatchmakingView {stage}: state={state}, playButtonsPanelActive={matchmakingView._playButtonsPanel?.activeSelf}, waitingPanelActive={matchmakingView._waitingPanel?.activeSelf}, playButtonText={(matchmakingView._playButtonText is null ? "<null>" : matchmakingView._playButtonText.text)}");
     }
 
     public static bool TryOverrideMatchMode(ref GameModeType gameModeType)
@@ -493,28 +536,27 @@ internal static class PortalModeSelectorRuntime
         }
 
         var verticalDelta = state.OriginalRoleSectionPosition.y - state.OriginalPrivateSectionPosition.y;
-        var topMarginReduction = verticalDelta * 0.38f;
-        var roleLift = verticalDelta * 0.76f;
-        var playLift = verticalDelta * 0.62f;
-        var groupOffsetDown = new Vector2(0f, -verticalDelta * 0.5f);
-        modeSectionRect.anchoredPosition = state.OriginalRoleSectionPosition + new Vector2(0f, verticalDelta + topMarginReduction) + groupOffsetDown;
+        var groupOffsetDown = new Vector2(0f, -verticalDelta * 0.06f);
+        modeSectionRect.anchoredPosition = state.OriginalRoleSectionPosition + new Vector2(0f, verticalDelta * 1.48f) + groupOffsetDown;
         modeSectionRect.sizeDelta = roleSectionRect.sizeDelta;
         modeSectionRect.anchorMin = roleSectionRect.anchorMin;
         modeSectionRect.anchorMax = roleSectionRect.anchorMax;
         modeSectionRect.pivot = roleSectionRect.pivot;
         modeSectionRect.localScale = roleSectionRect.localScale;
 
-        roleSectionRect.anchoredPosition = state.OriginalPrivateSectionPosition - new Vector2(0f, verticalDelta) + new Vector2(0f, roleLift) + groupOffsetDown;
-        privateSectionRect.gameObject.SetActive(false);
-        playSectionRect.anchoredPosition = state.OriginalPlaySectionPosition - new Vector2(0f, verticalDelta) + new Vector2(0f, playLift) + groupOffsetDown;
+        roleSectionRect.anchoredPosition = state.OriginalRoleSectionPosition - new Vector2(0f, verticalDelta * 0.52f) + groupOffsetDown;
+        privateSectionRect.gameObject.SetActive(true);
+        privateSectionRect.anchoredPosition = state.OriginalPrivateSectionPosition - new Vector2(0f, verticalDelta * 0.62f) + groupOffsetDown;
+        playSectionRect.anchoredPosition = state.OriginalPlaySectionPosition - new Vector2(0f, verticalDelta * 0.78f) + groupOffsetDown;
 
-        contentRootRect.sizeDelta = state.OriginalContentSize + new Vector2(0f, verticalDelta * 1.08f);
-        contentRootRect.anchoredPosition = state.OriginalContentPosition;
-        popupRootRect.sizeDelta = state.OriginalPopupSize + new Vector2(0f, verticalDelta * 1.08f);
-        popupRootRect.anchoredPosition = state.OriginalPopupPosition;
+        contentRootRect.sizeDelta = state.OriginalContentSize + new Vector2(0f, verticalDelta * 1.88f);
+        contentRootRect.anchoredPosition = state.OriginalContentPosition + new Vector2(0f, verticalDelta * 0.08f);
+        popupRootRect.sizeDelta = state.OriginalPopupSize + new Vector2(0f, verticalDelta * 1.88f);
+        popupRootRect.anchoredPosition = state.OriginalPopupPosition + new Vector2(0f, verticalDelta * 0.08f);
 
         modeSectionRect.SetSiblingIndex(state.OriginalRoleSectionSiblingIndex);
         roleSectionRect.SetSiblingIndex(state.OriginalRoleSectionSiblingIndex + 1);
+        privateSectionRect.SetSiblingIndex(state.OriginalRoleSectionSiblingIndex + 2);
     }
 
     private static void RefreshModeRow(PortalModeUiState state, bool animate)
@@ -556,9 +598,9 @@ internal static class PortalModeSelectorRuntime
             return;
         }
 
-        var topBoundary = modeSectionRect.anchoredPosition.y - modeSectionRect.sizeDelta.y * 0.52f - 36f;
-        var bottomBoundary = roleSectionRect.anchoredPosition.y + roleSectionRect.sizeDelta.y * 0.52f;
-        var sectionHeight = Mathf.Max(98f, topBoundary - bottomBoundary);
+        var topBoundary = modeSectionRect.anchoredPosition.y - modeSectionRect.sizeDelta.y * 0.52f - 64f;
+        var bottomBoundary = roleSectionRect.anchoredPosition.y + roleSectionRect.sizeDelta.y * 0.52f + 24f;
+        var sectionHeight = Mathf.Max(126f, topBoundary - bottomBoundary);
         mapSectionRect.anchoredPosition = new Vector2(state.OriginalRoleSectionPosition.x, (topBoundary + bottomBoundary) * 0.5f);
         mapSectionRect.sizeDelta = new Vector2(modeSectionRect.sizeDelta.x, sectionHeight);
 
@@ -888,12 +930,6 @@ internal static class PortalModeSelectorRuntime
         {
             _logger?.LogError($"MapsToPlayOn log failed: {exception}");
         }
-    }
-
-    private static void EnforcePrivateGame(PortalPlayView view)
-    {
-        view._PrivateGame_k__BackingField = true;
-        view.PrivateGame = true;
     }
 
     private static void LogChildren(Transform root, int depth, int maxDepth)

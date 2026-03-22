@@ -14,6 +14,8 @@ Reverse-engineering notes, patching tools, and runtime mod work for `Sneak Out`.
   A .NET inspection utility for BepInEx-generated interop assemblies.
 - `mods/portal_mode_selector/`
   The runtime BepInEx IL2CPP mod that is replacing fragile raw UI scene surgery.
+- `mods/mummy_unlock/`
+  A dedicated runtime research mod for restoring Mummy as a selectable hunter.
 
 ## What currently exists
 
@@ -59,6 +61,21 @@ python3 tools/patch_sneak_out.py \
   --patches mode-selector,fix-private-party-first-invite,uniform-hunter-random,fix-battlepass-refresh-crash
 ```
 
+List runtime mod ids:
+
+```bash
+python3 tools/patch_sneak_out.py --list-mods
+```
+
+Install runtime mods through the same script:
+
+```bash
+python3 tools/patch_sneak_out.py \
+  --game-dir "/path/to/Sneak Out" \
+  --patches "" \
+  --mods portal-mode-selector,mummy-unlock
+```
+
 Rollback:
 
 ```bash
@@ -90,6 +107,8 @@ The patch selection screen is keyboard-driven:
   Toggle the currently highlighted option.
 - `Enter`
   Apply the selected patch set.
+
+After the patch screen, the same interactive flow opens a second screen for runtime mods.
 
 The UI prints usage hints in green at the bottom of the selector.
 

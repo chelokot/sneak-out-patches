@@ -16,6 +16,10 @@ Reverse-engineering notes, patching tools, and runtime mod work for `Sneak Out`.
   The runtime BepInEx IL2CPP mod that is replacing fragile raw UI scene surgery.
 - `mods/mummy_unlock/`
   A dedicated runtime research mod for restoring Mummy as a selectable hunter.
+- `mods/backend_redirector/`
+  The runtime BepInEx IL2CPP mod that redirects the dead web-service layer toward a community backend.
+- `backend/community_server/`
+  A `Hono + Deno` MVP backend for private-lobby recovery and maxed-profile testing.
 
 ## What currently exists
 
@@ -31,6 +35,27 @@ The Python patcher supports these retail file patches:
   Temporarily disables a crashy battlepass refresh handler that was interfering with lobby testing.
 
 The runtime mod path is now active through `BepInEx` and is the preferred direction for further UI work.
+
+## Community backend development
+
+The community backend lives in:
+
+- `backend/community_server/`
+
+Run it with:
+
+```bash
+cd backend/community_server
+deno task dev
+```
+
+Validate it with:
+
+```bash
+cd backend/community_server
+deno task check
+deno task test
+```
 
 ## Clone the repository
 
@@ -73,7 +98,7 @@ Install runtime mods through the same script:
 python3 tools/patch_sneak_out.py \
   --game-dir "/path/to/Sneak Out" \
   --patches "" \
-  --mods portal-mode-selector,mummy-unlock
+  --mods backend-redirector
 ```
 
 Rollback:
@@ -141,6 +166,51 @@ WINEDLLOVERRIDES="winhttp=n,b" %command%
 ```
 
 Without that override, `winhttp.dll` is usually not picked up and the runtime plugin will not load.
+
+The backend redirector mod lives in:
+
+- `mods/backend_redirector/BackendRedirector.csproj`
+
+Build it with:
+
+```bash
+./.tmp/runtime-mod/dotnet/dotnet build mods/backend_redirector/BackendRedirector.csproj -c Release
+```
+
+Copy it into the game:
+
+```bash
+cp -f \
+  mods/backend_redirector/bin/Release/net6.0/SneakOut.BackendRedirector.dll \
+  "/path/to/Sneak Out/BepInEx/plugins/SneakOut.BackendRedirector.dll"
+```
+
+Its generated config file is:
+
+```text
+/path/to/Sneak Out/BepInEx/config/chelokot.sneakout.backend-redirector.cfg
+```
+
+The generated config stays fully disabled by default:
+
+- `EnableResearchLogging=false`
+- `EnableLocalStub=false`
+- `EnableRedirect=false`
+
+Enable it explicitly in:
+
+```text
+/path/to/Sneak Out/BepInEx/config/chelokot.sneakout.backend-redirector.cfg
+```
+
+For a first live test, start the backend first:
+
+```bash
+cd backend/community_server
+COMMUNITY_BACKEND_LOG_REQUESTS=true deno task dev
+```
+
+Then launch the game with the same Proton `winhttp` override used by the other runtime plugins.
 
 The helper inspector project lives in:
 

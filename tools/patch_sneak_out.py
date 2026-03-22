@@ -86,6 +86,8 @@ class RuntimeModOption:
     default_enabled: bool
     project_relative_path: str
     assembly_name: str
+    config_relative_path: str | None = None
+    default_config_text: str | None = None
 
     @property
     def project_path(self) -> Path:
@@ -229,6 +231,42 @@ RUNTIME_MOD_OPTIONS: tuple[RuntimeModOption, ...] = (
         default_enabled=False,
         project_relative_path="mods/mummy_unlock/MummyUnlock.csproj",
         assembly_name="SneakOut.MummyUnlock",
+    ),
+    RuntimeModOption(
+        option_id="backend-redirector",
+        label="Install Backend Redirector runtime mod",
+        details="Builds and installs the BepInEx runtime mod that redirects the dead web-service layer to the community backend.",
+        default_enabled=False,
+        project_relative_path="mods/backend_redirector/BackendRedirector.csproj",
+        assembly_name="SneakOut.BackendRedirector",
+        config_relative_path="BepInEx/config/chelokot.sneakout.backend-redirector.cfg",
+        default_config_text=(
+            "[general]\n"
+            "## Settings file was created by version 0.1.0 of Backend Redirector\n"
+            "## Plugin GUID: chelokot.sneakout.backend-redirector\n"
+            "## Plugin Name: Backend Redirector\n"
+            "## Plugin Version: 0.1.0\n\n"
+            "## Enable backend construction and environment-change logs.\n"
+            "# Setting type: Boolean\n"
+            "# Default value: false\n"
+            "EnableResearchLogging = false\n\n"
+            "## Serve maxed community account responses directly from the runtime mod.\n"
+            "# Setting type: Boolean\n"
+            "# Default value: false\n"
+            "EnableLocalStub = false\n\n"
+            "## Enable live backend redirection.\n"
+            "# Setting type: Boolean\n"
+            "# Default value: false\n"
+            "EnableRedirect = false\n\n"
+            "## Community-backend base URL.\n"
+            "# Setting type: String\n"
+            "# Default value: http://127.0.0.1:8080\n"
+            "TargetBaseUrl = http://127.0.0.1:8080\n\n"
+            "## Logical environment label used in redirect logs.\n"
+            "# Setting type: String\n"
+            "# Default value: CommunityLocal\n"
+            "TargetEnvironmentName = CommunityLocal\n"
+        ),
     ),
 )
 
@@ -1296,6 +1334,12 @@ def resolve_runtime_mod_install_path(game_dir: Path, runtime_mod: RuntimeModOpti
     return plugins_dir / f"{runtime_mod.assembly_name}.dll"
 
 
+def resolve_runtime_mod_config_path(game_dir: Path, runtime_mod: RuntimeModOption) -> Path | None:
+    if runtime_mod.config_relative_path is None:
+        return None
+    return game_dir / runtime_mod.config_relative_path
+
+
 def build_runtime_mod(runtime_mod: RuntimeModOption) -> Path:
     if not runtime_mod.project_path.is_file():
         raise SystemExit(f"Missing runtime mod project: {runtime_mod.project_path}")
@@ -1357,6 +1401,21 @@ def install_runtime_mod(game_dir: Path, runtime_mod: RuntimeModOption, built_dll
         print(f"backup:    {backup_path}")
     if absent_marker_created:
         print(f"created:   {absent_marker_path}")
+
+    config_path = resolve_runtime_mod_config_path(game_dir, runtime_mod)
+    if config_path is None or runtime_mod.default_config_text is None:
+        return
+
+    config_absent_marker_path = config_path.with_name(config_path.name + ABSENT_MARKER_SUFFIX)
+    if config_path.exists():
+        return
+
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(runtime_mod.default_config_text, encoding="utf-8")
+    if not config_absent_marker_path.exists():
+        config_absent_marker_path.write_text("absent\n", encoding="utf-8")
+        print(f"created:   {config_absent_marker_path}")
+    print(f"created:   {config_path}")
 
 def install_selected_runtime_mods(game_dir: Path, selected_runtime_mod_option_ids: tuple[str, ...]) -> None:
     for option_id in selected_runtime_mod_option_ids:
@@ -1427,6 +1486,16 @@ def rollback(game_dir: Path) -> None:
                 print(f"removed:  {install_path}")
             else:
                 print(f"already absent: {install_path}")
+        config_path = resolve_runtime_mod_config_path(game_dir, runtime_mod)
+        if config_path is None:
+            continue
+        config_absent_marker_path = config_path.with_name(config_path.name + ABSENT_MARKER_SUFFIX)
+        if config_absent_marker_path.is_file():
+            if config_path.is_file():
+                config_path.unlink()
+                print(f"removed:  {config_path}")
+            else:
+                print(f"already absent: {config_path}")
 
 
 def build_parser() -> ArgumentParser:

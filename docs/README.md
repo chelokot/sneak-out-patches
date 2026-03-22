@@ -38,6 +38,12 @@
   Steam app paths, library locations, and runtime artifacts.
 - `reverse-engineering/evidence-sources.md`
   Where current conclusions came from and how reliable each source is.
+- `reverse-engineering/backend-transition.md`
+  Confirmed backend seams and the current runtime-mod redirect strategy.
+- `reverse-engineering/community-backend-scope.md`
+  The first-pass scope for a self-hosted private-lobby backend.
+- `reverse-engineering/community-backend-live-test.md`
+  The first install-ready runbook for testing the redirector mod against the community backend.
 - `reverse-engineering/patching-methodology.md`
   Practical rules for safer IL2CPP and asset patching in this project.
 

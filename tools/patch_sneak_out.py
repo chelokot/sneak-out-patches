@@ -163,22 +163,35 @@ LEVEL0_PORTAL_SELECTOR_ROOT_TRANSFORM = 13300
 LEVEL0_BACKGROUND_TRANSFORM = 14710
 LEVEL0_PRIVATE_GAME_TRANSFORM = 14866
 LEVEL0_PORTAL_VIEW_COMPONENT = 24702
+LEVEL0_MODE_LABEL_COMPONENT = 19499
+LEVEL0_MODE_TITLE_COMPONENT = 19506
+LEVEL0_MODE_LEFT_TEXT_COMPONENT = 19339
+LEVEL0_MODE_RIGHT_TEXT_COMPONENT = 19520
+LEVEL0_ROLE_LABEL_CLONE_COMPONENT = 28087
+LEVEL0_MODE_ROW_Y = 393.0
+LEVEL0_ROLE_ROW_Y = 295.0
+LEVEL0_PRIVATE_ROW_Y = 197.0
+LEVEL0_GAME_MODE_LABEL_TEXT = b"Game mode"
+LEVEL0_ROLE_LABEL_TEXT = b"Preferred role"
+LEVEL0_BEREK_LABEL_TEXT = b"Berek!"
+LEVEL0_CLASSIC_LABEL_TEXT = b"Normal"
 
 GAMEASSEMBLY_MODE_SELECTOR_WRAPPER_OFFSET = 0x5E4EA0
 GAMEASSEMBLY_MODE_SELECTOR_LOADER_OFFSET = 0x5E4FC0
+GAMEASSEMBLY_MODE_SELECTOR_ONAWAKE_HELPER_OFFSET = 0x5E6490
 GAMEASSEMBLY_ROLE_BUTTON_ENTRY_OFFSET = 0x7E10C0
 GAMEASSEMBLY_MODE_CALL_SITE_ONE_OFFSET = 0x7E15AD
 GAMEASSEMBLY_MODE_CALL_SITE_TWO_OFFSET = 0x7E15DC
+GAMEASSEMBLY_ONAWAKE_TAIL_OFFSET = 0x7E10A4
 
 GAMEASSEMBLY_IMAGE_BASE = 0x180000000
+GAMEASSEMBLY_IL2CPP_RAW_START = 0x569C00
+GAMEASSEMBLY_IL2CPP_RVA_START = 0x56B000
 
 GAMEASSEMBLY_MODE_SELECTOR_ENTRY_BYTES = bytes.fromhex("40574883ec20")
 GAMEASSEMBLY_MODE_CALL_SITE_ONE_BYTES = bytes.fromhex("4533c0488bc8488bd8418d5001")
 GAMEASSEMBLY_MODE_CALL_SITE_TWO_BYTES = bytes.fromhex("4533c0418d5001")
-
-LEVEL0_GAME_MODE_LABEL_TEXT = b"Choose a mode!"
-LEVEL0_BEREK_LABEL_TEXT = b"Berek!"
-LEVEL0_CLASSIC_LABEL_TEXT = b"Normal"
+GAMEASSEMBLY_ONAWAKE_TAIL_BYTES = bytes.fromhex("488b7c2438488b7424308883500100004883c4205bc3")
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -431,6 +444,19 @@ def _replace_qword(raw_bytes: bytearray, offset: int, value: int) -> None:
     raw_bytes[offset : offset + 8] = struct.pack("<q", value)
 
 
+def _patch_text_component(raw_bytes: bytearray, updated_text: bytes) -> None:
+    raw_bytes[88:92] = struct.pack("<I", len(updated_text))
+    raw_bytes[92 : 92 + len(updated_text)] = updated_text
+    padded_text_end = 92 + ((len(updated_text) + 3) & ~3)
+    raw_bytes[92 + len(updated_text) : padded_text_end] = b"\x00" * (
+        padded_text_end - (92 + len(updated_text))
+    )
+
+
+def _gameassembly_raw_to_va(raw_offset: int) -> int:
+    return GAMEASSEMBLY_IMAGE_BASE + GAMEASSEMBLY_IL2CPP_RVA_START + (raw_offset - GAMEASSEMBLY_IL2CPP_RAW_START)
+
+
 def _collect_level0_subtree(asset, root_transform_path_id: int) -> list[int]:
     subtree_path_ids: list[int] = []
 
@@ -538,11 +564,11 @@ def _patch_level0_mode_selector(prepared_file: PreparedFile) -> None:
             for child in clone_root_tree["m_Children"]
         ]
         clone_root_tree["m_Father"] = {"m_FileID": 0, "m_PathID": LEVEL0_BACKGROUND_TRANSFORM}
-        clone_root_tree["m_AnchoredPosition"]["y"] = 308.0
+        clone_root_tree["m_AnchoredPosition"]["y"] = LEVEL0_ROLE_ROW_Y
         asset.objects[cloned_path_ids[LEVEL0_PORTAL_SELECTOR_ROOT_TRANSFORM]].save_typetree(clone_root_tree)
 
         private_game_tree = asset.objects[LEVEL0_PRIVATE_GAME_TRANSFORM].read_typetree()
-        private_game_tree["m_AnchoredPosition"]["y"] = 223.0
+        private_game_tree["m_AnchoredPosition"]["y"] = LEVEL0_PRIVATE_ROW_Y
         asset.objects[LEVEL0_PRIVATE_GAME_TRANSFORM].save_typetree(private_game_tree)
 
         original_root_game_object = asset.objects[602].read_typetree()
@@ -566,9 +592,11 @@ def _patch_level0_mode_selector(prepared_file: PreparedFile) -> None:
         asset.objects[cloned_path_ids[1514]].save_typetree(cloned_button_game_object)
 
         text_updates = {
-            19499: LEVEL0_GAME_MODE_LABEL_TEXT,
-            19339: LEVEL0_BEREK_LABEL_TEXT,
-            19520: LEVEL0_CLASSIC_LABEL_TEXT,
+            LEVEL0_MODE_LABEL_COMPONENT: LEVEL0_GAME_MODE_LABEL_TEXT,
+            LEVEL0_MODE_TITLE_COMPONENT: LEVEL0_GAME_MODE_LABEL_TEXT,
+            LEVEL0_MODE_LEFT_TEXT_COMPONENT: LEVEL0_BEREK_LABEL_TEXT,
+            LEVEL0_MODE_RIGHT_TEXT_COMPONENT: LEVEL0_CLASSIC_LABEL_TEXT,
+            cloned_path_ids[19499]: LEVEL0_ROLE_LABEL_TEXT,
         }
         for text_component_path_id, updated_text in text_updates.items():
             text_component = asset.objects[text_component_path_id]
@@ -577,12 +605,7 @@ def _patch_level0_mode_selector(prepared_file: PreparedFile) -> None:
                 if text_component.data is not None
                 else source_bytes[text_component.byte_start : text_component.byte_start + text_component.byte_size]
             )
-            raw_bytes[88:92] = struct.pack("<I", len(updated_text))
-            raw_bytes[92 : 92 + len(updated_text)] = updated_text
-            padded_text_end = 92 + ((len(updated_text) + 3) & ~3)
-            raw_bytes[92 + len(updated_text) : padded_text_end] = b"\x00" * (
-                padded_text_end - (92 + len(updated_text))
-            )
+            _patch_text_component(raw_bytes, updated_text)
             text_component.data = bytes(raw_bytes)
 
         portal_view_component = asset.objects[LEVEL0_PORTAL_VIEW_COMPONENT]
@@ -635,9 +658,18 @@ def _patch_gameassembly_mode_selector(prepared_file: PreparedFile) -> None:
     ) != GAMEASSEMBLY_MODE_CALL_SITE_TWO_BYTES:
         raise SystemExit("Unexpected second PortalPlayView.OnPlay mode literal in clean GameAssembly.dll")
 
+    if bytes(
+        gameassembly_bytes[
+            GAMEASSEMBLY_ONAWAKE_TAIL_OFFSET : GAMEASSEMBLY_ONAWAKE_TAIL_OFFSET
+            + len(GAMEASSEMBLY_ONAWAKE_TAIL_BYTES)
+        ]
+    ) != GAMEASSEMBLY_ONAWAKE_TAIL_BYTES:
+        raise SystemExit("Unexpected PortalPlayView.OnAwake tail in clean GameAssembly.dll")
+
     assembler = Ks(KS_ARCH_X86, KS_MODE_64)
-    wrapper_address = GAMEASSEMBLY_IMAGE_BASE + GAMEASSEMBLY_MODE_SELECTOR_WRAPPER_OFFSET
-    loader_address = GAMEASSEMBLY_IMAGE_BASE + GAMEASSEMBLY_MODE_SELECTOR_LOADER_OFFSET
+    wrapper_address = _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_WRAPPER_OFFSET)
+    loader_address = _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_LOADER_OFFSET)
+    onawake_helper_address = _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_ONAWAKE_HELPER_OFFSET)
     wrapper_assembly = """
         push rdi
         sub rsp, 0x20
@@ -706,6 +738,7 @@ def _patch_gameassembly_mode_selector(prepared_file: PreparedFile) -> None:
         pop rdi
         ret
     role_path:
+        mov rcx, rdi
         jmp 0x1807E24C6
     """
     wrapper_bytes = bytes(assembler.asm(wrapper_assembly, addr=wrapper_address)[0])
@@ -713,6 +746,86 @@ def _patch_gameassembly_mode_selector(prepared_file: PreparedFile) -> None:
         assembler.asm(
             "xor r8d, r8d; movzx edx, byte ptr [rdi+0x152]; inc edx; ret",
             addr=loader_address,
+        )[0]
+    )
+    onawake_helper_bytes = bytes(
+        assembler.asm(
+            """
+            mov byte ptr [rbx+0x150], al
+            mov rcx, [rbx+0xF8]
+            test rcx, rcx
+            je finish
+            call 0x18320F2D0
+            mov [rsp+0x18], eax
+            mov rcx, [rbx+0xF8]
+            call 0x18320FB30
+            test rax, rax
+            je finish
+            mov rcx, rax
+            call 0x1832146A0
+            test rax, rax
+            je finish
+            mov rcx, rax
+            call 0x18323D6B0
+            test rax, rax
+            je finish
+            mov rcx, rax
+            call 0x18323D6B0
+            test rax, rax
+            je finish
+            mov rcx, rax
+            call 0x18323D6B0
+            test rax, rax
+            je finish
+            mov rcx, rax
+            mov edx, 2
+            call 0x18323D4F0
+            test rax, rax
+            je finish
+            mov rcx, rax
+            mov edx, 1
+            call 0x18323D4F0
+            test rax, rax
+            je finish
+            mov rcx, rax
+            mov edx, 2
+            call 0x18323D4F0
+            test rax, rax
+            je finish
+            mov rcx, rax
+            call 0x18320FB30
+            test rax, rax
+            je finish
+            mov rcx, rax
+            mov edx, dword ptr [rsp+0x18]
+            call 0x183212F30
+            test rax, rax
+            je finish
+            mov rdi, [rax+0x100]
+            mov rcx, 0x1843B1E08
+            mov rcx, [rcx]
+            call 0x1804726E0
+            mov r8, 0x1843A36D8
+            mov r8, [r8]
+            xor r9d, r9d
+            mov rdx, rbx
+            mov rcx, rax
+            mov rsi, rax
+            call 0x1808DA950
+            test rdi, rdi
+            je finish
+            xor r8d, r8d
+            mov rdx, rsi
+            mov rcx, rdi
+            call 0x183243D40
+        finish:
+            mov rdi, [rsp+0x38]
+            mov rsi, [rsp+0x30]
+            add rsp, 0x20
+            pop rbx
+            ret
+            """,
+            addr=onawake_helper_address,
         )[0]
     )
 
@@ -724,20 +837,24 @@ def _patch_gameassembly_mode_selector(prepared_file: PreparedFile) -> None:
         GAMEASSEMBLY_MODE_SELECTOR_LOADER_OFFSET : GAMEASSEMBLY_MODE_SELECTOR_LOADER_OFFSET
         + len(loader_bytes)
     ] = loader_bytes
+    gameassembly_bytes[
+        GAMEASSEMBLY_MODE_SELECTOR_ONAWAKE_HELPER_OFFSET : GAMEASSEMBLY_MODE_SELECTOR_ONAWAKE_HELPER_OFFSET
+        + len(onawake_helper_bytes)
+    ] = onawake_helper_bytes
 
     wrapper_jump = (
-        GAMEASSEMBLY_IMAGE_BASE + GAMEASSEMBLY_MODE_SELECTOR_WRAPPER_OFFSET
+        _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_WRAPPER_OFFSET)
     ) - (
-        GAMEASSEMBLY_IMAGE_BASE + GAMEASSEMBLY_ROLE_BUTTON_ENTRY_OFFSET + 5
+        _gameassembly_raw_to_va(GAMEASSEMBLY_ROLE_BUTTON_ENTRY_OFFSET) + 5
     )
     gameassembly_bytes[
         GAMEASSEMBLY_ROLE_BUTTON_ENTRY_OFFSET : GAMEASSEMBLY_ROLE_BUTTON_ENTRY_OFFSET + 6
     ] = b"\xE9" + int(wrapper_jump).to_bytes(4, "little", signed=True) + b"\x90"
 
     loader_call_one = (
-        GAMEASSEMBLY_IMAGE_BASE + GAMEASSEMBLY_MODE_SELECTOR_LOADER_OFFSET
+        _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_LOADER_OFFSET)
     ) - (
-        GAMEASSEMBLY_IMAGE_BASE + GAMEASSEMBLY_MODE_CALL_SITE_ONE_OFFSET + 11
+        _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_CALL_SITE_ONE_OFFSET) + 11
     )
     gameassembly_bytes[
         GAMEASSEMBLY_MODE_CALL_SITE_ONE_OFFSET : GAMEASSEMBLY_MODE_CALL_SITE_ONE_OFFSET + 13
@@ -748,13 +865,24 @@ def _patch_gameassembly_mode_selector(prepared_file: PreparedFile) -> None:
     )
 
     loader_call_two = (
-        GAMEASSEMBLY_IMAGE_BASE + GAMEASSEMBLY_MODE_SELECTOR_LOADER_OFFSET
+        _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_LOADER_OFFSET)
     ) - (
-        GAMEASSEMBLY_IMAGE_BASE + GAMEASSEMBLY_MODE_CALL_SITE_TWO_OFFSET + 5
+        _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_CALL_SITE_TWO_OFFSET) + 5
     )
     gameassembly_bytes[
         GAMEASSEMBLY_MODE_CALL_SITE_TWO_OFFSET : GAMEASSEMBLY_MODE_CALL_SITE_TWO_OFFSET + 7
     ] = b"\xE8" + int(loader_call_two).to_bytes(4, "little", signed=True) + b"\x90\x90"
+
+    onawake_tail_jump = (
+        _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_ONAWAKE_HELPER_OFFSET)
+    ) - (
+        _gameassembly_raw_to_va(GAMEASSEMBLY_ONAWAKE_TAIL_OFFSET) + 5
+    )
+    gameassembly_bytes[
+        GAMEASSEMBLY_ONAWAKE_TAIL_OFFSET : GAMEASSEMBLY_ONAWAKE_TAIL_OFFSET + len(GAMEASSEMBLY_ONAWAKE_TAIL_BYTES)
+    ] = b"\xE9" + int(onawake_tail_jump).to_bytes(4, "little", signed=True) + b"\x90" * (
+        len(GAMEASSEMBLY_ONAWAKE_TAIL_BYTES) - 5
+    )
 
 
 def apply_custom_patch_steps(

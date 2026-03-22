@@ -178,11 +178,9 @@ LEVEL0_CLASSIC_LABEL_TEXT = b"Normal"
 
 GAMEASSEMBLY_MODE_SELECTOR_WRAPPER_OFFSET = 0x5E4EA0
 GAMEASSEMBLY_MODE_SELECTOR_LOADER_OFFSET = 0x5E4FC0
-GAMEASSEMBLY_MODE_SELECTOR_ONAWAKE_HELPER_OFFSET = 0x5E6490
 GAMEASSEMBLY_ROLE_BUTTON_ENTRY_OFFSET = 0x7E10C0
 GAMEASSEMBLY_MODE_CALL_SITE_ONE_OFFSET = 0x7E15AD
 GAMEASSEMBLY_MODE_CALL_SITE_TWO_OFFSET = 0x7E15DC
-GAMEASSEMBLY_ONAWAKE_TAIL_OFFSET = 0x7E10A4
 
 GAMEASSEMBLY_IMAGE_BASE = 0x180000000
 GAMEASSEMBLY_IL2CPP_RAW_START = 0x569C00
@@ -191,7 +189,6 @@ GAMEASSEMBLY_IL2CPP_RVA_START = 0x56B000
 GAMEASSEMBLY_MODE_SELECTOR_ENTRY_BYTES = bytes.fromhex("40574883ec20")
 GAMEASSEMBLY_MODE_CALL_SITE_ONE_BYTES = bytes.fromhex("4533c0488bc8488bd8418d5001")
 GAMEASSEMBLY_MODE_CALL_SITE_TWO_BYTES = bytes.fromhex("4533c0418d5001")
-GAMEASSEMBLY_ONAWAKE_TAIL_BYTES = bytes.fromhex("488b7c2438488b7424308883500100004883c4205bc3")
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -658,18 +655,9 @@ def _patch_gameassembly_mode_selector(prepared_file: PreparedFile) -> None:
     ) != GAMEASSEMBLY_MODE_CALL_SITE_TWO_BYTES:
         raise SystemExit("Unexpected second PortalPlayView.OnPlay mode literal in clean GameAssembly.dll")
 
-    if bytes(
-        gameassembly_bytes[
-            GAMEASSEMBLY_ONAWAKE_TAIL_OFFSET : GAMEASSEMBLY_ONAWAKE_TAIL_OFFSET
-            + len(GAMEASSEMBLY_ONAWAKE_TAIL_BYTES)
-        ]
-    ) != GAMEASSEMBLY_ONAWAKE_TAIL_BYTES:
-        raise SystemExit("Unexpected PortalPlayView.OnAwake tail in clean GameAssembly.dll")
-
     assembler = Ks(KS_ARCH_X86, KS_MODE_64)
     wrapper_address = _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_WRAPPER_OFFSET)
     loader_address = _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_LOADER_OFFSET)
-    onawake_helper_address = _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_ONAWAKE_HELPER_OFFSET)
     wrapper_assembly = """
         push rdi
         sub rsp, 0x20
@@ -748,88 +736,6 @@ def _patch_gameassembly_mode_selector(prepared_file: PreparedFile) -> None:
             addr=loader_address,
         )[0]
     )
-    onawake_helper_bytes = bytes(
-        assembler.asm(
-            """
-            mov byte ptr [rbx+0x150], al
-            mov rcx, [rbx+0xF8]
-            test rcx, rcx
-            je finish
-            call 0x18320FB30
-            test rax, rax
-            je finish
-            mov rcx, rax
-            call 0x1832146A0
-            test rax, rax
-            je finish
-            mov rcx, rax
-            call 0x18323D6B0
-            test rax, rax
-            je finish
-            mov rcx, rax
-            call 0x18323D6B0
-            test rax, rax
-            je finish
-            mov rcx, rax
-            call 0x18323D6B0
-            test rax, rax
-            je finish
-            mov rcx, rax
-            mov edx, 2
-            call 0x18323D4F0
-            test rax, rax
-            je finish
-            mov rcx, rax
-            mov edx, 1
-            call 0x18323D4F0
-            test rax, rax
-            je finish
-            mov rcx, rax
-            mov edx, 2
-            call 0x18323D4F0
-            test rax, rax
-            je finish
-            mov rcx, rax
-            call 0x18320FB30
-            test rax, rax
-            je finish
-            mov [rsp+0x10], rax
-            mov rcx, rax
-            call 0x1832130B0
-            cmp eax, 5
-            jb finish
-            mov rcx, [rsp+0x10]
-            mov edx, 4
-            call 0x183212F30
-            test rax, rax
-            je finish
-            mov rdi, [rax+0x100]
-            mov rcx, 0x1843B1E08
-            mov rcx, [rcx]
-            call 0x1804726E0
-            mov r8, 0x1843A36D8
-            mov r8, [r8]
-            xor r9d, r9d
-            mov rdx, rbx
-            mov rcx, rax
-            mov rsi, rax
-            call 0x1808DA950
-            test rdi, rdi
-            je finish
-            xor r8d, r8d
-            mov rdx, rsi
-            mov rcx, rdi
-            call 0x183243D40
-        finish:
-            mov rdi, [rsp+0x38]
-            mov rsi, [rsp+0x30]
-            add rsp, 0x20
-            pop rbx
-            ret
-            """,
-            addr=onawake_helper_address,
-        )[0]
-    )
 
     gameassembly_bytes[
         GAMEASSEMBLY_MODE_SELECTOR_WRAPPER_OFFSET : GAMEASSEMBLY_MODE_SELECTOR_WRAPPER_OFFSET
@@ -839,10 +745,6 @@ def _patch_gameassembly_mode_selector(prepared_file: PreparedFile) -> None:
         GAMEASSEMBLY_MODE_SELECTOR_LOADER_OFFSET : GAMEASSEMBLY_MODE_SELECTOR_LOADER_OFFSET
         + len(loader_bytes)
     ] = loader_bytes
-    gameassembly_bytes[
-        GAMEASSEMBLY_MODE_SELECTOR_ONAWAKE_HELPER_OFFSET : GAMEASSEMBLY_MODE_SELECTOR_ONAWAKE_HELPER_OFFSET
-        + len(onawake_helper_bytes)
-    ] = onawake_helper_bytes
 
     wrapper_jump = (
         _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_WRAPPER_OFFSET)
@@ -874,17 +776,6 @@ def _patch_gameassembly_mode_selector(prepared_file: PreparedFile) -> None:
     gameassembly_bytes[
         GAMEASSEMBLY_MODE_CALL_SITE_TWO_OFFSET : GAMEASSEMBLY_MODE_CALL_SITE_TWO_OFFSET + 7
     ] = b"\xE8" + int(loader_call_two).to_bytes(4, "little", signed=True) + b"\x90\x90"
-
-    onawake_tail_jump = (
-        _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_ONAWAKE_HELPER_OFFSET)
-    ) - (
-        _gameassembly_raw_to_va(GAMEASSEMBLY_ONAWAKE_TAIL_OFFSET) + 5
-    )
-    gameassembly_bytes[
-        GAMEASSEMBLY_ONAWAKE_TAIL_OFFSET : GAMEASSEMBLY_ONAWAKE_TAIL_OFFSET + len(GAMEASSEMBLY_ONAWAKE_TAIL_BYTES)
-    ] = b"\xE9" + int(onawake_tail_jump).to_bytes(4, "little", signed=True) + b"\x90" * (
-        len(GAMEASSEMBLY_ONAWAKE_TAIL_BYTES) - 5
-    )
 
 
 def apply_custom_patch_steps(

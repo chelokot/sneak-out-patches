@@ -4,6 +4,7 @@ using UI.Buttons;
 using UI.Views.Lobby;
 using UnityEngine;
 using UnityEngine.Events;
+using UnityEngine.UI;
 
 namespace SneakOut.PortalModeSelector;
 
@@ -22,12 +23,19 @@ internal sealed record PortalModeUiState(
     TMP_Text RightText,
     GameObject LeftObject,
     GameObject RightObject,
+    Image LeftPanelImage,
+    Image RightPanelImage,
     RectTransform LeftMovingPanel,
     RectTransform RightMovingPanel,
+    Image CheckboxBackgroundImage,
+    Image CheckboxOutlineImage,
+    Image CheckboxVictimImage,
+    Image CheckboxHunterImage,
     float LeftClassicX,
     float LeftCrownX,
     float RightClassicX,
     float RightCrownX,
+    Sprite ClassicIconSprite,
     GameObject PlaySectionObject,
     GameObject ContentRootObject,
     GameObject PopupRootObject,
@@ -69,10 +77,24 @@ internal sealed record PortalModeUiState(
         && LeftObject.Pointer != IntPtr.Zero
         && RightObject is not null
         && RightObject.Pointer != IntPtr.Zero
+        && LeftPanelImage is not null
+        && LeftPanelImage.Pointer != IntPtr.Zero
+        && RightPanelImage is not null
+        && RightPanelImage.Pointer != IntPtr.Zero
         && LeftMovingPanel is not null
         && LeftMovingPanel.Pointer != IntPtr.Zero
         && RightMovingPanel is not null
         && RightMovingPanel.Pointer != IntPtr.Zero
+        && CheckboxBackgroundImage is not null
+        && CheckboxBackgroundImage.Pointer != IntPtr.Zero
+        && CheckboxOutlineImage is not null
+        && CheckboxOutlineImage.Pointer != IntPtr.Zero
+        && CheckboxVictimImage is not null
+        && CheckboxVictimImage.Pointer != IntPtr.Zero
+        && CheckboxHunterImage is not null
+        && CheckboxHunterImage.Pointer != IntPtr.Zero
+        && ClassicIconSprite is not null
+        && ClassicIconSprite.Pointer != IntPtr.Zero
         && PlaySectionObject is not null
         && PlaySectionObject.Pointer != IntPtr.Zero
         && ContentRootObject is not null

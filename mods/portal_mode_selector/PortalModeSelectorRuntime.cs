@@ -16,11 +16,15 @@ internal static class PortalModeSelectorRuntime
 {
     private static readonly Dictionary<IntPtr, PortalModeUiState> UiStateByView = new();
     private static readonly Dictionary<IntPtr, GameModeType> SelectedModeByView = new();
+    private static readonly Color ClassicModeColor = new(0.15f, 0.73f, 0.90f, 1f);
+    private static readonly Color CrownModeColor = new(0.96f, 0.78f, 0.18f, 1f);
 
     private static ManualLogSource? _logger;
     private static Harmony? _harmony;
     private static IntPtr _pendingPlayViewPointer;
     private static bool _portalTreeLogged;
+    private static Sprite? _crownIconSprite;
+    private static bool _crownIconSearchCompleted;
 
     public static void Initialize(ManualLogSource logger)
     {
@@ -143,10 +147,24 @@ internal static class PortalModeSelectorRuntime
         var leftMovingPanel = modeRowObject.transform.Find("Victim")?.GetComponent<RectTransform>();
         var rightMovingPanel = modeRowObject.transform.Find("Hunter")?.GetComponent<RectTransform>();
         var checkboxRect = modeRowObject.transform.Find("Checkbox")?.GetComponent<RectTransform>();
-        if (leftMovingPanel is null || rightMovingPanel is null)
+        var leftPanelImage = leftMovingPanel?.GetComponent<Image>();
+        var rightPanelImage = rightMovingPanel?.GetComponent<Image>();
+        var checkboxBackgroundImage = checkboxRect?.GetComponent<Image>();
+        var checkboxOutlineImage = checkboxRect?.Find("Outline")?.GetComponent<Image>();
+        var checkboxVictimImage = checkboxRect?.Find("VictimImage")?.GetComponent<Image>();
+        var checkboxHunterImage = checkboxRect?.Find("HunterImage")?.GetComponent<Image>();
+        if (leftMovingPanel is null
+            || rightMovingPanel is null
+            || checkboxRect is null
+            || leftPanelImage is null
+            || rightPanelImage is null
+            || checkboxBackgroundImage is null
+            || checkboxOutlineImage is null
+            || checkboxVictimImage is null
+            || checkboxHunterImage is null)
         {
             UnityEngine.Object.Destroy(modeSectionObject);
-            _logger?.LogWarning("Portal selector setup skipped: cloned section does not contain expected left/right moving panels");
+            _logger?.LogWarning("Portal selector setup skipped: cloned section does not contain expected moving panels or checkbox images");
             return false;
         }
 
@@ -191,6 +209,9 @@ internal static class PortalModeSelectorRuntime
         var rightClassicX = -0.07f;
         var rightCrownX = 78.87f;
 
+        checkboxVictimImage.gameObject.SetActive(true);
+        checkboxHunterImage.gameObject.SetActive(true);
+
         var modeState = new PortalModeUiState(
             view,
             roleSectionRoot.gameObject,
@@ -206,12 +227,19 @@ internal static class PortalModeSelectorRuntime
             rightText,
             leftObject,
             rightObject,
+            leftPanelImage,
+            rightPanelImage,
             leftMovingPanel,
             rightMovingPanel,
+            checkboxBackgroundImage,
+            checkboxOutlineImage,
+            checkboxVictimImage,
+            checkboxHunterImage,
             leftClassicX,
             leftCrownX,
             rightClassicX,
             rightCrownX,
+            checkboxHunterImage.sprite,
             playSectionRoot.gameObject,
             contentRoot.gameObject,
             popupRoot.gameObject,
@@ -364,6 +392,10 @@ internal static class PortalModeSelectorRuntime
         state.LeftText.text = "Classic";
         state.RightText.text = "Crown";
         var classicSelected = state.SelectedMode == GameModeType.Default;
+        var selectedColor = classicSelected ? ClassicModeColor : CrownModeColor;
+
+        state.LeftPanelImage.color = ClassicModeColor;
+        state.RightPanelImage.color = CrownModeColor;
         ApplyModePanelLayout(
             state.LeftMovingPanel,
             classicSelected ? new Vector2(0.15f, 0.13f) : new Vector2(0.50f, 0.13f),
@@ -378,7 +410,7 @@ internal static class PortalModeSelectorRuntime
             classicSelected ? state.RightClassicX : state.RightCrownX,
             animate
         );
-        ApplyModeButtonVisual(state.ModeButton, classicSelected, animate);
+        ApplyModeCheckboxVisual(state, classicSelected, animate);
         _logger?.LogInfo(
             $"Mode row refresh: selected={state.SelectedMode}, leftPos={DescribeRectDetailed(state.LeftMovingPanel)}, rightPos={DescribeRectDetailed(state.RightMovingPanel)}");
     }
@@ -486,27 +518,52 @@ internal static class PortalModeSelectorRuntime
         ShortcutExtensions.DOLocalMoveX(panel, localX, 0.18f, false);
     }
 
-    private static void ApplyModeButtonVisual(SpookedOutlineButton modeButton, bool classicSelected, bool animate)
+    private static void ApplyModeCheckboxVisual(PortalModeUiState state, bool classicSelected, bool animate)
     {
-        var targetColorImage = modeButton._targetColorImage;
-        if (targetColorImage is null)
-        {
-            return;
-        }
-
-        var targetColor = classicSelected ? modeButton._normalColor : modeButton._selectedColor;
-        modeButton._currentColor = targetColor;
-        modeButton._isSelected = !classicSelected;
-        modeButton.SetImageColor(!classicSelected);
+        var targetColor = classicSelected ? ClassicModeColor : CrownModeColor;
+        state.ModeButton._currentColor = targetColor;
+        state.ModeButton._isSelected = !classicSelected;
+        state.CheckboxVictimImage.gameObject.SetActive(classicSelected);
+        state.CheckboxHunterImage.gameObject.SetActive(!classicSelected);
+        state.CheckboxVictimImage.sprite = state.ClassicIconSprite;
+        state.CheckboxHunterImage.sprite = classicSelected ? state.ClassicIconSprite : ResolveCrownIconSprite() ?? state.ClassicIconSprite;
+        state.CheckboxVictimImage.color = Color.white;
+        state.CheckboxHunterImage.color = Color.white;
+        state.CheckboxOutlineImage.color = Color.white;
 
         if (!animate)
         {
-            targetColorImage.color = targetColor;
+            state.CheckboxBackgroundImage.color = targetColor;
             return;
         }
 
-        ShortcutExtensions.DOKill(targetColorImage, false);
-        DOTweenModuleUI.DOColor(targetColorImage, targetColor, 0.18f);
+        ShortcutExtensions.DOKill(state.CheckboxBackgroundImage, false);
+        DOTweenModuleUI.DOColor(state.CheckboxBackgroundImage, targetColor, 0.18f);
+    }
+
+    private static Sprite? ResolveCrownIconSprite()
+    {
+        if (_crownIconSearchCompleted)
+        {
+            return _crownIconSprite;
+        }
+
+        _crownIconSearchCompleted = true;
+        var sprites = Resources.FindObjectsOfTypeAll<Sprite>();
+        var preferredSprite = sprites.FirstOrDefault(sprite =>
+            sprite is not null
+            && sprite.name.Contains("crown", StringComparison.OrdinalIgnoreCase)
+            && !sprite.name.Contains("crowns", StringComparison.OrdinalIgnoreCase)
+            && !sprite.name.Contains("currency", StringComparison.OrdinalIgnoreCase));
+
+        _crownIconSprite = preferredSprite ?? sprites.FirstOrDefault(sprite =>
+            sprite is not null && sprite.name.Contains("crown", StringComparison.OrdinalIgnoreCase));
+
+        _logger?.LogInfo(_crownIconSprite is null
+            ? "Crown icon sprite not found in loaded resources"
+            : $"Crown icon sprite resolved: {_crownIconSprite.name}");
+
+        return _crownIconSprite;
     }
 
     public static void LogError(string message, Exception exception)

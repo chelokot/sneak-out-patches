@@ -1,5 +1,8 @@
-*.codex-berek.bak
 *.bak
-*.tmp
+*.codex-sneak-out.bak
 *.log
-
+*.tmp
+.tmp/
+**/bin/
+**/obj/
+__pycache__/

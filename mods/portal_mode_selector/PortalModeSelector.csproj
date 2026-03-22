@@ -55,5 +55,13 @@
       <HintPath>$(InteropDir)/Unity.TextMeshPro.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="DOTween">
+      <HintPath>$(InteropDir)/DOTween.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="DOTween.Modules">
+      <HintPath>$(InteropDir)/DOTween.Modules.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 </Project>

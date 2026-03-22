@@ -1,4 +1,5 @@
 using BepInEx.Logging;
+using DG.Tweening;
 using HarmonyLib;
 using TMPro;
 using Types;
@@ -39,7 +40,7 @@ internal static class PortalModeSelectorRuntime
         if (UiStateByView.TryGetValue(viewPointer, out var existingState) && existingState.IsAlive)
         {
             LayoutModeRow(existingState);
-            RefreshModeRow(existingState);
+            RefreshModeRow(existingState, false);
             return true;
         }
 
@@ -185,11 +186,10 @@ internal static class PortalModeSelectorRuntime
             return false;
         }
 
-        var checkboxX = checkboxRect is null ? 0f : checkboxRect.anchoredPosition.x;
-        var leftClassicX = leftMovingPanel.anchoredPosition.x;
-        var leftCrownX = checkboxX;
-        var rightClassicX = checkboxX;
-        var rightCrownX = rightMovingPanel.anchoredPosition.x;
+        var leftClassicX = -78.87f;
+        var leftCrownX = 0.06f;
+        var rightClassicX = -0.07f;
+        var rightCrownX = 78.87f;
 
         var modeState = new PortalModeUiState(
             view,
@@ -236,7 +236,7 @@ internal static class PortalModeSelectorRuntime
             $"sourceVictim={view._victimMovingPanel?.anchoredPosition}, sourceHunter={view._hunterMovingPanel?.anchoredPosition}");
 
         LayoutModeRow(modeState);
-        RefreshModeRow(modeState);
+        RefreshModeRow(modeState, false);
         _logger?.LogInfo($"Portal selector injected for view 0x{viewPointer:x}");
         return true;
     }
@@ -265,7 +265,7 @@ internal static class PortalModeSelectorRuntime
 
         var nextMode = GetSelectedMode(view) == GameModeType.Berek ? GameModeType.Default : GameModeType.Berek;
         SelectedModeByView[view.Pointer] = nextMode;
-        RefreshModeRow(state);
+        RefreshModeRow(state, true);
         _logger?.LogInfo($"Portal mode toggled to {nextMode}");
         return true;
     }
@@ -289,7 +289,7 @@ internal static class PortalModeSelectorRuntime
 
         var nextMode = state.SelectedMode == GameModeType.Berek ? GameModeType.Default : GameModeType.Berek;
         SelectedModeByView[viewPointer] = nextMode;
-        RefreshModeRow(state);
+        RefreshModeRow(state, true);
         _logger?.LogInfo($"Portal mode button clicked, toggled to {nextMode}");
     }
 
@@ -358,54 +358,29 @@ internal static class PortalModeSelectorRuntime
         privateSectionRect.SetSiblingIndex(state.OriginalRoleSectionSiblingIndex + 2);
     }
 
-    private static void RefreshModeRow(PortalModeUiState state)
+    private static void RefreshModeRow(PortalModeUiState state, bool animate)
     {
         state.LabelText.text = "Game mode";
         state.LeftText.text = "Classic";
         state.RightText.text = "Crown";
         var classicSelected = state.SelectedMode == GameModeType.Default;
-        ApplyModePanelLayout(state.LeftMovingPanel, classicSelected ? new Vector2(0.15f, 0.13f) : new Vector2(0.50f, 0.13f), classicSelected ? new Vector2(0.50f, 0.76f) : new Vector2(0.50f, 0.76f), classicSelected ? -78.87f : 0.06f);
-        ApplyModePanelLayout(state.RightMovingPanel, classicSelected ? new Vector2(0.50f, 0.13f) : new Vector2(0.50f, 0.13f), classicSelected ? new Vector2(0.50f, 0.76f) : new Vector2(0.85f, 0.76f), classicSelected ? -0.07f : 78.87f);
+        ApplyModePanelLayout(
+            state.LeftMovingPanel,
+            classicSelected ? new Vector2(0.15f, 0.13f) : new Vector2(0.50f, 0.13f),
+            classicSelected ? new Vector2(0.50f, 0.76f) : new Vector2(0.50f, 0.76f),
+            classicSelected ? state.LeftClassicX : state.LeftCrownX,
+            animate
+        );
+        ApplyModePanelLayout(
+            state.RightMovingPanel,
+            classicSelected ? new Vector2(0.50f, 0.13f) : new Vector2(0.50f, 0.13f),
+            classicSelected ? new Vector2(0.50f, 0.76f) : new Vector2(0.85f, 0.76f),
+            classicSelected ? state.RightClassicX : state.RightCrownX,
+            animate
+        );
+        ApplyModeButtonVisual(state.ModeButton, classicSelected, animate);
         _logger?.LogInfo(
             $"Mode row refresh: selected={state.SelectedMode}, leftPos={DescribeRectDetailed(state.LeftMovingPanel)}, rightPos={DescribeRectDetailed(state.RightMovingPanel)}");
-        state.ModeButton.Refresh();
-    }
-
-    private static float ResolvePanelPositions(RectTransform? sourcePanel, Vector2 xValues, bool sourceIsSelected, out float unselectedX)
-    {
-        if (sourcePanel is null)
-        {
-            unselectedX = xValues.y;
-            return xValues.x;
-        }
-
-        var currentX = sourcePanel.anchoredPosition.x;
-        var distanceToFirst = Mathf.Abs(currentX - xValues.x);
-        var distanceToSecond = Mathf.Abs(currentX - xValues.y);
-        var currentMatchesFirst = distanceToFirst <= distanceToSecond;
-        var firstValue = xValues.x;
-        var secondValue = xValues.y;
-
-        if (sourceIsSelected)
-        {
-            if (currentMatchesFirst)
-            {
-                unselectedX = secondValue;
-                return firstValue;
-            }
-
-            unselectedX = firstValue;
-            return secondValue;
-        }
-
-        if (currentMatchesFirst)
-        {
-            unselectedX = firstValue;
-            return secondValue;
-        }
-
-        unselectedX = secondValue;
-        return firstValue;
     }
 
     private static Transform? FindRowRootFromButton(Transform buttonTransform)
@@ -494,12 +469,44 @@ internal static class PortalModeSelectorRuntime
                $"offsetMin={rectTransform.offsetMin} offsetMax={rectTransform.offsetMax} size={rectTransform.sizeDelta}";
     }
 
-    private static void ApplyModePanelLayout(RectTransform panel, Vector2 anchorMin, Vector2 anchorMax, float localX)
+    private static void ApplyModePanelLayout(RectTransform panel, Vector2 anchorMin, Vector2 anchorMax, float localX, bool animate)
     {
-        panel.anchorMin = anchorMin;
-        panel.anchorMax = anchorMax;
         var localPosition = panel.localPosition;
-        panel.localPosition = new Vector3(localX, localPosition.y, localPosition.z);
+        if (!animate)
+        {
+            panel.anchorMin = anchorMin;
+            panel.anchorMax = anchorMax;
+            panel.localPosition = new Vector3(localX, localPosition.y, localPosition.z);
+            return;
+        }
+
+        ShortcutExtensions.DOKill(panel, false);
+        DOTweenModuleUI.DOAnchorMin(panel, anchorMin, 0.18f, false);
+        DOTweenModuleUI.DOAnchorMax(panel, anchorMax, 0.18f, false);
+        ShortcutExtensions.DOLocalMoveX(panel, localX, 0.18f, false);
+    }
+
+    private static void ApplyModeButtonVisual(SpookedOutlineButton modeButton, bool classicSelected, bool animate)
+    {
+        var targetColorImage = modeButton._targetColorImage;
+        if (targetColorImage is null)
+        {
+            return;
+        }
+
+        var targetColor = classicSelected ? modeButton._normalColor : modeButton._selectedColor;
+        modeButton._currentColor = targetColor;
+        modeButton._isSelected = !classicSelected;
+        modeButton.SetImageColor(!classicSelected);
+
+        if (!animate)
+        {
+            targetColorImage.color = targetColor;
+            return;
+        }
+
+        ShortcutExtensions.DOKill(targetColorImage, false);
+        DOTweenModuleUI.DOColor(targetColorImage, targetColor, 0.18f);
     }
 
     public static void LogError(string message, Exception exception)

@@ -8,18 +8,17 @@ The current patch set no longer hardcodes `Berek`. It adds a live selector to th
 
 - `PortalPlayView.OnChangeRoleButton()` is wrapped so the original role control and the new mode control can coexist
 - `PortalPlayView.OnPlay()` loads `GameModeType` from a dedicated mode bit instead of a hardcoded `Default`
-- the selector setup should be attached to the late tail of `PortalPlayView.Open()`, not to `PrivateGameStateCheck()`, so the retrofit runs after the stock popup layout has settled
-- the selector layout cannot be treated as one-time setup: row reparenting and positioning must be re-applied whenever the popup is opened, while listener registration should remain one-time
-- the injected mode row should reuse the `OnChangeRoleButton()` callback path, not the private/public callback path, so the real private-game toggle stays untouched
-- the selector retrofit should not stash temporary button pointers inside serialized `PortalPlayView` fields; the mode checkbox can be re-resolved from the hidden `ModePanel` on demand
+- the injected mode row reuses the `OnChangeRoleButton()` callback family, not the private/public callback path, so the real private-game toggle stays untouched
+- startup-time selector setup hooks were removed after they proved too fragile in the live lobby flow
 - the first private-party invite fix and the uniform hunter-random fix remain as separate binary patches
 
 `Sneak Out_Data/level0`
 
-- the original preferred-role row is repurposed into a `Berek / Normal` mode row
-- a cloned preferred-role row is inserted below it and all `PortalPlayView` role references are moved to that clone
+- the original preferred-role row remains the live preferred-role control
+- a cloned preferred-role row is inserted above it as the visual `Game mode` row
 - the private-game row is shifted down to fit the extra control without changing the play button structure
 - the visible popup patch must account for both `Background` and `GameSettings`, not just the decorative frame row
+- the cloned row no longer owns cloned TMP text objects; it reuses existing text nodes from the hidden `GameModeViewV2` subtree because cloned TMP objects caused `TextMeshProUGUI.Awake()` crashes inside `PortalPlayView.Open()`
 
 `Sneak Out_Data/resources.assets`
 
@@ -77,11 +76,12 @@ Confirmed:
 - the live portal popup now has room for a separate mode selector without stealing the preferred-role control
 - the script can deterministically rebuild that popup from a clean `level0`
 - the selector patch, invite fix, and uniform hunter-random patch can be applied together from the same script run
+- the crashy clone-based TMP approach has been replaced with a safer hybrid row that keeps cloned layout objects but reuses already-scene-valid TMP text nodes
 
 Operational lesson:
 
 - always validate the selector patch on a temporary clean copy before applying it to the retail build
-- recent failures came from subtle assembly mistakes in startup-time listener registration, not from the higher-level mode-routing idea itself
+- recent failures came from two different sources: fragile startup-time listener registration in `GameAssembly.dll` and crashy cloned TMP objects in `level0`
 - the script-side validator is now good at catching malformed hook output in `GameAssembly.dll`, but it still cannot prove runtime-correct UI behavior on its own
 
 Remaining known issue:

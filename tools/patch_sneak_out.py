@@ -164,34 +164,55 @@ PATCH_OPTIONS: tuple[PatchOption, ...] = (
             ),
         ),
     ),
+    PatchOption(
+        option_id="fix-battlepass-refresh-crash",
+        label="Disable crashy battlepass refresh handler",
+        details=(
+            "Turns BattlepassView.OnOnWebplayerRefreshEvent into a no-op to avoid the lobby "
+            "NullReferenceException currently crashing the client before portal selector testing."
+        ),
+        default_enabled=True,
+        file_patch_groups=(
+            FilePatchGroup(
+                relative_path="GameAssembly.dll",
+                patches=(
+                    BinaryPatch(
+                        0x6D43D0,
+                        "40574883ec20",
+                        "c39090909090",
+                        "Return immediately from BattlepassView.OnOnWebplayerRefreshEvent to avoid the lobby refresh NullReference crash.",
+                    ),
+                ),
+            ),
+        ),
+    ),
 )
 
 
 PATCH_OPTION_BY_ID = {option.option_id: option for option in PATCH_OPTIONS}
 
-LEVEL0_PREFERRED_ROLE_TRANSFORM = 13300
+LEVEL0_PORTAL_SELECTOR_ROOT_TRANSFORM = 13300
+LEVEL0_BACKGROUND_TRANSFORM = 14710
 LEVEL0_PRIVATE_GAME_TRANSFORM = 14866
-LEVEL0_MODE_LABEL_TRANSFORM = 14171
-LEVEL0_MODE_ROW_TRANSFORM = 14151
-LEVEL0_MODE_LABEL_COMPONENT = 19543
-LEVEL0_MODE_LABEL_LOCALIZER_COMPONENT = 23528
-LEVEL0_MODE_TOGGLE_TEXT_COMPONENT = 19160
-LEVEL0_MODE_LABEL_Y = 452.0
 LEVEL0_MODE_ROW_Y = 393.0
-LEVEL0_ROLE_ROW_Y = 286.0
-LEVEL0_PRIVATE_ROW_Y = 179.0
+LEVEL0_ROLE_ROW_Y = 295.0
+LEVEL0_PRIVATE_ROW_Y = 197.0
 LEVEL0_GAME_MODE_LABEL_TEXT = b"Game mode"
-LEVEL0_MODE_TOGGLE_TEXT = b"Get the Crown"
+LEVEL0_CLASSIC_LABEL_TEXT = b"Classic"
+LEVEL0_CROWN_LABEL_TEXT = b"Crown"
+LEVEL0_SAFE_MODE_LABEL_TRANSFORM = 14171
+LEVEL0_SAFE_MODE_LABEL_TEXT_COMPONENT = 19543
+LEVEL0_SAFE_MODE_LEFT_TEXT_TRANSFORM = 13519
+LEVEL0_SAFE_MODE_LEFT_TEXT_COMPONENT = 19255
+LEVEL0_SAFE_MODE_RIGHT_TEXT_TRANSFORM = 13870
+LEVEL0_SAFE_MODE_RIGHT_TEXT_COMPONENT = 19309
+LEVEL0_ORIGINAL_TOP_LABEL_GO = 2288
+LEVEL0_ORIGINAL_LEFT_TEXT_GO = 1360
+LEVEL0_ORIGINAL_RIGHT_TEXT_GO = 2464
 
 GAMEASSEMBLY_MODE_SELECTOR_WRAPPER_OFFSET = 0x5E4EA0
-GAMEASSEMBLY_MODE_SELECTOR_RESOLVE_PANEL_OFFSET = 0x5E7000
-GAMEASSEMBLY_MODE_SELECTOR_RESOLVE_BACKGROUND_OFFSET = 0x5E7100
-GAMEASSEMBLY_MODE_SELECTOR_SETUP_OFFSET = 0x5E7200
-GAMEASSEMBLY_MODE_SELECTOR_REFRESH_OFFSET = 0x5E7400
-GAMEASSEMBLY_MODE_SELECTOR_OPEN_TAIL_STUB_OFFSET = 0x5E7600
-GAMEASSEMBLY_MODE_SELECTOR_LOADER_OFFSET = 0x5E7800
+GAMEASSEMBLY_MODE_SELECTOR_LOADER_OFFSET = 0x5E4FC0
 GAMEASSEMBLY_ROLE_BUTTON_ENTRY_OFFSET = 0x7E10C0
-GAMEASSEMBLY_OPEN_TAIL_ENTRY_OFFSET = 0x7E17F6
 GAMEASSEMBLY_MODE_CALL_SITE_ONE_OFFSET = 0x7E15AD
 GAMEASSEMBLY_MODE_CALL_SITE_TWO_OFFSET = 0x7E15DC
 
@@ -199,8 +220,7 @@ GAMEASSEMBLY_IMAGE_BASE = 0x180000000
 GAMEASSEMBLY_IL2CPP_RAW_START = 0x569C00
 GAMEASSEMBLY_IL2CPP_RVA_START = 0x56B000
 
-GAMEASSEMBLY_ROLE_BUTTON_ENTRY_BYTES = bytes.fromhex("40574883ec20")
-GAMEASSEMBLY_OPEN_TAIL_ENTRY_BYTES = bytes.fromhex("488b7c2438488b7424304883c4205be926f5e1ff")
+GAMEASSEMBLY_MODE_SELECTOR_ENTRY_BYTES = bytes.fromhex("40574883ec20")
 GAMEASSEMBLY_MODE_CALL_SITE_ONE_BYTES = bytes.fromhex("4533c0488bc8488bd8418d5001")
 GAMEASSEMBLY_MODE_CALL_SITE_TWO_BYTES = bytes.fromhex("4533c0418d5001")
 
@@ -575,47 +595,12 @@ def _build_executable_region_specs(selected_option_ids: tuple[str, ...]) -> list
         region_specs.extend(
             (
                 ExecutableRegionLintSpec(
-                    offset=GAMEASSEMBLY_MODE_SELECTOR_RESOLVE_PANEL_OFFSET,
-                    code_bytes=mode_regions[GAMEASSEMBLY_MODE_SELECTOR_RESOLVE_PANEL_OFFSET],
-                    description="mode-selector resolve-panel helper",
-                    entry_rsp_mod16=8,
-                    allowed_ret_deltas=frozenset({0}),
-                ),
-                ExecutableRegionLintSpec(
-                    offset=GAMEASSEMBLY_MODE_SELECTOR_RESOLVE_BACKGROUND_OFFSET,
-                    code_bytes=mode_regions[GAMEASSEMBLY_MODE_SELECTOR_RESOLVE_BACKGROUND_OFFSET],
-                    description="mode-selector resolve-background helper",
-                    entry_rsp_mod16=8,
-                    allowed_ret_deltas=frozenset({0}),
-                ),
-                ExecutableRegionLintSpec(
                     offset=GAMEASSEMBLY_MODE_SELECTOR_WRAPPER_OFFSET,
                     code_bytes=mode_regions[GAMEASSEMBLY_MODE_SELECTOR_WRAPPER_OFFSET],
                     description="mode-selector role-button wrapper",
                     entry_rsp_mod16=8,
                     allowed_ret_deltas=frozenset({0}),
-                    allowed_tail_jumps=((0x1807E10C6, -40),),
-                ),
-                ExecutableRegionLintSpec(
-                    offset=GAMEASSEMBLY_MODE_SELECTOR_SETUP_OFFSET,
-                    code_bytes=mode_regions[GAMEASSEMBLY_MODE_SELECTOR_SETUP_OFFSET],
-                    description="mode-selector setup helper",
-                    entry_rsp_mod16=8,
-                    allowed_ret_deltas=frozenset({0}),
-                ),
-                ExecutableRegionLintSpec(
-                    offset=GAMEASSEMBLY_MODE_SELECTOR_REFRESH_OFFSET,
-                    code_bytes=mode_regions[GAMEASSEMBLY_MODE_SELECTOR_REFRESH_OFFSET],
-                    description="mode-selector refresh helper",
-                    entry_rsp_mod16=8,
-                    allowed_ret_deltas=frozenset({0}),
-                ),
-                ExecutableRegionLintSpec(
-                    offset=GAMEASSEMBLY_MODE_SELECTOR_OPEN_TAIL_STUB_OFFSET,
-                    code_bytes=mode_regions[GAMEASSEMBLY_MODE_SELECTOR_OPEN_TAIL_STUB_OFFSET],
-                    description="mode-selector open-tail stub",
-                    entry_rsp_mod16=0,
-                    allowed_ret_deltas=frozenset({40}),
+                    allowed_tail_jumps=((0x1807E24C6, -40),),
                 ),
                 ExecutableRegionLintSpec(
                     offset=GAMEASSEMBLY_MODE_SELECTOR_LOADER_OFFSET,
@@ -628,11 +613,6 @@ def _build_executable_region_specs(selected_option_ids: tuple[str, ...]) -> list
                     offset=GAMEASSEMBLY_ROLE_BUTTON_ENTRY_OFFSET,
                     code_bytes=mode_regions[GAMEASSEMBLY_ROLE_BUTTON_ENTRY_OFFSET],
                     description="mode-selector role-button entry hook",
-                ),
-                ExecutableRegionLintSpec(
-                    offset=GAMEASSEMBLY_OPEN_TAIL_ENTRY_OFFSET,
-                    code_bytes=mode_regions[GAMEASSEMBLY_OPEN_TAIL_ENTRY_OFFSET],
-                    description="mode-selector open-tail entry hook",
                 ),
                 ExecutableRegionLintSpec(
                     offset=GAMEASSEMBLY_MODE_CALL_SITE_ONE_OFFSET,
@@ -803,12 +783,6 @@ def _validate_gameassembly_static(clean_bytes: bytes, patched_bytes: bytes, sele
                 "Static validation failed: role-button hook target does not point at mode-selector wrapper"
             )
 
-        open_target = _read_rel32_target(patched_bytes, GAMEASSEMBLY_OPEN_TAIL_ENTRY_OFFSET, "jmp")
-        if open_target != _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_OPEN_TAIL_STUB_OFFSET):
-            raise SystemExit(
-                "Static validation failed: PortalPlayView.Open tail hook target does not point at the mode-selector open stub"
-            )
-
         call_target_one = _read_rel32_target(patched_bytes, GAMEASSEMBLY_MODE_CALL_SITE_ONE_OFFSET + 6, "call")
         if call_target_one != _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_LOADER_OFFSET):
             raise SystemExit(
@@ -883,22 +857,159 @@ def _remap_typetree_path_ids(node, cloned_path_ids: dict[int, int]):
 
 def _patch_level0_mode_selector(prepared_file: PreparedFile) -> None:
     import UnityPy
+    from UnityPy.files.ObjectReader import ObjectReader
 
     with NamedTemporaryFile(suffix=".level0") as temp_file:
         temp_file.write(bytes(prepared_file.working_bytes))
         temp_file.flush()
         environment = UnityPy.load(temp_file.name)
         asset = next(iter(environment.files.values()))
-        object_updates = (
-            (LEVEL0_MODE_LABEL_COMPONENT, LEVEL0_GAME_MODE_LABEL_TEXT, _patch_text_component),
-            (LEVEL0_MODE_LABEL_LOCALIZER_COMPONENT, None, _disable_monobehaviour),
-            (LEVEL0_MODE_TOGGLE_TEXT_COMPONENT, LEVEL0_MODE_TOGGLE_TEXT, _patch_text_component),
+        source_bytes = bytes(prepared_file.working_bytes)
+
+        subtree_path_ids = _collect_level0_subtree(asset, LEVEL0_PORTAL_SELECTOR_ROOT_TRANSFORM)
+        next_path_id = max(asset.objects)
+        cloned_path_ids: dict[int, int] = {}
+        for source_path_id in subtree_path_ids:
+            next_path_id += 1
+            cloned_path_ids[source_path_id] = next_path_id
+
+        pointer_replacements = tuple(
+            (
+                b"\x00\x00\x00\x00" + struct.pack("<q", source_path_id),
+                b"\x00\x00\x00\x00" + struct.pack("<q", cloned_path_id),
+            )
+            for source_path_id, cloned_path_id in cloned_path_ids.items()
         )
-        for path_id, payload, handler in object_updates:
-            obj = asset.objects[path_id]
-            raw_bytes = bytearray(prepared_file.working_bytes[obj.byte_start : obj.byte_start + obj.byte_size])
-            handler(raw_bytes, payload) if payload is not None else handler(raw_bytes)
-            prepared_file.working_bytes[obj.byte_start : obj.byte_start + obj.byte_size] = raw_bytes
+
+        for source_path_id in subtree_path_ids:
+            source_object = asset.objects[source_path_id]
+            cloned_raw_bytes = bytearray(
+                source_bytes[source_object.byte_start : source_object.byte_start + source_object.byte_size]
+            )
+            for old_pointer, new_pointer in pointer_replacements:
+                cloned_raw_bytes = cloned_raw_bytes.replace(old_pointer, new_pointer)
+            cloned_object = ObjectReader(
+                asset,
+                source_object.reader,
+                cloned_path_ids[source_path_id],
+                source_object.type_id,
+                source_object.serialized_type,
+                source_object.class_id,
+                source_object.type,
+                source_object.byte_start,
+                len(cloned_raw_bytes),
+                source_object.is_destroyed,
+                source_object.is_stripped,
+                data=bytes(cloned_raw_bytes),
+                read_until=source_object._read_until,
+            )
+            asset.objects[cloned_object.path_id] = cloned_object
+
+        for source_path_id in subtree_path_ids:
+            source_object = asset.objects[source_path_id]
+            cloned_object = asset.objects[cloned_path_ids[source_path_id]]
+            try:
+                source_tree = source_object.read_typetree()
+            except Exception:
+                continue
+            cloned_object.save_typetree(_remap_typetree_path_ids(source_tree, cloned_path_ids))
+
+        def move_transform(transform_path_id: int, new_parent_path_id: int, sibling_index: int | None = None) -> None:
+            transform_tree = asset.objects[transform_path_id].read_typetree()
+            old_parent_path_id = transform_tree["m_Father"]["m_PathID"]
+            if old_parent_path_id != 0:
+                old_parent_tree = asset.objects[old_parent_path_id].read_typetree()
+                old_parent_tree["m_Children"] = [
+                    child for child in old_parent_tree["m_Children"] if child["m_PathID"] != transform_path_id
+                ]
+                asset.objects[old_parent_path_id].save_typetree(old_parent_tree)
+            new_parent_tree = asset.objects[new_parent_path_id].read_typetree()
+            child_reference = {"m_FileID": 0, "m_PathID": transform_path_id}
+            if sibling_index is None:
+                new_parent_tree["m_Children"].append(child_reference)
+            else:
+                new_parent_tree["m_Children"].insert(sibling_index, child_reference)
+            asset.objects[new_parent_path_id].save_typetree(new_parent_tree)
+            transform_tree["m_Father"] = {"m_FileID": 0, "m_PathID": new_parent_path_id}
+            asset.objects[transform_path_id].save_typetree(transform_tree)
+
+        def set_game_object_active(game_object_path_id: int, active: bool) -> None:
+            game_object_tree = asset.objects[game_object_path_id].read_typetree()
+            game_object_tree["m_IsActive"] = 1 if active else 0
+            asset.objects[game_object_path_id].save_typetree(game_object_tree)
+
+        background_tree = asset.objects[LEVEL0_BACKGROUND_TRANSFORM].read_typetree()
+        background_tree["m_Children"].insert(
+            3,
+            {"m_FileID": 0, "m_PathID": cloned_path_ids[LEVEL0_PORTAL_SELECTOR_ROOT_TRANSFORM]},
+        )
+        asset.objects[LEVEL0_BACKGROUND_TRANSFORM].save_typetree(background_tree)
+
+        clone_root_tree = asset.objects[LEVEL0_PORTAL_SELECTOR_ROOT_TRANSFORM].read_typetree()
+        clone_root_tree["m_GameObject"]["m_PathID"] = cloned_path_ids[602]
+        clone_root_tree["m_Children"] = [
+            {"m_FileID": 0, "m_PathID": cloned_path_ids[child["m_PathID"]]}
+            for child in clone_root_tree["m_Children"]
+        ]
+        clone_root_tree["m_Father"] = {"m_FileID": 0, "m_PathID": LEVEL0_BACKGROUND_TRANSFORM}
+        clone_root_tree["m_AnchoredPosition"]["y"] = LEVEL0_MODE_ROW_Y
+        asset.objects[cloned_path_ids[LEVEL0_PORTAL_SELECTOR_ROOT_TRANSFORM]].save_typetree(clone_root_tree)
+
+        original_root_tree = asset.objects[LEVEL0_PORTAL_SELECTOR_ROOT_TRANSFORM].read_typetree()
+        original_root_tree["m_AnchoredPosition"]["y"] = LEVEL0_ROLE_ROW_Y
+        asset.objects[LEVEL0_PORTAL_SELECTOR_ROOT_TRANSFORM].save_typetree(original_root_tree)
+
+        private_game_tree = asset.objects[LEVEL0_PRIVATE_GAME_TRANSFORM].read_typetree()
+        private_game_tree["m_AnchoredPosition"]["y"] = LEVEL0_PRIVATE_ROW_Y
+        asset.objects[LEVEL0_PRIVATE_GAME_TRANSFORM].save_typetree(private_game_tree)
+
+        cloned_root_game_object = _remap_typetree_path_ids(asset.objects[602].read_typetree(), cloned_path_ids)
+        cloned_root_game_object["m_Name"] = "GameModeBackground"
+        asset.objects[cloned_path_ids[602]].save_typetree(cloned_root_game_object)
+
+        cloned_button_game_object = _remap_typetree_path_ids(asset.objects[1514].read_typetree(), cloned_path_ids)
+        cloned_button_game_object["m_Name"] = "GameMode"
+        asset.objects[cloned_path_ids[1514]].save_typetree(cloned_button_game_object)
+
+        move_transform(LEVEL0_SAFE_MODE_LABEL_TRANSFORM, cloned_path_ids[LEVEL0_PORTAL_SELECTOR_ROOT_TRANSFORM])
+        move_transform(LEVEL0_SAFE_MODE_LEFT_TEXT_TRANSFORM, cloned_path_ids[16006])
+        move_transform(LEVEL0_SAFE_MODE_RIGHT_TEXT_TRANSFORM, cloned_path_ids[14656])
+
+        mode_label_transform_tree = asset.objects[LEVEL0_SAFE_MODE_LABEL_TRANSFORM].read_typetree()
+        mode_label_transform_tree["m_AnchoredPosition"]["x"] = 0.23002000153064728
+        mode_label_transform_tree["m_AnchoredPosition"]["y"] = 28.200000762939453
+        asset.objects[LEVEL0_SAFE_MODE_LABEL_TRANSFORM].save_typetree(mode_label_transform_tree)
+
+        mode_left_transform_tree = asset.objects[LEVEL0_SAFE_MODE_LEFT_TEXT_TRANSFORM].read_typetree()
+        mode_left_transform_tree["m_AnchoredPosition"]["x"] = 0.1750202178955078
+        mode_left_transform_tree["m_AnchoredPosition"]["y"] = 9.5367431640625e-06
+        asset.objects[LEVEL0_SAFE_MODE_LEFT_TEXT_TRANSFORM].save_typetree(mode_left_transform_tree)
+
+        mode_right_transform_tree = asset.objects[LEVEL0_SAFE_MODE_RIGHT_TEXT_TRANSFORM].read_typetree()
+        mode_right_transform_tree["m_AnchoredPosition"]["x"] = -3.814697265625e-05
+        mode_right_transform_tree["m_AnchoredPosition"]["y"] = -0.5
+        asset.objects[LEVEL0_SAFE_MODE_RIGHT_TEXT_TRANSFORM].save_typetree(mode_right_transform_tree)
+
+        set_game_object_active(cloned_path_ids[LEVEL0_ORIGINAL_TOP_LABEL_GO], False)
+        set_game_object_active(cloned_path_ids[LEVEL0_ORIGINAL_LEFT_TEXT_GO], False)
+        set_game_object_active(cloned_path_ids[LEVEL0_ORIGINAL_RIGHT_TEXT_GO], False)
+
+        text_updates = {
+            LEVEL0_SAFE_MODE_LABEL_TEXT_COMPONENT: LEVEL0_GAME_MODE_LABEL_TEXT,
+            LEVEL0_SAFE_MODE_LEFT_TEXT_COMPONENT: LEVEL0_CLASSIC_LABEL_TEXT,
+            LEVEL0_SAFE_MODE_RIGHT_TEXT_COMPONENT: LEVEL0_CROWN_LABEL_TEXT,
+        }
+        for text_component_path_id, updated_text in text_updates.items():
+            text_component = asset.objects[text_component_path_id]
+            raw_bytes = bytearray(
+                text_component.data
+                if text_component.data is not None
+                else source_bytes[text_component.byte_start : text_component.byte_start + text_component.byte_size]
+            )
+            _patch_text_component(raw_bytes, updated_text)
+            text_component.data = bytes(raw_bytes)
+
+        prepared_file.working_bytes = bytearray(asset.save())
 
 
 def _build_gameassembly_mode_selector_regions() -> dict[int, bytes]:
@@ -906,415 +1017,81 @@ def _build_gameassembly_mode_selector_regions() -> dict[int, bytes]:
 
     assembler = Ks(KS_ARCH_X86, KS_MODE_64)
     wrapper_address = _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_WRAPPER_OFFSET)
-    resolve_panel_address = _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_RESOLVE_PANEL_OFFSET)
-    resolve_background_address = _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_RESOLVE_BACKGROUND_OFFSET)
-    setup_address = _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_SETUP_OFFSET)
-    open_tail_stub_address = _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_OPEN_TAIL_STUB_OFFSET)
-    refresh_address = _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_REFRESH_OFFSET)
     loader_address = _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_LOADER_OFFSET)
-    resolve_panel_bytes = bytes(
-        assembler.asm(
-            """
-            push rbx
-            sub rsp, 0x20
-            mov rbx, rcx
-            mov rcx, [rbx+0x68]
-            test rcx, rcx
-            je fail
-            call 0x1832146A0
-            test rax, rax
-            je fail
-            mov rcx, rax
-            call 0x18323D6B0
-            test rax, rax
-            je fail
-            mov rcx, rax
-            call 0x18323D6B0
-            test rax, rax
-            je fail
-            mov rcx, rax
-            mov edx, 25
-            call 0x18323D4F0
-            test rax, rax
-            je fail
-            mov rcx, rax
-            xor edx, edx
-            call 0x18323D4F0
-            test rax, rax
-            je fail
-            mov rcx, rax
-            mov edx, 1
-            call 0x18323D4F0
-        fail:
-            add rsp, 0x20
-            pop rbx
-            ret
-            """,
-            addr=resolve_panel_address,
-        )[0]
-    )
-    resolve_background_bytes = bytes(
-        assembler.asm(
-            """
-            push rbx
-            sub rsp, 0x20
-            mov rbx, rcx
-            mov rcx, [rbx+0x68]
-            test rcx, rcx
-            je fail
-            call 0x1832146A0
-            test rax, rax
-            je fail
-            mov rcx, rax
-            xor edx, edx
-            call 0x18323D4F0
-        fail:
-            add rsp, 0x20
-            pop rbx
-            ret
-            """,
-            addr=resolve_background_address,
-        )[0]
-    )
     wrapper_bytes = bytes(
         assembler.asm(
-            f"""
+            """
             push rdi
             sub rsp, 0x20
             mov rdi, rcx
             call 0x1834AF8B0
-            mov r10, rax
+            test rax, rax
+            je role_path
+            mov rcx, rax
+            call 0x18056EC70
+            mov [rsp+0x18], rax
+            test rax, rax
+            je role_path
+            mov rcx, rax
+            call 0x1832146A0
+            mov [rsp+0x10], rax
+            test rax, rax
+            je role_path
+            mov rcx, rax
+            call 0x1832410F0
+            cmp eax, 4
+            je have_button
+            mov rcx, [rsp+0x10]
+            call 0x18323D6B0
+            test rax, rax
+            je have_button
+            mov rcx, rax
+            call 0x18320FB30
+            mov [rsp+0x18], rax
+        have_button:
             mov rcx, [rdi+0xF8]
             test rcx, rcx
-            je mode_path
+            je role_path
             call 0x18320FB30
-            test rax, rax
-            je mode_path
-            mov r11, rax
+            mov rdx, [rsp+0x18]
             mov rcx, rax
-            call 0x1832146A0
-            test rax, rax
-            je mode_path
-            mov rcx, rax
-            call 0x18323D6B0
-            test rax, rax
-            je mode_path
-            mov rcx, rax
-            call 0x18320FB30
-            test rax, rax
-            je mode_path
-            mov [rsp+0x18], rax
-            test r10, r10
-            je mode_path
-            cmp r10, r11
-            je original_path
-            cmp r10, [rsp+0x18]
-            je original_path
-            mov rcx, r10
-            call 0x1832146A0
-            test rax, rax
-            je mode_path
-            mov rcx, rax
-            call 0x18323D6B0
-            test rax, rax
-            je mode_path
-            mov rcx, rax
-            call 0x18320FB30
-            test rax, rax
-            je mode_path
-            cmp rax, r11
-            je original_path
-            cmp rax, [rsp+0x18]
-            je original_path
-            mov rcx, rax
-            call 0x1832146A0
-            test rax, rax
-            je mode_path
-            mov rcx, rax
-            call 0x18323D6B0
-            test rax, rax
-            je mode_path
-            mov rcx, rax
-            call 0x18320FB30
-            test rax, rax
-            je mode_path
-            cmp rax, r11
-            je original_path
-            cmp rax, [rsp+0x18]
-            je original_path
-        mode_path:
+            call 0x183219EB0
+            test al, al
+            jne role_path
             cmp byte ptr [rdi+0x152], 0
             sete al
             mov byte ptr [rdi+0x152], al
-            mov rcx, rdi
-            call 0x{refresh_address:x}
-            add rsp, 0x20
-            pop rdi
-            ret
-        original_path:
-            mov rcx, rdi
-            jmp 0x1807E10C6
-            """,
-            addr=wrapper_address,
-        )[0]
-    )
-    setup_bytes = bytes(
-        assembler.asm(
-            f"""
-            push rbx
-            push rsi
-            push rdi
-            push r12
-            push r13
-            push r14
-            push r15
-            sub rsp, 0x20
-            mov rbx, rcx
-            call 0x{resolve_background_address:x}
-            test rax, rax
-            je done
-            mov r14, rax
-            mov rcx, rbx
-            call 0x{resolve_panel_address:x}
-            test rax, rax
-            je done
-            mov r15, rax
-            mov rcx, r15
-            mov edx, 1
-            call 0x18323D4F0
-            test rax, rax
-            je done
-            mov r12, rax
-            mov rcx, r15
-            mov edx, 2
-            call 0x18323D4F0
-            test rax, rax
-            je done
-            mov r13, rax
-            mov rcx, r12
-            xor edx, edx
-            call 0x18323D4F0
-            test rax, rax
-            je done
-            mov rcx, rax
-            call 0x18320FB30
-            test rax, rax
-            je done
-            mov rsi, rax
-            mov rdx, r14
-            xor r8d, r8d
-            mov rcx, r12
-            call 0x18323FA70
-            mov rdx, r14
-            xor r8d, r8d
-            mov rcx, r13
-            call 0x18323FA70
-            mov rcx, r13
-            mov edx, 2
-            call 0x18323FBD0
-            mov rcx, r12
-            mov edx, 3
-            call 0x18323FBD0
-            xor esi, esi
-            xor edi, edi
-            mov rcx, [rbx+0xF8]
-            test rcx, rcx
-            je retry
-            call 0x18320FB30
-            test rax, rax
-            je retry
-            mov rcx, rax
+            mov rcx, [rsp+0x18]
             call 0x1832146A0
             test rax, rax
-            je retry
-            mov rcx, rax
-            call 0x18323D6B0
-            test rax, rax
-            je retry
-            mov rcx, rax
-            call 0x18323D6B0
-            test rax, rax
-            je retry
-            mov rsi, rax
-            mov rcx, rsi
-            mov edx, 4
-            call 0x18323FBD0
-            mov rcx, [rbx+0x90]
-            test rcx, rcx
-            je retry
-            call 0x18320FB30
-            test rax, rax
-            je retry
-            mov rcx, rax
-            call 0x1832146A0
-            test rax, rax
-            je retry
-            mov rcx, rax
-            call 0x18323D6B0
-            test rax, rax
-            je retry
-            mov rcx, rax
-            call 0x18323D6B0
-            test rax, rax
-            je retry
-            mov rdi, rax
-            mov rcx, rdi
-            mov edx, 5
-            call 0x18323FBD0
-            mov dword ptr [rsp+0x00], 0x00000000
-            mov dword ptr [rsp+0x04], 0x43e20000
-            mov rcx, r13
-            lea rdx, [rsp+0x00]
-            call 0x183235850
-            mov dword ptr [rsp+0x08], 0x00000000
-            mov dword ptr [rsp+0x0C], 0x43c48000
-            mov rcx, r12
-            lea rdx, [rsp+0x08]
-            call 0x183235850
-            mov dword ptr [rsp+0x10], 0x00000000
-            mov dword ptr [rsp+0x14], 0x438f0000
-            mov rcx, rsi
-            lea rdx, [rsp+0x10]
-            call 0x183235850
-            mov dword ptr [rsp+0x18], 0x00000000
-            mov dword ptr [rsp+0x1C], 0x43330000
-            mov rcx, rdi
-            lea rdx, [rsp+0x18]
-            call 0x183235850
-            cmp byte ptr [rbx+0x153], 0
-            jne refresh_only
-            mov rcx, rsi
-            test rcx, rcx
-            je done
-            call 0x1832130B0
-            test eax, eax
-            jle done
-            lea edx, [rax-1]
-            mov rcx, rsi
-            call 0x183212F30
-            test rax, rax
-            je done
-            movabs rcx, 0x1843B0A08
-            mov rcx, [rcx]
-            mov rsi, [rax+0x100]
-            call 0x1804726E0
-            mov rdi, rax
-            movabs r8, 0x1843A22D8
-            mov r8, [r8]
-            xor r9d, r9d
-            mov rdx, rbx
-            mov rcx, rdi
-            call 0x1808DA950
-            test rsi, rsi
-            je retry
-            xor r8d, r8d
-            mov rdx, rax
-            mov rcx, rsi
-            call 0x183243D40
-            mov byte ptr [rbx+0x153], 1
-        refresh_only:
-            mov rcx, rbx
-            call 0x{refresh_address:x}
-            jmp done
-        retry:
-            nop
-        done:
-            add rsp, 0x20
-            pop r15
-            pop r14
-            pop r13
-            pop r12
-            pop rdi
-            pop rsi
-            pop rbx
-            ret
-            """,
-            addr=setup_address,
-        )[0]
-    )
-    refresh_bytes = bytes(
-        assembler.asm(
-            f"""
-            push rbx
-            push rsi
-            push rdi
-            sub rsp, 0x20
-            mov rbx, rcx
-            mov rcx, rbx
-            call 0x{resolve_panel_address:x}
-            test rax, rax
-            je done
+            je mode_done
+            mov [rsp+0x10], rax
             mov rcx, rax
             mov edx, 1
             call 0x18323D4F0
-            test rax, rax
-            je done
-            mov rcx, rax
-            xor edx, edx
-            call 0x18323D4F0
-            test rax, rax
-            je done
             mov rcx, rax
             call 0x18320FB30
-            test rax, rax
-            je done
-            mov rcx, rax
-            call 0x1832146A0
-            test rax, rax
-            je done
-            mov rsi, rax
-            mov rcx, rax
-            mov edx, 1
-            call 0x18323D4F0
-            test rax, rax
-            je done
-            mov rcx, rax
-            call 0x18320FB30
-            test rax, rax
-            je done
-            mov rdi, rax
-            mov rcx, rsi
-            mov edx, 2
-            call 0x18323D4F0
-            test rax, rax
-            je done
-            mov rcx, rax
-            call 0x18320FB30
-            test rax, rax
-            je done
-            mov rsi, rax
-            mov rcx, rdi
-            movzx edx, byte ptr [rbx+0x152]
+            movzx edx, byte ptr [rdi+0x152]
             xor edx, 1
             xor r8d, r8d
             call 0x183213DF0
-            mov rcx, rsi
-            movzx edx, byte ptr [rbx+0x152]
+            mov rcx, [rsp+0x10]
+            mov edx, 2
+            call 0x18323D4F0
+            mov rcx, rax
+            call 0x18320FB30
+            movzx edx, byte ptr [rdi+0x152]
             xor r8d, r8d
             call 0x183213DF0
-        done:
+        mode_done:
             add rsp, 0x20
             pop rdi
-            pop rsi
-            pop rbx
             ret
+        role_path:
+            mov rcx, rdi
+            jmp 0x1807E24C6
             """,
-            addr=refresh_address,
-        )[0]
-    )
-    open_tail_stub = bytes(
-        assembler.asm(
-            f"""
-            call 0x180600D30
-            mov rcx, rbx
-            call 0x{setup_address:x}
-            mov rdi, [rsp+0x38]
-            mov rsi, [rsp+0x30]
-            add rsp, 0x20
-            pop rbx
-            ret
-            """,
-            addr=open_tail_stub_address,
+            addr=wrapper_address,
         )[0]
     )
     loader_bytes = bytes(
@@ -1323,18 +1100,12 @@ def _build_gameassembly_mode_selector_regions() -> dict[int, bytes]:
             addr=loader_address,
         )[0]
     )
-
     wrapper_jump = (
         _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_WRAPPER_OFFSET)
     ) - (
         _gameassembly_raw_to_va(GAMEASSEMBLY_ROLE_BUTTON_ENTRY_OFFSET) + 5
     )
     role_hook_bytes = b"\xE9" + int(wrapper_jump).to_bytes(4, "little", signed=True) + b"\x90"
-
-    open_tail_hook_bytes = b"\xE9" + int(
-        _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_OPEN_TAIL_STUB_OFFSET)
-        - (_gameassembly_raw_to_va(GAMEASSEMBLY_OPEN_TAIL_ENTRY_OFFSET) + 5)
-    ).to_bytes(4, "little", signed=True) + (b"\x90" * 15)
 
     loader_call_one = (
         _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_LOADER_OFFSET)
@@ -1355,15 +1126,9 @@ def _build_gameassembly_mode_selector_regions() -> dict[int, bytes]:
     mode_call_site_two_bytes = b"\xE8" + int(loader_call_two).to_bytes(4, "little", signed=True) + b"\x90\x90"
 
     return {
-        GAMEASSEMBLY_MODE_SELECTOR_RESOLVE_PANEL_OFFSET: resolve_panel_bytes,
-        GAMEASSEMBLY_MODE_SELECTOR_RESOLVE_BACKGROUND_OFFSET: resolve_background_bytes,
         GAMEASSEMBLY_MODE_SELECTOR_WRAPPER_OFFSET: wrapper_bytes,
-        GAMEASSEMBLY_MODE_SELECTOR_SETUP_OFFSET: setup_bytes,
-        GAMEASSEMBLY_MODE_SELECTOR_OPEN_TAIL_STUB_OFFSET: open_tail_stub,
-        GAMEASSEMBLY_MODE_SELECTOR_REFRESH_OFFSET: refresh_bytes,
         GAMEASSEMBLY_MODE_SELECTOR_LOADER_OFFSET: loader_bytes,
         GAMEASSEMBLY_ROLE_BUTTON_ENTRY_OFFSET: role_hook_bytes,
-        GAMEASSEMBLY_OPEN_TAIL_ENTRY_OFFSET: open_tail_hook_bytes,
         GAMEASSEMBLY_MODE_CALL_SITE_ONE_OFFSET: mode_call_site_one_bytes,
         GAMEASSEMBLY_MODE_CALL_SITE_TWO_OFFSET: mode_call_site_two_bytes,
     }
@@ -1375,9 +1140,9 @@ def _patch_gameassembly_mode_selector(prepared_file: PreparedFile) -> None:
     if bytes(
         gameassembly_bytes[
             GAMEASSEMBLY_ROLE_BUTTON_ENTRY_OFFSET : GAMEASSEMBLY_ROLE_BUTTON_ENTRY_OFFSET
-            + len(GAMEASSEMBLY_ROLE_BUTTON_ENTRY_BYTES)
+            + len(GAMEASSEMBLY_MODE_SELECTOR_ENTRY_BYTES)
         ]
-    ) != GAMEASSEMBLY_ROLE_BUTTON_ENTRY_BYTES:
+    ) != GAMEASSEMBLY_MODE_SELECTOR_ENTRY_BYTES:
         raise SystemExit("Unexpected PortalPlayView.OnChangeRoleButton prologue in clean GameAssembly.dll")
 
     if bytes(
@@ -1395,14 +1160,6 @@ def _patch_gameassembly_mode_selector(prepared_file: PreparedFile) -> None:
         ]
     ) != GAMEASSEMBLY_MODE_CALL_SITE_TWO_BYTES:
         raise SystemExit("Unexpected second PortalPlayView.OnPlay mode literal in clean GameAssembly.dll")
-
-    if bytes(
-        gameassembly_bytes[
-            GAMEASSEMBLY_OPEN_TAIL_ENTRY_OFFSET : GAMEASSEMBLY_OPEN_TAIL_ENTRY_OFFSET
-            + len(GAMEASSEMBLY_OPEN_TAIL_ENTRY_BYTES)
-        ]
-    ) != GAMEASSEMBLY_OPEN_TAIL_ENTRY_BYTES:
-        raise SystemExit("Unexpected PortalPlayView.Open tail in clean GameAssembly.dll")
 
     for offset, patch_bytes in _build_gameassembly_mode_selector_regions().items():
         gameassembly_bytes[offset : offset + len(patch_bytes)] = patch_bytes

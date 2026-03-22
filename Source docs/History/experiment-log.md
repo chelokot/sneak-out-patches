@@ -196,3 +196,106 @@ Practical lesson:
 
 - startup registration code must be more conservative than click-time routing code
 - `EventSystem`-based disambiguation is acceptable for click-time logic, but not a good foundation for initialization-time listener wiring
+
+### Re-run selector layout on every popup open
+
+Outcome:
+
+- the selector setup path was changed to re-apply row reparenting, sibling order, and anchored positions every time the popup state check runs
+- only the listener registration remains guarded to a one-time path
+
+Reason:
+
+- treating the popup retrofit as fully one-time setup was too fragile
+- `PortalPlayView` open flow can leave rows back in their stock arrangement, so the injected mode row must be laid out repeatedly
+
+Conclusion:
+
+- popup retrofit code should separate one-time wiring from repeatable layout work
+
+### Move selector setup from `PrivateGameStateCheck()` to the tail of `PortalPlayView.Open()`
+
+Outcome:
+
+- the selector no longer relies on `PrivateGameStateCheck()` as a layout trigger
+- the new hook point is the late tail of `PortalPlayView.Open()`, after the stock popup has already activated and laid out its controls
+- the private/public state check path can stay closer to baseline again
+
+Reason:
+
+- `PrivateGameStateCheck()` was too early and too indirect
+- it made selector state depend on a side path that was not designed to own popup layout
+- `Open()` is the first place that clearly means “the portal popup is now being shown”
+
+Conclusion:
+
+- popup-retrofit patches should prefer explicit late-open hooks over unrelated refresh helpers
+
+### Store the injected mode control as a real button component
+
+Outcome:
+
+- the selector stopped storing a raw `GameObject` for the injected row
+- it now stores the actual button component, matching how `_privateGameButton` is stored in `PortalPlayView`
+- listener wiring and refresh logic can both derive the needed `GameObject` from that component
+
+Reason:
+
+- keeping only a `GameObject` forced the patch through a fragile `GetComponentCount() / GetComponentAtIndex()` path
+- the stock `OnAwake()` code already showed the cleaner model: button field first, `button+0x100` listener target second
+
+Conclusion:
+
+- when retrofitting an extra UI control into an existing view, prefer mirroring the stock field type exactly instead of storing a looser proxy object
+
+### Move the injected mode row off the private/public callback path
+
+Outcome:
+
+- the injected mode row was moved away from `OnPrivateGameButton()`
+- the new design hooks `OnChangeRoleButton()` instead and lets the real private/public control keep its original code path
+- the mode row is now resolved from `GameModeViewV2.ModePanel` on demand instead of being stashed into a reused serialized field
+
+Reason:
+
+- using `OnPrivateGameButton()` forced the patch to multiplex two unrelated controls through one callback
+- that created unnecessary risk around `EventSystem.current` routing and around reused serialized fields such as `_privateGameGamepadIcon`
+- the role-toggle callback is the closer semantic match for a second binary toggle row
+
+Conclusion:
+
+- when extending a live popup with one more toggle, prefer piggybacking on the closest stock callback family instead of hijacking an unrelated control path
+
+### Remove startup-time selector setup hooks
+
+Outcome:
+
+- startup-time selector setup hooks were dropped from the `mode-selector` patch
+- only the click-path wrapper and `OnPlay()` mode loader remain in `GameAssembly.dll`
+
+Reason:
+
+- the startup hook path was the most fragile part of the retrofit
+- earlier failures included `GetComponentAtIndex` crashes and later native startup exceptions even when the hook bytes themselves were formally valid
+- the portal popup can be retrofitted through scene structure plus click-time routing without touching early lobby setup
+
+Conclusion:
+
+- when a retrofit can be split into scene structure and click-time logic, prefer that over startup-time Unity API calls
+
+### Stop cloning TMP objects for the injected portal row
+
+Outcome:
+
+- the selector patch no longer relies on cloned `TextMeshProUGUI` objects for the injected mode row
+- the cloned row now reuses existing text nodes from the hidden `GameModeViewV2` subtree
+
+Reason:
+
+- cloned TMP components looked structurally valid but crashed at runtime in `TMP_FontAsset.UpgradeFontAsset()` during `PortalPlayView.Open()`
+- this proved that the cloned layout objects were acceptable, while cloned TMP text objects were not
+- reusing already-scene-valid TMP nodes is safer than manufacturing new TMP instances in a raw asset clone
+
+Conclusion:
+
+- for Unity retail asset patching, cloned visual layout objects are often safe, but cloned TMP text components deserve separate suspicion and should be replaced with reused live nodes when possible

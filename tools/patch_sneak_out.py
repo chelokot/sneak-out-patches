@@ -159,26 +159,29 @@ PATCH_OPTIONS: tuple[PatchOption, ...] = (
 
 PATCH_OPTION_BY_ID = {option.option_id: option for option in PATCH_OPTIONS}
 
-LEVEL0_PORTAL_SELECTOR_ROOT_TRANSFORM = 13300
-LEVEL0_BACKGROUND_TRANSFORM = 14710
+LEVEL0_PREFERRED_ROLE_TRANSFORM = 13300
 LEVEL0_PRIVATE_GAME_TRANSFORM = 14866
-LEVEL0_PORTAL_VIEW_COMPONENT = 24702
-LEVEL0_MODE_LABEL_COMPONENT = 19499
-LEVEL0_MODE_TITLE_COMPONENT = 19506
-LEVEL0_MODE_LEFT_TEXT_COMPONENT = 19339
-LEVEL0_MODE_RIGHT_TEXT_COMPONENT = 19520
-LEVEL0_ROLE_LABEL_CLONE_COMPONENT = 28087
+LEVEL0_MODE_LABEL_TRANSFORM = 14171
+LEVEL0_MODE_ROW_TRANSFORM = 14151
+LEVEL0_MODE_LABEL_COMPONENT = 19543
+LEVEL0_MODE_LABEL_LOCALIZER_COMPONENT = 23528
+LEVEL0_MODE_TOGGLE_TEXT_COMPONENT = 19160
+LEVEL0_MODE_LABEL_Y = 452.0
 LEVEL0_MODE_ROW_Y = 393.0
-LEVEL0_ROLE_ROW_Y = 295.0
-LEVEL0_PRIVATE_ROW_Y = 197.0
+LEVEL0_ROLE_ROW_Y = 286.0
+LEVEL0_PRIVATE_ROW_Y = 179.0
 LEVEL0_GAME_MODE_LABEL_TEXT = b"Game mode"
-LEVEL0_ROLE_LABEL_TEXT = b"Preferred role"
-LEVEL0_BEREK_LABEL_TEXT = b"Berek!"
-LEVEL0_CLASSIC_LABEL_TEXT = b"Normal"
+LEVEL0_MODE_TOGGLE_TEXT = b"Get the Crown"
 
 GAMEASSEMBLY_MODE_SELECTOR_WRAPPER_OFFSET = 0x5E4EA0
-GAMEASSEMBLY_MODE_SELECTOR_LOADER_OFFSET = 0x5E4FC0
+GAMEASSEMBLY_MODE_SELECTOR_RESOLVE_PANEL_OFFSET = 0x5E7000
+GAMEASSEMBLY_MODE_SELECTOR_RESOLVE_BACKGROUND_OFFSET = 0x5E7100
+GAMEASSEMBLY_MODE_SELECTOR_SETUP_OFFSET = 0x5E7200
+GAMEASSEMBLY_MODE_SELECTOR_REFRESH_OFFSET = 0x5E7400
+GAMEASSEMBLY_MODE_SELECTOR_OPEN_TAIL_STUB_OFFSET = 0x5E7600
+GAMEASSEMBLY_MODE_SELECTOR_LOADER_OFFSET = 0x5E7800
 GAMEASSEMBLY_ROLE_BUTTON_ENTRY_OFFSET = 0x7E10C0
+GAMEASSEMBLY_OPEN_TAIL_ENTRY_OFFSET = 0x7E17F6
 GAMEASSEMBLY_MODE_CALL_SITE_ONE_OFFSET = 0x7E15AD
 GAMEASSEMBLY_MODE_CALL_SITE_TWO_OFFSET = 0x7E15DC
 
@@ -186,7 +189,8 @@ GAMEASSEMBLY_IMAGE_BASE = 0x180000000
 GAMEASSEMBLY_IL2CPP_RAW_START = 0x569C00
 GAMEASSEMBLY_IL2CPP_RVA_START = 0x56B000
 
-GAMEASSEMBLY_MODE_SELECTOR_ENTRY_BYTES = bytes.fromhex("40574883ec20")
+GAMEASSEMBLY_ROLE_BUTTON_ENTRY_BYTES = bytes.fromhex("40574883ec20")
+GAMEASSEMBLY_OPEN_TAIL_ENTRY_BYTES = bytes.fromhex("488b7c2438488b7424304883c4205be926f5e1ff")
 GAMEASSEMBLY_MODE_CALL_SITE_ONE_BYTES = bytes.fromhex("4533c0488bc8488bd8418d5001")
 GAMEASSEMBLY_MODE_CALL_SITE_TWO_BYTES = bytes.fromhex("4533c0418d5001")
 
@@ -392,6 +396,10 @@ def parse_patch_selection(raw_selection: str) -> tuple[str, ...]:
     return option_ids
 
 
+def default_patch_selection() -> tuple[str, ...]:
+    return tuple(option.option_id for option in PATCH_OPTIONS if option.default_enabled)
+
+
 def prepare_file(game_dir: Path, managed_file: ManagedFile) -> PreparedFile:
     path = game_dir / managed_file.relative_path
     if not path.is_file():
@@ -437,8 +445,35 @@ def prepare_files(game_dir: Path) -> dict[str, PreparedFile]:
     }
 
 
+def first_diff_offset(expected: bytes, actual: bytes) -> int | None:
+    limit = min(len(expected), len(actual))
+    for index in range(limit):
+        if expected[index] != actual[index]:
+            return index
+    if len(expected) != len(actual):
+        return limit
+    return None
+
+
+def format_diff_window(expected: bytes, actual: bytes, offset: int, window: int = 16) -> str:
+    start = max(offset - window, 0)
+    end = min(offset + window, max(len(expected), len(actual)))
+    expected_slice = expected[start:end]
+    actual_slice = actual[start:end]
+    return (
+        f"first diff at 0x{offset:x}\n"
+        f"expected[{start:#x}:{end:#x}]: {expected_slice.hex()}\n"
+        f"actual[{start:#x}:{end:#x}]:   {actual_slice.hex()}"
+    )
+
+
 def _replace_qword(raw_bytes: bytearray, offset: int, value: int) -> None:
     raw_bytes[offset : offset + 8] = struct.pack("<q", value)
+
+
+def _replace_rel32(raw_bytes: bytearray, offset: int, opcode_length: int, source_va: int, target_va: int) -> None:
+    displacement = target_va - (source_va + opcode_length)
+    raw_bytes[offset : offset + 4] = struct.pack("<i", displacement)
 
 
 def _patch_text_component(raw_bytes: bytearray, updated_text: bytes) -> None:
@@ -450,8 +485,142 @@ def _patch_text_component(raw_bytes: bytearray, updated_text: bytes) -> None:
     )
 
 
+def _disable_monobehaviour(raw_bytes: bytearray) -> None:
+    raw_bytes[12:16] = struct.pack("<I", 0)
+
+
 def _gameassembly_raw_to_va(raw_offset: int) -> int:
     return GAMEASSEMBLY_IMAGE_BASE + GAMEASSEMBLY_IL2CPP_RVA_START + (raw_offset - GAMEASSEMBLY_IL2CPP_RAW_START)
+
+
+def _disassemble_exact(code_bytes: bytes, virtual_address: int, label: str) -> None:
+    from capstone import CS_ARCH_X86, CS_MODE_64, Cs
+
+    disassembler = Cs(CS_ARCH_X86, CS_MODE_64)
+    instructions = list(disassembler.disasm(code_bytes, virtual_address))
+    consumed = sum(instruction.size for instruction in instructions)
+    if consumed != len(code_bytes):
+        raise SystemExit(
+            f"Static validation failed for {label}\n"
+            f"disassembled: {consumed} bytes\n"
+            f"expected:     {len(code_bytes)} bytes"
+        )
+
+
+def _read_rel32_target(raw_bytes: bytes, offset: int, mnemonic: str) -> int:
+    from capstone import CS_ARCH_X86, CS_MODE_64, CS_OP_IMM, Cs
+
+    disassembler = Cs(CS_ARCH_X86, CS_MODE_64)
+    disassembler.detail = True
+    virtual_address = _gameassembly_raw_to_va(offset)
+    instructions = list(disassembler.disasm(raw_bytes[offset : offset + 16], virtual_address))
+    if not instructions:
+        raise SystemExit(f"Static validation failed at 0x{offset:x}: no instruction decoded")
+    instruction = instructions[0]
+    if instruction.mnemonic != mnemonic:
+        raise SystemExit(
+            f"Static validation failed at 0x{offset:x}: expected {mnemonic}, got {instruction.mnemonic}"
+        )
+    if len(instruction.operands) != 1 or instruction.operands[0].type != CS_OP_IMM:
+        raise SystemExit(f"Static validation failed at 0x{offset:x}: expected rel32 immediate operand")
+    return int(instruction.operands[0].imm)
+
+
+def _section_name_for_offset(pe, raw_offset: int) -> str:
+    for section in pe.sections:
+        start = int(section.PointerToRawData)
+        end = start + int(section.SizeOfRawData)
+        if start <= raw_offset < end:
+            return section.Name.rstrip(b"\x00").decode("ascii", errors="ignore")
+    return "<none>"
+
+
+def _section_is_executable(pe, raw_offset: int) -> bool:
+    for section in pe.sections:
+        start = int(section.PointerToRawData)
+        end = start + int(section.SizeOfRawData)
+        if start <= raw_offset < end:
+            return bool(section.Characteristics & 0x20000000)
+    return False
+
+
+def _validate_gameassembly_static(clean_bytes: bytes, patched_bytes: bytes, selected_option_ids: tuple[str, ...]) -> None:
+    import pefile
+
+    pe = pefile.PE(data=patched_bytes, fast_load=True)
+    executable_regions: list[tuple[int, bytes, str]] = []
+    for option_id in selected_option_ids:
+        option = PATCH_OPTION_BY_ID[option_id]
+        for file_patch_group in option.file_patch_groups:
+            if file_patch_group.relative_path != "GameAssembly.dll":
+                continue
+            for patch in file_patch_group.patches:
+                executable_regions.append((patch.offset, patch.after, patch.description))
+
+    if "mode-selector" in selected_option_ids:
+        for offset, region_bytes in _build_gameassembly_mode_selector_regions().items():
+            executable_regions.append((offset, region_bytes, f"mode-selector region 0x{offset:x}"))
+
+    for offset, region_bytes, description in executable_regions:
+        if not _section_is_executable(pe, offset):
+            continue
+        _disassemble_exact(
+            region_bytes,
+            _gameassembly_raw_to_va(offset),
+            f"{description} in section {_section_name_for_offset(pe, offset)}",
+        )
+
+    if "mode-selector" in selected_option_ids:
+        if patched_bytes[GAMEASSEMBLY_ROLE_BUTTON_ENTRY_OFFSET + 5] != 0x90:
+            raise SystemExit("Static validation failed: role-button hook is missing trailing NOP")
+        role_target = _read_rel32_target(patched_bytes, GAMEASSEMBLY_ROLE_BUTTON_ENTRY_OFFSET, "jmp")
+        if role_target != _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_WRAPPER_OFFSET):
+            raise SystemExit(
+                "Static validation failed: role-button hook target does not point at mode-selector wrapper"
+            )
+
+        open_target = _read_rel32_target(patched_bytes, GAMEASSEMBLY_OPEN_TAIL_ENTRY_OFFSET, "jmp")
+        if open_target != _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_OPEN_TAIL_STUB_OFFSET):
+            raise SystemExit(
+                "Static validation failed: PortalPlayView.Open tail hook target does not point at the mode-selector open stub"
+            )
+
+        call_target_one = _read_rel32_target(patched_bytes, GAMEASSEMBLY_MODE_CALL_SITE_ONE_OFFSET + 6, "call")
+        if call_target_one != _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_LOADER_OFFSET):
+            raise SystemExit(
+                "Static validation failed: first PortalPlayView.OnPlay mode loader call does not point at the selector loader"
+            )
+
+        call_target_two = _read_rel32_target(patched_bytes, GAMEASSEMBLY_MODE_CALL_SITE_TWO_OFFSET, "call")
+        if call_target_two != _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_LOADER_OFFSET):
+            raise SystemExit(
+                "Static validation failed: second PortalPlayView.OnPlay mode loader call does not point at the selector loader"
+            )
+
+
+def validate_prepared_files(prepared_files: dict[str, PreparedFile], selected_option_ids: tuple[str, ...]) -> None:
+    for prepared_file in prepared_files.values():
+        expected_bytes = bytes(prepared_file.working_bytes)
+        clean_bytes = prepared_file.backup_path.read_bytes()
+        if prepared_file.spec.relative_path == "GameAssembly.dll":
+            _validate_gameassembly_static(clean_bytes, expected_bytes, selected_option_ids)
+
+
+def validate_installed_files(game_dir: Path, selected_option_ids: tuple[str, ...]) -> None:
+    prepared_files = prepare_files(game_dir)
+    apply_selected_patches(prepared_files, selected_option_ids)
+    validate_prepared_files(prepared_files, selected_option_ids)
+    for prepared_file in prepared_files.values():
+        expected_bytes = bytes(prepared_file.working_bytes)
+        actual_bytes = prepared_file.path.read_bytes()
+        if actual_bytes != expected_bytes:
+            diff_offset = first_diff_offset(expected_bytes, actual_bytes)
+            if diff_offset is None:
+                raise SystemExit(f"Validation failed for {prepared_file.path}")
+            raise SystemExit(
+                f"Validation failed for {prepared_file.path}\n"
+                + format_diff_window(expected_bytes, actual_bytes, diff_offset)
+            )
 
 
 def _collect_level0_subtree(asset, root_transform_path_id: int) -> list[int]:
@@ -490,153 +659,501 @@ def _remap_typetree_path_ids(node, cloned_path_ids: dict[int, int]):
 
 def _patch_level0_mode_selector(prepared_file: PreparedFile) -> None:
     import UnityPy
-    from UnityPy.files.ObjectReader import ObjectReader
 
     with NamedTemporaryFile(suffix=".level0") as temp_file:
         temp_file.write(bytes(prepared_file.working_bytes))
         temp_file.flush()
         environment = UnityPy.load(temp_file.name)
         asset = next(iter(environment.files.values()))
-        source_bytes = bytes(prepared_file.working_bytes)
-
-        subtree_path_ids = _collect_level0_subtree(asset, LEVEL0_PORTAL_SELECTOR_ROOT_TRANSFORM)
-        next_path_id = max(asset.objects)
-        cloned_path_ids: dict[int, int] = {}
-        for source_path_id in subtree_path_ids:
-            next_path_id += 1
-            cloned_path_ids[source_path_id] = next_path_id
-
-        pointer_replacements = tuple(
-            (
-                b"\x00\x00\x00\x00" + struct.pack("<q", source_path_id),
-                b"\x00\x00\x00\x00" + struct.pack("<q", cloned_path_id),
-            )
-            for source_path_id, cloned_path_id in cloned_path_ids.items()
+        object_updates = (
+            (LEVEL0_MODE_LABEL_COMPONENT, LEVEL0_GAME_MODE_LABEL_TEXT, _patch_text_component),
+            (LEVEL0_MODE_LABEL_LOCALIZER_COMPONENT, None, _disable_monobehaviour),
+            (LEVEL0_MODE_TOGGLE_TEXT_COMPONENT, LEVEL0_MODE_TOGGLE_TEXT, _patch_text_component),
         )
+        for path_id, payload, handler in object_updates:
+            obj = asset.objects[path_id]
+            raw_bytes = bytearray(prepared_file.working_bytes[obj.byte_start : obj.byte_start + obj.byte_size])
+            handler(raw_bytes, payload) if payload is not None else handler(raw_bytes)
+            prepared_file.working_bytes[obj.byte_start : obj.byte_start + obj.byte_size] = raw_bytes
 
-        for source_path_id in subtree_path_ids:
-            source_object = asset.objects[source_path_id]
-            cloned_raw_bytes = bytearray(
-                source_bytes[source_object.byte_start : source_object.byte_start + source_object.byte_size]
-            )
-            for old_pointer, new_pointer in pointer_replacements:
-                cloned_raw_bytes = cloned_raw_bytes.replace(old_pointer, new_pointer)
-            cloned_object = ObjectReader(
-                asset,
-                source_object.reader,
-                cloned_path_ids[source_path_id],
-                source_object.type_id,
-                source_object.serialized_type,
-                source_object.class_id,
-                source_object.type,
-                source_object.byte_start,
-                len(cloned_raw_bytes),
-                source_object.is_destroyed,
-                source_object.is_stripped,
-                data=bytes(cloned_raw_bytes),
-                read_until=source_object._read_until,
-            )
-            asset.objects[cloned_object.path_id] = cloned_object
 
-        for source_path_id in subtree_path_ids:
-            source_object = asset.objects[source_path_id]
-            cloned_object = asset.objects[cloned_path_ids[source_path_id]]
-            try:
-                source_tree = source_object.read_typetree()
-            except Exception:
-                continue
-            cloned_object.save_typetree(_remap_typetree_path_ids(source_tree, cloned_path_ids))
+def _build_gameassembly_mode_selector_regions() -> dict[int, bytes]:
+    from keystone import KS_ARCH_X86, KS_MODE_64, Ks
 
-        background_tree = asset.objects[LEVEL0_BACKGROUND_TRANSFORM].read_typetree()
-        background_tree["m_Children"].insert(
-            3,
-            {"m_FileID": 0, "m_PathID": cloned_path_ids[LEVEL0_PORTAL_SELECTOR_ROOT_TRANSFORM]},
-        )
-        asset.objects[LEVEL0_BACKGROUND_TRANSFORM].save_typetree(background_tree)
+    assembler = Ks(KS_ARCH_X86, KS_MODE_64)
+    wrapper_address = _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_WRAPPER_OFFSET)
+    resolve_panel_address = _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_RESOLVE_PANEL_OFFSET)
+    resolve_background_address = _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_RESOLVE_BACKGROUND_OFFSET)
+    setup_address = _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_SETUP_OFFSET)
+    open_tail_stub_address = _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_OPEN_TAIL_STUB_OFFSET)
+    refresh_address = _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_REFRESH_OFFSET)
+    loader_address = _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_LOADER_OFFSET)
+    resolve_panel_bytes = bytes(
+        assembler.asm(
+            """
+            push rbx
+            sub rsp, 0x20
+            mov rbx, rcx
+            mov rcx, [rbx+0x68]
+            test rcx, rcx
+            je fail
+            call 0x1832146A0
+            test rax, rax
+            je fail
+            mov rcx, rax
+            call 0x18323D6B0
+            test rax, rax
+            je fail
+            mov rcx, rax
+            call 0x18323D6B0
+            test rax, rax
+            je fail
+            mov rcx, rax
+            mov edx, 25
+            call 0x18323D4F0
+            test rax, rax
+            je fail
+            mov rcx, rax
+            xor edx, edx
+            call 0x18323D4F0
+            test rax, rax
+            je fail
+            mov rcx, rax
+            mov edx, 1
+            call 0x18323D4F0
+        fail:
+            add rsp, 0x20
+            pop rbx
+            ret
+            """,
+            addr=resolve_panel_address,
+        )[0]
+    )
+    resolve_background_bytes = bytes(
+        assembler.asm(
+            """
+            push rbx
+            sub rsp, 0x20
+            mov rbx, rcx
+            mov rcx, [rbx+0x68]
+            test rcx, rcx
+            je fail
+            call 0x1832146A0
+            test rax, rax
+            je fail
+            mov rcx, rax
+            xor edx, edx
+            call 0x18323D4F0
+        fail:
+            add rsp, 0x20
+            pop rbx
+            ret
+            """,
+            addr=resolve_background_address,
+        )[0]
+    )
+    wrapper_bytes = bytes(
+        assembler.asm(
+            f"""
+            push rdi
+            sub rsp, 0x20
+            mov rdi, rcx
+            call 0x1834AF8B0
+            mov r10, rax
+            mov rcx, [rdi+0xF8]
+            test rcx, rcx
+            je mode_path
+            call 0x18320FB30
+            test rax, rax
+            je mode_path
+            mov r11, rax
+            mov rcx, rax
+            call 0x1832146A0
+            test rax, rax
+            je mode_path
+            mov rcx, rax
+            call 0x18323D6B0
+            test rax, rax
+            je mode_path
+            mov rcx, rax
+            call 0x18320FB30
+            test rax, rax
+            je mode_path
+            mov [rsp+0x18], rax
+            test r10, r10
+            je mode_path
+            cmp r10, r11
+            je original_path
+            cmp r10, [rsp+0x18]
+            je original_path
+            mov rcx, r10
+            call 0x1832146A0
+            test rax, rax
+            je mode_path
+            mov rcx, rax
+            call 0x18323D6B0
+            test rax, rax
+            je mode_path
+            mov rcx, rax
+            call 0x18320FB30
+            test rax, rax
+            je mode_path
+            cmp rax, r11
+            je original_path
+            cmp rax, [rsp+0x18]
+            je original_path
+            mov rcx, rax
+            call 0x1832146A0
+            test rax, rax
+            je mode_path
+            mov rcx, rax
+            call 0x18323D6B0
+            test rax, rax
+            je mode_path
+            mov rcx, rax
+            call 0x18320FB30
+            test rax, rax
+            je mode_path
+            cmp rax, r11
+            je original_path
+            cmp rax, [rsp+0x18]
+            je original_path
+        mode_path:
+            cmp byte ptr [rdi+0x152], 0
+            sete al
+            mov byte ptr [rdi+0x152], al
+            mov rcx, rdi
+            call 0x{refresh_address:x}
+            add rsp, 0x20
+            pop rdi
+            ret
+        original_path:
+            mov rcx, rdi
+            jmp 0x1807E10C6
+            """,
+            addr=wrapper_address,
+        )[0]
+    )
+    setup_bytes = bytes(
+        assembler.asm(
+            f"""
+            push rbx
+            push rsi
+            push rdi
+            push r12
+            push r13
+            push r14
+            push r15
+            sub rsp, 0x20
+            mov rbx, rcx
+            call 0x{resolve_background_address:x}
+            test rax, rax
+            je done
+            mov r14, rax
+            mov rcx, rbx
+            call 0x{resolve_panel_address:x}
+            test rax, rax
+            je done
+            mov r15, rax
+            mov rcx, r15
+            mov edx, 1
+            call 0x18323D4F0
+            test rax, rax
+            je done
+            mov r12, rax
+            mov rcx, r15
+            mov edx, 2
+            call 0x18323D4F0
+            test rax, rax
+            je done
+            mov r13, rax
+            mov rcx, r12
+            xor edx, edx
+            call 0x18323D4F0
+            test rax, rax
+            je done
+            mov rcx, rax
+            call 0x18320FB30
+            test rax, rax
+            je done
+            mov rsi, rax
+            mov rdx, r14
+            xor r8d, r8d
+            mov rcx, r12
+            call 0x18323FA70
+            mov rdx, r14
+            xor r8d, r8d
+            mov rcx, r13
+            call 0x18323FA70
+            mov rcx, r13
+            mov edx, 2
+            call 0x18323FBD0
+            mov rcx, r12
+            mov edx, 3
+            call 0x18323FBD0
+            xor esi, esi
+            xor edi, edi
+            mov rcx, [rbx+0xF8]
+            test rcx, rcx
+            je retry
+            call 0x18320FB30
+            test rax, rax
+            je retry
+            mov rcx, rax
+            call 0x1832146A0
+            test rax, rax
+            je retry
+            mov rcx, rax
+            call 0x18323D6B0
+            test rax, rax
+            je retry
+            mov rcx, rax
+            call 0x18323D6B0
+            test rax, rax
+            je retry
+            mov rsi, rax
+            mov rcx, rsi
+            mov edx, 4
+            call 0x18323FBD0
+            mov rcx, [rbx+0x90]
+            test rcx, rcx
+            je retry
+            call 0x18320FB30
+            test rax, rax
+            je retry
+            mov rcx, rax
+            call 0x1832146A0
+            test rax, rax
+            je retry
+            mov rcx, rax
+            call 0x18323D6B0
+            test rax, rax
+            je retry
+            mov rcx, rax
+            call 0x18323D6B0
+            test rax, rax
+            je retry
+            mov rdi, rax
+            mov rcx, rdi
+            mov edx, 5
+            call 0x18323FBD0
+            mov dword ptr [rsp+0x00], 0x00000000
+            mov dword ptr [rsp+0x04], 0x43e20000
+            mov rcx, r13
+            lea rdx, [rsp+0x00]
+            call 0x183235850
+            mov dword ptr [rsp+0x08], 0x00000000
+            mov dword ptr [rsp+0x0C], 0x43c48000
+            mov rcx, r12
+            lea rdx, [rsp+0x08]
+            call 0x183235850
+            mov dword ptr [rsp+0x10], 0x00000000
+            mov dword ptr [rsp+0x14], 0x438f0000
+            mov rcx, rsi
+            lea rdx, [rsp+0x10]
+            call 0x183235850
+            mov dword ptr [rsp+0x18], 0x00000000
+            mov dword ptr [rsp+0x1C], 0x43330000
+            mov rcx, rdi
+            lea rdx, [rsp+0x18]
+            call 0x183235850
+            cmp byte ptr [rbx+0x153], 0
+            jne refresh_only
+            mov rcx, rsi
+            test rcx, rcx
+            je done
+            call 0x1832130B0
+            test eax, eax
+            jle done
+            lea edx, [rax-1]
+            mov rcx, rsi
+            call 0x183212F30
+            test rax, rax
+            je done
+            movabs rcx, 0x1843B0A08
+            mov rcx, [rcx]
+            mov rsi, [rax+0x100]
+            call 0x1804726E0
+            mov rdi, rax
+            movabs r8, 0x1843A22D8
+            mov r8, [r8]
+            xor r9d, r9d
+            mov rdx, rbx
+            mov rcx, rdi
+            call 0x1808DA950
+            test rsi, rsi
+            je retry
+            xor r8d, r8d
+            mov rdx, rax
+            mov rcx, rsi
+            call 0x183243D40
+            mov byte ptr [rbx+0x153], 1
+        refresh_only:
+            mov rcx, rbx
+            call 0x{refresh_address:x}
+            jmp done
+        retry:
+            nop
+        done:
+            add rsp, 0x20
+            pop r15
+            pop r14
+            pop r13
+            pop r12
+            pop rdi
+            pop rsi
+            pop rbx
+            ret
+            """,
+            addr=setup_address,
+        )[0]
+    )
+    refresh_bytes = bytes(
+        assembler.asm(
+            f"""
+            push rbx
+            push rsi
+            push rdi
+            sub rsp, 0x20
+            mov rbx, rcx
+            mov rcx, rbx
+            call 0x{resolve_panel_address:x}
+            test rax, rax
+            je done
+            mov rcx, rax
+            mov edx, 1
+            call 0x18323D4F0
+            test rax, rax
+            je done
+            mov rcx, rax
+            xor edx, edx
+            call 0x18323D4F0
+            test rax, rax
+            je done
+            mov rcx, rax
+            call 0x18320FB30
+            test rax, rax
+            je done
+            mov rcx, rax
+            call 0x1832146A0
+            test rax, rax
+            je done
+            mov rsi, rax
+            mov rcx, rax
+            mov edx, 1
+            call 0x18323D4F0
+            test rax, rax
+            je done
+            mov rcx, rax
+            call 0x18320FB30
+            test rax, rax
+            je done
+            mov rdi, rax
+            mov rcx, rsi
+            mov edx, 2
+            call 0x18323D4F0
+            test rax, rax
+            je done
+            mov rcx, rax
+            call 0x18320FB30
+            test rax, rax
+            je done
+            mov rsi, rax
+            mov rcx, rdi
+            movzx edx, byte ptr [rbx+0x152]
+            xor edx, 1
+            xor r8d, r8d
+            call 0x183213DF0
+            mov rcx, rsi
+            movzx edx, byte ptr [rbx+0x152]
+            xor r8d, r8d
+            call 0x183213DF0
+        done:
+            add rsp, 0x20
+            pop rdi
+            pop rsi
+            pop rbx
+            ret
+            """,
+            addr=refresh_address,
+        )[0]
+    )
+    open_tail_stub = bytes(
+        assembler.asm(
+            f"""
+            call 0x180600D30
+            mov rcx, rbx
+            call 0x{setup_address:x}
+            mov rdi, [rsp+0x38]
+            mov rsi, [rsp+0x30]
+            add rsp, 0x20
+            pop rbx
+            ret
+            """,
+            addr=open_tail_stub_address,
+        )[0]
+    )
+    loader_bytes = bytes(
+        assembler.asm(
+            "xor r8d, r8d; movzx edx, byte ptr [rdi+0x152]; inc edx; ret",
+            addr=loader_address,
+        )[0]
+    )
 
-        clone_root_tree = asset.objects[LEVEL0_PORTAL_SELECTOR_ROOT_TRANSFORM].read_typetree()
-        clone_root_tree["m_GameObject"]["m_PathID"] = cloned_path_ids[602]
-        clone_root_tree["m_Children"] = [
-            {"m_FileID": 0, "m_PathID": cloned_path_ids[child["m_PathID"]]}
-            for child in clone_root_tree["m_Children"]
-        ]
-        clone_root_tree["m_Father"] = {"m_FileID": 0, "m_PathID": LEVEL0_BACKGROUND_TRANSFORM}
-        clone_root_tree["m_AnchoredPosition"]["y"] = LEVEL0_ROLE_ROW_Y
-        asset.objects[cloned_path_ids[LEVEL0_PORTAL_SELECTOR_ROOT_TRANSFORM]].save_typetree(clone_root_tree)
+    wrapper_jump = (
+        _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_WRAPPER_OFFSET)
+    ) - (
+        _gameassembly_raw_to_va(GAMEASSEMBLY_ROLE_BUTTON_ENTRY_OFFSET) + 5
+    )
+    role_hook_bytes = b"\xE9" + int(wrapper_jump).to_bytes(4, "little", signed=True) + b"\x90"
 
-        private_game_tree = asset.objects[LEVEL0_PRIVATE_GAME_TRANSFORM].read_typetree()
-        private_game_tree["m_AnchoredPosition"]["y"] = LEVEL0_PRIVATE_ROW_Y
-        asset.objects[LEVEL0_PRIVATE_GAME_TRANSFORM].save_typetree(private_game_tree)
+    open_tail_hook_bytes = b"\xE9" + int(
+        _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_OPEN_TAIL_STUB_OFFSET)
+        - (_gameassembly_raw_to_va(GAMEASSEMBLY_OPEN_TAIL_ENTRY_OFFSET) + 5)
+    ).to_bytes(4, "little", signed=True) + (b"\x90" * 15)
 
-        original_root_game_object = asset.objects[602].read_typetree()
-        original_root_game_object["m_Name"] = "GameModeBackground"
-        asset.objects[602].save_typetree(original_root_game_object)
+    loader_call_one = (
+        _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_LOADER_OFFSET)
+    ) - (
+        _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_CALL_SITE_ONE_OFFSET) + 11
+    )
+    mode_call_site_one_bytes = (
+        b"\x48\x8b\xc8\x48\x8b\xd8\xe8"
+        + int(loader_call_one).to_bytes(4, "little", signed=True)
+        + b"\x90\x90"
+    )
 
-        original_button_game_object = asset.objects[1514].read_typetree()
-        original_button_game_object["m_Name"] = "GameMode"
-        asset.objects[1514].save_typetree(original_button_game_object)
+    loader_call_two = (
+        _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_LOADER_OFFSET)
+    ) - (
+        _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_CALL_SITE_TWO_OFFSET) + 5
+    )
+    mode_call_site_two_bytes = b"\xE8" + int(loader_call_two).to_bytes(4, "little", signed=True) + b"\x90\x90"
 
-        cloned_root_game_object = _remap_typetree_path_ids(
-            asset.objects[602].read_typetree(), cloned_path_ids
-        )
-        cloned_root_game_object["m_Name"] = "PreferredRoleBackgroundClone"
-        asset.objects[cloned_path_ids[602]].save_typetree(cloned_root_game_object)
-
-        cloned_button_game_object = _remap_typetree_path_ids(
-            asset.objects[1514].read_typetree(), cloned_path_ids
-        )
-        cloned_button_game_object["m_Name"] = "PreferredRoleClone"
-        asset.objects[cloned_path_ids[1514]].save_typetree(cloned_button_game_object)
-
-        text_updates = {
-            LEVEL0_MODE_LABEL_COMPONENT: LEVEL0_GAME_MODE_LABEL_TEXT,
-            LEVEL0_MODE_TITLE_COMPONENT: LEVEL0_GAME_MODE_LABEL_TEXT,
-            LEVEL0_MODE_LEFT_TEXT_COMPONENT: LEVEL0_BEREK_LABEL_TEXT,
-            LEVEL0_MODE_RIGHT_TEXT_COMPONENT: LEVEL0_CLASSIC_LABEL_TEXT,
-            cloned_path_ids[19499]: LEVEL0_ROLE_LABEL_TEXT,
-        }
-        for text_component_path_id, updated_text in text_updates.items():
-            text_component = asset.objects[text_component_path_id]
-            raw_bytes = bytearray(
-                text_component.data
-                if text_component.data is not None
-                else source_bytes[text_component.byte_start : text_component.byte_start + text_component.byte_size]
-            )
-            _patch_text_component(raw_bytes, updated_text)
-            text_component.data = bytes(raw_bytes)
-
-        portal_view_component = asset.objects[LEVEL0_PORTAL_VIEW_COMPONENT]
-        portal_raw_bytes = bytearray(
-            source_bytes[
-                portal_view_component.byte_start : portal_view_component.byte_start + portal_view_component.byte_size
-            ]
-        )
-        repointed_component_paths = {
-            60: cloned_path_ids[867],
-            220: cloned_path_ids[20545],
-            232: cloned_path_ids[2548],
-            244: cloned_path_ids[3466],
-            288: cloned_path_ids[14656],
-            300: cloned_path_ids[16006],
-        }
-        for offset, path_id in repointed_component_paths.items():
-            _replace_qword(portal_raw_bytes, offset, path_id)
-        portal_view_component.data = bytes(portal_raw_bytes)
-
-        prepared_file.working_bytes = bytearray(asset.save())
+    return {
+        GAMEASSEMBLY_MODE_SELECTOR_RESOLVE_PANEL_OFFSET: resolve_panel_bytes,
+        GAMEASSEMBLY_MODE_SELECTOR_RESOLVE_BACKGROUND_OFFSET: resolve_background_bytes,
+        GAMEASSEMBLY_MODE_SELECTOR_WRAPPER_OFFSET: wrapper_bytes,
+        GAMEASSEMBLY_MODE_SELECTOR_SETUP_OFFSET: setup_bytes,
+        GAMEASSEMBLY_MODE_SELECTOR_OPEN_TAIL_STUB_OFFSET: open_tail_stub,
+        GAMEASSEMBLY_MODE_SELECTOR_REFRESH_OFFSET: refresh_bytes,
+        GAMEASSEMBLY_MODE_SELECTOR_LOADER_OFFSET: loader_bytes,
+        GAMEASSEMBLY_ROLE_BUTTON_ENTRY_OFFSET: role_hook_bytes,
+        GAMEASSEMBLY_OPEN_TAIL_ENTRY_OFFSET: open_tail_hook_bytes,
+        GAMEASSEMBLY_MODE_CALL_SITE_ONE_OFFSET: mode_call_site_one_bytes,
+        GAMEASSEMBLY_MODE_CALL_SITE_TWO_OFFSET: mode_call_site_two_bytes,
+    }
 
 
 def _patch_gameassembly_mode_selector(prepared_file: PreparedFile) -> None:
-    from keystone import KS_ARCH_X86, KS_MODE_64, Ks
-
     gameassembly_bytes = prepared_file.working_bytes
 
     if bytes(
         gameassembly_bytes[
             GAMEASSEMBLY_ROLE_BUTTON_ENTRY_OFFSET : GAMEASSEMBLY_ROLE_BUTTON_ENTRY_OFFSET
-            + len(GAMEASSEMBLY_MODE_SELECTOR_ENTRY_BYTES)
+            + len(GAMEASSEMBLY_ROLE_BUTTON_ENTRY_BYTES)
         ]
-    ) != GAMEASSEMBLY_MODE_SELECTOR_ENTRY_BYTES:
+    ) != GAMEASSEMBLY_ROLE_BUTTON_ENTRY_BYTES:
         raise SystemExit("Unexpected PortalPlayView.OnChangeRoleButton prologue in clean GameAssembly.dll")
 
     if bytes(
@@ -655,127 +1172,17 @@ def _patch_gameassembly_mode_selector(prepared_file: PreparedFile) -> None:
     ) != GAMEASSEMBLY_MODE_CALL_SITE_TWO_BYTES:
         raise SystemExit("Unexpected second PortalPlayView.OnPlay mode literal in clean GameAssembly.dll")
 
-    assembler = Ks(KS_ARCH_X86, KS_MODE_64)
-    wrapper_address = _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_WRAPPER_OFFSET)
-    loader_address = _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_LOADER_OFFSET)
-    wrapper_assembly = """
-        push rdi
-        sub rsp, 0x20
-        mov rdi, rcx
-        call 0x1834AF8B0
-        test rax, rax
-        je role_path
-        mov rcx, rax
-        call 0x18056EC70
-        mov [rsp+0x18], rax
-        test rax, rax
-        je role_path
-        mov rcx, rax
-        call 0x1832146A0
-        mov [rsp+0x10], rax
-        test rax, rax
-        je role_path
-        mov rcx, rax
-        call 0x1832410F0
-        cmp eax, 4
-        je have_button
-        mov rcx, [rsp+0x10]
-        call 0x18323D6B0
-        test rax, rax
-        je have_button
-        mov rcx, rax
-        call 0x18320FB30
-        mov [rsp+0x18], rax
-    have_button:
-        mov rcx, [rdi+0xF8]
-        test rcx, rcx
-        je role_path
-        call 0x18320FB30
-        mov rdx, [rsp+0x18]
-        mov rcx, rax
-        call 0x183219EB0
-        test al, al
-        jne role_path
-        cmp byte ptr [rdi+0x152], 0
-        sete al
-        mov byte ptr [rdi+0x152], al
-        mov rcx, [rsp+0x18]
-        call 0x1832146A0
-        test rax, rax
-        je mode_done
-        mov [rsp+0x10], rax
-        mov rcx, rax
-        mov edx, 1
-        call 0x18323D4F0
-        mov rcx, rax
-        call 0x18320FB30
-        movzx edx, byte ptr [rdi+0x152]
-        xor edx, 1
-        xor r8d, r8d
-        call 0x183213DF0
-        mov rcx, [rsp+0x10]
-        mov edx, 2
-        call 0x18323D4F0
-        mov rcx, rax
-        call 0x18320FB30
-        movzx edx, byte ptr [rdi+0x152]
-        xor r8d, r8d
-        call 0x183213DF0
-    mode_done:
-        add rsp, 0x20
-        pop rdi
-        ret
-    role_path:
-        mov rcx, rdi
-        jmp 0x1807E24C6
-    """
-    wrapper_bytes = bytes(assembler.asm(wrapper_assembly, addr=wrapper_address)[0])
-    loader_bytes = bytes(
-        assembler.asm(
-            "xor r8d, r8d; movzx edx, byte ptr [rdi+0x152]; inc edx; ret",
-            addr=loader_address,
-        )[0]
-    )
+    if bytes(
+        gameassembly_bytes[
+            GAMEASSEMBLY_OPEN_TAIL_ENTRY_OFFSET : GAMEASSEMBLY_OPEN_TAIL_ENTRY_OFFSET
+            + len(GAMEASSEMBLY_OPEN_TAIL_ENTRY_BYTES)
+        ]
+    ) != GAMEASSEMBLY_OPEN_TAIL_ENTRY_BYTES:
+        raise SystemExit("Unexpected PortalPlayView.Open tail in clean GameAssembly.dll")
 
-    gameassembly_bytes[
-        GAMEASSEMBLY_MODE_SELECTOR_WRAPPER_OFFSET : GAMEASSEMBLY_MODE_SELECTOR_WRAPPER_OFFSET
-        + len(wrapper_bytes)
-    ] = wrapper_bytes
-    gameassembly_bytes[
-        GAMEASSEMBLY_MODE_SELECTOR_LOADER_OFFSET : GAMEASSEMBLY_MODE_SELECTOR_LOADER_OFFSET
-        + len(loader_bytes)
-    ] = loader_bytes
+    for offset, patch_bytes in _build_gameassembly_mode_selector_regions().items():
+        gameassembly_bytes[offset : offset + len(patch_bytes)] = patch_bytes
 
-    wrapper_jump = (
-        _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_WRAPPER_OFFSET)
-    ) - (
-        _gameassembly_raw_to_va(GAMEASSEMBLY_ROLE_BUTTON_ENTRY_OFFSET) + 5
-    )
-    gameassembly_bytes[
-        GAMEASSEMBLY_ROLE_BUTTON_ENTRY_OFFSET : GAMEASSEMBLY_ROLE_BUTTON_ENTRY_OFFSET + 6
-    ] = b"\xE9" + int(wrapper_jump).to_bytes(4, "little", signed=True) + b"\x90"
-
-    loader_call_one = (
-        _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_LOADER_OFFSET)
-    ) - (
-        _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_CALL_SITE_ONE_OFFSET) + 11
-    )
-    gameassembly_bytes[
-        GAMEASSEMBLY_MODE_CALL_SITE_ONE_OFFSET : GAMEASSEMBLY_MODE_CALL_SITE_ONE_OFFSET + 13
-    ] = (
-        b"\x48\x8b\xc8\x48\x8b\xd8\xe8"
-        + int(loader_call_one).to_bytes(4, "little", signed=True)
-        + b"\x90\x90"
-    )
-
-    loader_call_two = (
-        _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_SELECTOR_LOADER_OFFSET)
-    ) - (
-        _gameassembly_raw_to_va(GAMEASSEMBLY_MODE_CALL_SITE_TWO_OFFSET) + 5
-    )
-    gameassembly_bytes[
-        GAMEASSEMBLY_MODE_CALL_SITE_TWO_OFFSET : GAMEASSEMBLY_MODE_CALL_SITE_TWO_OFFSET + 7
-    ] = b"\xE8" + int(loader_call_two).to_bytes(4, "little", signed=True) + b"\x90\x90"
 
 
 def apply_custom_patch_steps(
@@ -783,8 +1190,8 @@ def apply_custom_patch_steps(
 ) -> None:
     selected_option_ids_set = set(selected_option_ids)
     if "mode-selector" in selected_option_ids_set:
-        _patch_gameassembly_mode_selector(prepared_files["GameAssembly.dll"])
         _patch_level0_mode_selector(prepared_files["Sneak Out_Data/level0"])
+        _patch_gameassembly_mode_selector(prepared_files["GameAssembly.dll"])
 
 
 def apply_selected_patches(prepared_files: dict[str, PreparedFile], selected_option_ids: tuple[str, ...]) -> None:
@@ -852,6 +1259,7 @@ def build_parser() -> ArgumentParser:
     parser.add_argument("--game-dir", dest="game_dir_option", help="Explicit Sneak Out directory.")
     parser.add_argument("--patches", help="Comma-separated patch ids. Skips the interactive checkbox menu.")
     parser.add_argument("--rollback", action="store_true", help="Restore script-managed backups and exit.")
+    parser.add_argument("--validate", action="store_true", help="Validate the currently installed files against the selected patch set and exit.")
     parser.add_argument("--list-patches", action="store_true", help="Print patch ids and exit.")
     return parser
 
@@ -881,6 +1289,12 @@ def main() -> int:
         print("done")
         return 0
 
+    if args.validate:
+        selected_option_ids = parse_patch_selection(args.patches) if args.patches is not None else default_patch_selection()
+        validate_installed_files(game_dir, selected_option_ids)
+        print("validated")
+        return 0
+
     if args.patches is not None:
         selected_option_ids = parse_patch_selection(args.patches)
     else:
@@ -888,7 +1302,9 @@ def main() -> int:
 
     prepared_files = prepare_files(game_dir)
     apply_selected_patches(prepared_files, selected_option_ids)
+    validate_prepared_files(prepared_files, selected_option_ids)
     write_prepared_files(prepared_files)
+    validate_installed_files(game_dir, selected_option_ids)
 
     if selected_option_ids:
         print("enabled patches:")

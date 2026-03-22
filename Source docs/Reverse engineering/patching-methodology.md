@@ -16,6 +16,8 @@ The most reliable workflow so far is:
 
 This already prevented several bad iterations from being written directly into the installed build.
 
+The patcher now also includes a static post-apply validator. It reconstructs the expected patched files from the clean backups, compares them against the installed files, and runs `GameAssembly.dll` checks on the known patched regions.
+
 ## What worked better than raw one-off hex edits
 
 ### Treat raw offsets and code RVAs as separate domains
@@ -41,6 +43,18 @@ Every binary patch in the script should keep:
 - a short human explanation
 
 If the `before` pattern no longer matches, the patch should abort immediately instead of trying to be clever.
+
+### Validate the patched result, not just the clean input
+
+Precondition checks are not enough. A patch can start from the right clean bytes and still generate a broken output.
+
+The current validator checks:
+
+- the installed files exactly match the deterministic result rebuilt from the clean backups and the selected patch set
+- every known executable patch region in `GameAssembly.dll` fully disassembles
+- hook targets for the selector loader and selector wrapper resolve to the expected helper stubs
+
+This is strong enough to catch malformed `GameAssembly.dll` edits before blaming Proton or Unity runtime behavior.
 
 ### Prefer asset-level edits for layout and serialized wiring
 
@@ -80,6 +94,17 @@ Patching only one of them produced hybrid states:
 - working visuals with dead controls
 
 Future UI edits should always inspect both the decorative subtree and the live control subtree before cloning or moving rows.
+
+### Diff ranges are not instruction boundaries
+
+One failed validator iteration tried to disassemble raw changed-byte ranges from the clean file diff.
+
+That was wrong because a diff range can begin in the middle of an unchanged instruction and produce a false alarm.
+
+Practical rule:
+
+- disassemble known patched regions
+- do not disassemble generic contiguous diffs unless they are explicitly aligned to instruction boundaries
 
 ### A `Transform` is not a `GameObject`
 

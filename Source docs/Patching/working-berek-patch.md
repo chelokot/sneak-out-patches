@@ -8,7 +8,10 @@ The current patch set no longer hardcodes `Berek`. It adds a live selector to th
 
 - `PortalPlayView.OnChangeRoleButton()` is wrapped so the original role control and the new mode control can coexist
 - `PortalPlayView.OnPlay()` loads `GameModeType` from a dedicated mode bit instead of a hardcoded `Default`
-- `PortalPlayView.OnAwake()` needs extra listener wiring for the injected mode row because the stock popup only knows about one role toggle
+- the selector setup should be attached to the late tail of `PortalPlayView.Open()`, not to `PrivateGameStateCheck()`, so the retrofit runs after the stock popup layout has settled
+- the selector layout cannot be treated as one-time setup: row reparenting and positioning must be re-applied whenever the popup is opened, while listener registration should remain one-time
+- the injected mode row should reuse the `OnChangeRoleButton()` callback path, not the private/public callback path, so the real private-game toggle stays untouched
+- the selector retrofit should not stash temporary button pointers inside serialized `PortalPlayView` fields; the mode checkbox can be re-resolved from the hidden `ModePanel` on demand
 - the first private-party invite fix and the uniform hunter-random fix remain as separate binary patches
 
 `Sneak Out_Data/level0`
@@ -53,7 +56,9 @@ Properties:
 - restores script-managed backups before every apply and then reapplies the selected patch set on top of a clean baseline
 - creates local `.codex-sneak-out.bak` backups when no trusted backup exists yet
 - supports `--rollback`
+- supports `--validate`
 - supports `--patches` for non-interactive selection
+- runs static validation after apply before treating the result as successful
 
 ## Current patch options
 
@@ -76,6 +81,7 @@ Operational lesson:
 
 - always validate the selector patch on a temporary clean copy before applying it to the retail build
 - recent failures came from subtle assembly mistakes in startup-time listener registration, not from the higher-level mode-routing idea itself
+- the script-side validator is now good at catching malformed hook output in `GameAssembly.dll`, but it still cannot prove runtime-correct UI behavior on its own
 
 Remaining known issue:
 

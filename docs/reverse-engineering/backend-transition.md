@@ -3,6 +3,7 @@
 ## Goal
 
 Prepare a runtime-mod path for moving `Sneak Out` away from the dead upstream web service and toward a community-hosted backend for private lobbies.
+Prepare a runtime-mod path for taking control of the dead upstream web-service layer from a local runtime stub or an optional redirect target.
 
 ## Confirmed client seams
 
@@ -94,7 +95,7 @@ Practical meaning:
 Practical meaning:
 
 - the stock client thinks in terms of named upstream environments
-- a community backend will likely need either:
+- any local recovery path needs either:
   - one of these existing routes repointed locally
   - or a direct `WebServiceUrl` override that bypasses environment lookup
 
@@ -125,22 +126,3 @@ Current non-behavior:
 3. confirm whether any important profile/shop path still bypasses `KinguinverseWebServiceV2`
 4. map the minimum request surface needed for private-lobby-only operation
 5. only then add controlled redirect logic
-
-## Minimum backend surface expected for private-lobby recovery
-
-Most likely first-pass categories:
-
-- `auth/session`
-- `profile refresh`
-- `inventory / ownership`
-- `products / shop presentation`
-- `player metadata`
-- `match create/update`
-
-Likely later or optional:
-
-- messages
-- quests
-- boosters
-- analytics
-- transaction finalization

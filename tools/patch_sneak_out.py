@@ -28,6 +28,7 @@ BACKUP_SUFFIX = ".codex-sneak-out.bak"
 ABSENT_MARKER_SUFFIX = ".codex-sneak-out.absent"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 RUNTIME_MOD_DOTNET = REPO_ROOT / ".tmp/runtime-mod/dotnet/dotnet"
+RUNTIME_MOD_ARTIFACTS_DIR = REPO_ROOT / "artifacts/runtime_mods"
 
 
 @dataclass(frozen=True)
@@ -96,6 +97,10 @@ class RuntimeModOption:
     @property
     def built_dll_path(self) -> Path:
         return self.project_path.parent / "bin/Release/net6.0" / f"{self.assembly_name}.dll"
+
+    @property
+    def artifact_dll_path(self) -> Path:
+        return RUNTIME_MOD_ARTIFACTS_DIR / f"{self.assembly_name}.dll"
 
 
 @dataclass
@@ -235,7 +240,7 @@ RUNTIME_MOD_OPTIONS: tuple[RuntimeModOption, ...] = (
     RuntimeModOption(
         option_id="backend-redirector",
         label="Install Backend Redirector runtime mod",
-        details="Builds and installs the BepInEx runtime mod that redirects the dead web-service layer to the community backend.",
+        details="Builds and installs the BepInEx runtime mod that can locally stub or redirect the dead web-service layer.",
         default_enabled=False,
         project_relative_path="mods/backend_redirector/BackendRedirector.csproj",
         assembly_name="SneakOut.BackendRedirector",
@@ -266,6 +271,39 @@ RUNTIME_MOD_OPTIONS: tuple[RuntimeModOption, ...] = (
             "# Setting type: String\n"
             "# Default value: CommunityLocal\n"
             "TargetEnvironmentName = CommunityLocal\n"
+        ),
+    ),
+    RuntimeModOption(
+        option_id="start-delay-reducer",
+        label="Install Start Delay Reducer runtime mod",
+        details="Builds and installs the BepInEx runtime mod that reduces host-side BeforeStart and CountingToStart delays.",
+        default_enabled=False,
+        project_relative_path="mods/start_delay_reducer/StartDelayReducer.csproj",
+        assembly_name="SneakOut.StartDelayReducer",
+        config_relative_path="BepInEx/config/chelokot.sneakout.start-delay-reducer.cfg",
+        default_config_text=(
+            "[general]\n"
+            "## Settings file was created by version 0.1.0 of Start Delay Reducer\n"
+            "## Plugin GUID: chelokot.sneakout.start-delay-reducer\n"
+            "## Plugin Name: Start Delay Reducer\n"
+            "## Plugin Version: 0.1.0\n\n"
+            "## Reduce host-side start delays during match startup.\n"
+            "# Setting type: Boolean\n"
+            "# Default value: true\n"
+            "EnableMod = true\n\n"
+            "## Log tick adjustments for matchmaking startup phases.\n"
+            "# Setting type: Boolean\n"
+            "# Default value: false\n"
+            "EnableLogging = false\n\n"
+            "[timings]\n"
+            "## Target duration in seconds for the BeforeStart phase.\n"
+            "# Setting type: Single\n"
+            "# Default value: 10\n"
+            "BeforeStartSeconds = 10\n\n"
+            "## Target duration in seconds for the CountingToStart phase.\n"
+            "# Setting type: Single\n"
+            "# Default value: 3\n"
+            "CountingToStartSeconds = 3\n"
         ),
     ),
 )
@@ -1340,6 +1378,14 @@ def resolve_runtime_mod_config_path(game_dir: Path, runtime_mod: RuntimeModOptio
     return game_dir / runtime_mod.config_relative_path
 
 
+def update_runtime_mod_artifact(runtime_mod: RuntimeModOption, built_dll_path: Path) -> None:
+    RUNTIME_MOD_ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+    artifact_bytes = built_dll_path.read_bytes()
+    if runtime_mod.artifact_dll_path.is_file() and runtime_mod.artifact_dll_path.read_bytes() == artifact_bytes:
+        return
+    runtime_mod.artifact_dll_path.write_bytes(artifact_bytes)
+
+
 def build_runtime_mod(runtime_mod: RuntimeModOption) -> Path:
     if not runtime_mod.project_path.is_file():
         raise SystemExit(f"Missing runtime mod project: {runtime_mod.project_path}")
@@ -1368,7 +1414,19 @@ def build_runtime_mod(runtime_mod: RuntimeModOption) -> Path:
         )
     if not runtime_mod.built_dll_path.is_file():
         raise SystemExit(f"Missing built runtime mod DLL: {runtime_mod.built_dll_path}")
+    update_runtime_mod_artifact(runtime_mod, runtime_mod.built_dll_path)
     return runtime_mod.built_dll_path
+
+
+def resolve_runtime_mod_source_dll(runtime_mod: RuntimeModOption, *, build_runtime_mods: bool) -> Path:
+    if build_runtime_mods:
+        return build_runtime_mod(runtime_mod)
+    if not runtime_mod.artifact_dll_path.is_file():
+        raise SystemExit(
+            f"Missing runtime mod artifact: {runtime_mod.artifact_dll_path}\n"
+            "Build the runtime mod once without --nobuild and commit the generated DLL."
+        )
+    return runtime_mod.artifact_dll_path
 
 
 def install_runtime_mod(game_dir: Path, runtime_mod: RuntimeModOption, built_dll_path: Path) -> None:
@@ -1417,17 +1475,27 @@ def install_runtime_mod(game_dir: Path, runtime_mod: RuntimeModOption, built_dll
         print(f"created:   {config_absent_marker_path}")
     print(f"created:   {config_path}")
 
-def install_selected_runtime_mods(game_dir: Path, selected_runtime_mod_option_ids: tuple[str, ...]) -> None:
+def install_selected_runtime_mods(
+    game_dir: Path,
+    selected_runtime_mod_option_ids: tuple[str, ...],
+    *,
+    build_runtime_mods: bool,
+) -> None:
     for option_id in selected_runtime_mod_option_ids:
         runtime_mod = RUNTIME_MOD_OPTION_BY_ID[option_id]
-        built_dll_path = build_runtime_mod(runtime_mod)
-        install_runtime_mod(game_dir, runtime_mod, built_dll_path)
+        source_dll_path = resolve_runtime_mod_source_dll(runtime_mod, build_runtime_mods=build_runtime_mods)
+        install_runtime_mod(game_dir, runtime_mod, source_dll_path)
 
 
-def validate_installed_runtime_mods(game_dir: Path, selected_runtime_mod_option_ids: tuple[str, ...]) -> None:
+def validate_installed_runtime_mods(
+    game_dir: Path,
+    selected_runtime_mod_option_ids: tuple[str, ...],
+    *,
+    build_runtime_mods: bool,
+) -> None:
     for option_id in selected_runtime_mod_option_ids:
         runtime_mod = RUNTIME_MOD_OPTION_BY_ID[option_id]
-        built_dll_path = build_runtime_mod(runtime_mod)
+        built_dll_path = resolve_runtime_mod_source_dll(runtime_mod, build_runtime_mods=build_runtime_mods)
         install_path = resolve_runtime_mod_install_path(game_dir, runtime_mod)
         if not install_path.is_file():
             raise SystemExit(f"Missing installed runtime mod: {install_path}")
@@ -1506,6 +1574,11 @@ def build_parser() -> ArgumentParser:
     parser.add_argument("--mods", help="Comma-separated runtime mod ids. Skips the interactive mod checkbox menu.")
     parser.add_argument("--rollback", action="store_true", help="Restore script-managed backups and exit.")
     parser.add_argument("--validate", action="store_true", help="Validate the currently installed files against the selected patch set and exit.")
+    parser.add_argument(
+        "--nobuild",
+        action="store_true",
+        help="Use committed runtime mod artifacts instead of building runtime mods locally.",
+    )
     parser.add_argument("--list-patches", action="store_true", help="Print patch ids and exit.")
     parser.add_argument("--list-mods", action="store_true", help="Print runtime mod ids and exit.")
     return parser
@@ -1555,7 +1628,11 @@ def main() -> int:
         if selected_patch_option_ids:
             validate_installed_files(game_dir, selected_patch_option_ids)
         if selected_runtime_mod_option_ids:
-            validate_installed_runtime_mods(game_dir, selected_runtime_mod_option_ids)
+            validate_installed_runtime_mods(
+                game_dir,
+                selected_runtime_mod_option_ids,
+                build_runtime_mods=not args.nobuild,
+            )
         print("validated")
         return 0
 
@@ -1580,8 +1657,16 @@ def main() -> int:
         validate_installed_files(game_dir, selected_patch_option_ids)
 
     if selected_runtime_mod_option_ids:
-        install_selected_runtime_mods(game_dir, selected_runtime_mod_option_ids)
-        validate_installed_runtime_mods(game_dir, selected_runtime_mod_option_ids)
+        install_selected_runtime_mods(
+            game_dir,
+            selected_runtime_mod_option_ids,
+            build_runtime_mods=not args.nobuild,
+        )
+        validate_installed_runtime_mods(
+            game_dir,
+            selected_runtime_mod_option_ids,
+            build_runtime_mods=not args.nobuild,
+        )
 
     if selected_patch_option_ids:
         print("enabled patches:")

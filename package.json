@@ -1,0 +1,22 @@
+{
+  "name": "sneak-out-patches",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Sneak Out reverse-engineering, patching, and runtime mod tooling.",
+  "packageManager": "npm@10.9.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "install": "node scripts/install.mjs",
+    "doctor": "node scripts/doctor.mjs",
+    "patcher": "node scripts/run-python.mjs tools/patch_sneak_out.py",
+    "interop:inspect": "node scripts/run-dotnet.mjs run --project tools/interop_inspector/InteropInspector.csproj --",
+    "mod:build:portal-mode-selector": "node scripts/build-runtime-mod.mjs portal-mode-selector",
+    "mod:build:mummy-unlock": "node scripts/build-runtime-mod.mjs mummy-unlock",
+    "mod:build:backend-redirector": "node scripts/build-runtime-mod.mjs backend-redirector",
+    "mod:build:start-delay-reducer": "node scripts/build-runtime-mod.mjs start-delay-reducer",
+    "mods:build": "npm run mod:build:portal-mode-selector && npm run mod:build:mummy-unlock && npm run mod:build:backend-redirector && npm run mod:build:start-delay-reducer",
+    "check": "npm run mods:build"
+  }
+}

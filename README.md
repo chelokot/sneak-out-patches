@@ -2,6 +2,33 @@
 
 Reverse-engineering notes, patching tools, and runtime mod work for `Sneak Out`.
 
+## Tooling bootstrap
+
+The repo now bootstraps its local toolchain with a single command:
+
+```bash
+npm install
+```
+
+On Linux you can use:
+
+```bash
+make install
+```
+
+That installs the repo-managed `.NET SDK` into `.tmp/`, so the build commands do not depend on a global `dotnet` install.
+
+Committed runtime mod DLLs live in:
+
+- `artifacts/runtime_mods/`
+
+That lets people install runtime mods with `--nobuild` even if they do not have `dotnet` locally.
+
+External prerequisites:
+
+- `Node.js 20+`
+- `Python 3`
+
 ## Repository layout
 
 - `docs/`
@@ -17,9 +44,7 @@ Reverse-engineering notes, patching tools, and runtime mod work for `Sneak Out`.
 - `mods/mummy_unlock/`
   A dedicated runtime research mod for restoring Mummy as a selectable hunter.
 - `mods/backend_redirector/`
-  The runtime BepInEx IL2CPP mod that redirects the dead web-service layer toward a community backend.
-- `backend/community_server/`
-  A `Hono + Deno` MVP backend for private-lobby recovery and maxed-profile testing.
+  The runtime BepInEx IL2CPP mod that can locally stub or redirect the dead web-service layer.
 
 ## What currently exists
 
@@ -36,32 +61,12 @@ The Python patcher supports these retail file patches:
 
 The runtime mod path is now active through `BepInEx` and is the preferred direction for further UI work.
 
-## Community backend development
-
-The community backend lives in:
-
-- `backend/community_server/`
-
-Run it with:
-
-```bash
-cd backend/community_server
-deno task dev
-```
-
-Validate it with:
-
-```bash
-cd backend/community_server
-deno task check
-deno task test
-```
-
 ## Clone the repository
 
 ```bash
 git clone https://github.com/chelokot/sneak-out-patches.git
 cd sneak-out-patches
+npm install
 ```
 
 ## Run the patcher
@@ -69,19 +74,19 @@ cd sneak-out-patches
 Interactive mode:
 
 ```bash
-python3 tools/patch_sneak_out.py
+npm run patcher
 ```
 
 Explicit game path:
 
 ```bash
-python3 tools/patch_sneak_out.py --game-dir "/path/to/Sneak Out"
+npm run patcher -- --game-dir "/path/to/Sneak Out"
 ```
 
 Non-interactive patch selection:
 
 ```bash
-python3 tools/patch_sneak_out.py \
+npm run patcher -- \
   --game-dir "/path/to/Sneak Out" \
   --patches mode-selector,fix-private-party-first-invite,uniform-hunter-random,fix-battlepass-refresh-crash
 ```
@@ -89,28 +94,38 @@ python3 tools/patch_sneak_out.py \
 List runtime mod ids:
 
 ```bash
-python3 tools/patch_sneak_out.py --list-mods
+npm run patcher -- --list-mods
 ```
 
 Install runtime mods through the same script:
 
 ```bash
-python3 tools/patch_sneak_out.py \
+npm run patcher -- \
   --game-dir "/path/to/Sneak Out" \
   --patches "" \
-  --mods backend-redirector
+  --mods start-delay-reducer
+```
+
+Install runtime mods from committed DLL artifacts without building:
+
+```bash
+npm run patcher -- \
+  --game-dir "/path/to/Sneak Out" \
+  --patches "" \
+  --mods backend-redirector \
+  --nobuild
 ```
 
 Rollback:
 
 ```bash
-python3 tools/patch_sneak_out.py --rollback --game-dir "/path/to/Sneak Out"
+npm run patcher -- --rollback --game-dir "/path/to/Sneak Out"
 ```
 
 Validation only:
 
 ```bash
-python3 tools/patch_sneak_out.py --validate --game-dir "/path/to/Sneak Out"
+npm run patcher -- --validate --game-dir "/path/to/Sneak Out"
 ```
 
 ## How the interactive CLI behaves
@@ -148,7 +163,7 @@ The runtime selector mod lives in:
 Build it with the local portable SDK:
 
 ```bash
-./.tmp/runtime-mod/dotnet/dotnet build mods/portal_mode_selector/PortalModeSelector.csproj -c Release
+npm run mod:build:portal-mode-selector
 ```
 
 Copy the built plugin into the game:
@@ -174,8 +189,10 @@ The backend redirector mod lives in:
 Build it with:
 
 ```bash
-./.tmp/runtime-mod/dotnet/dotnet build mods/backend_redirector/BackendRedirector.csproj -c Release
+npm run mod:build:backend-redirector
 ```
+
+Runtime mod builds automatically refresh the matching DLL in `artifacts/runtime_mods/`.
 
 Copy it into the game:
 
@@ -203,14 +220,34 @@ Enable it explicitly in:
 /path/to/Sneak Out/BepInEx/config/chelokot.sneakout.backend-redirector.cfg
 ```
 
-For a first live test, start the backend first:
+The start delay reducer mod lives in:
+
+- `mods/start_delay_reducer/StartDelayReducer.csproj`
+
+Build it with:
 
 ```bash
-cd backend/community_server
-COMMUNITY_BACKEND_LOG_REQUESTS=true deno task dev
+npm run mod:build:start-delay-reducer
 ```
 
-Then launch the game with the same Proton `winhttp` override used by the other runtime plugins.
+Copy it into the game:
+
+```bash
+cp -f \
+  mods/start_delay_reducer/bin/Release/net6.0/SneakOut.StartDelayReducer.dll \
+  "/path/to/Sneak Out/BepInEx/plugins/SneakOut.StartDelayReducer.dll"
+```
+
+Its generated config file is:
+
+```text
+/path/to/Sneak Out/BepInEx/config/chelokot.sneakout.start-delay-reducer.cfg
+```
+
+Default timings are:
+
+- `BeforeStartSeconds=10`
+- `CountingToStartSeconds=3`
 
 The helper inspector project lives in:
 
@@ -219,8 +256,7 @@ The helper inspector project lives in:
 Example:
 
 ```bash
-./.tmp/runtime-mod/dotnet/dotnet run \
-  --project tools/interop_inspector/InteropInspector.csproj -- \
+npm run interop:inspect -- \
   "/path/to/Sneak Out/BepInEx/interop/Assembly-CSharp.dll" \
   "PortalPlayView"
 ```

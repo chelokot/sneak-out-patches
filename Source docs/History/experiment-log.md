@@ -148,3 +148,51 @@ Practical conclusion:
 
 - these exceptions are noisy, but they do not by themselves explain the crown issue
 - the useful crown investigation surface is still the berek buff and component path
+
+## Portal mode selector retrofit
+
+### Clone a second row inside the live portal popup
+
+Outcome:
+
+- the popup could be extended without restoring the dead legacy selector
+- the lower cloned preferred-role row became functional first
+- the upper mode row initially remained partially decorative and partially dead
+
+Conclusion:
+
+- the portal popup uses more than one UI subtree
+- cloning only the visible background row was not enough
+
+### Discover the split between `Background` and `GameSettings`
+
+Outcome:
+
+- the visual frame and the live control widgets were confirmed to come from separate scene layers
+- this explained the strange mixed states where labels and click behavior did not match
+
+Conclusion:
+
+- future portal UI work must patch both layers together
+
+### Startup crash from `GetComponentAtIndex()`
+
+Observed symptom:
+
+- lobby initialization crashed before interaction with the portal
+- the log reported `ArgumentOutOfRangeException: Valid range is 0 to GetComponentCount() - 1`
+
+Cause:
+
+- the custom `OnAwake` helper used a fragile component-index lookup path while registering the upper mode row
+
+Fix:
+
+- keep the lookup narrower
+- validate component count
+- avoid recomputing the index from the wrong object identity
+
+Practical lesson:
+
+- startup registration code must be more conservative than click-time routing code
+- `EventSystem`-based disambiguation is acceptable for click-time logic, but not a good foundation for initialization-time listener wiring

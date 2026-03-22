@@ -28,6 +28,7 @@ Index of the current documentation.
 - `Reverse engineering/private-party-invite-bug.md` — why private party invites only work on the second accept
 - `Reverse engineering/install-and-runtime-layout.md` — Steam app paths, library locations, and runtime artifacts
 - `Reverse engineering/evidence-sources.md` — where current conclusions came from and how reliable each source is
+- `Reverse engineering/patching-methodology.md` — practical rules for safer IL2CPP and asset patching in this project
 
 ## History
 

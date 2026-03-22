@@ -8,6 +8,7 @@ The current patch set no longer hardcodes `Berek`. It adds a live selector to th
 
 - `PortalPlayView.OnChangeRoleButton()` is wrapped so the original role control and the new mode control can coexist
 - `PortalPlayView.OnPlay()` loads `GameModeType` from a dedicated mode bit instead of a hardcoded `Default`
+- `PortalPlayView.OnAwake()` needs extra listener wiring for the injected mode row because the stock popup only knows about one role toggle
 - the first private-party invite fix and the uniform hunter-random fix remain as separate binary patches
 
 `Sneak Out_Data/level0`
@@ -15,6 +16,7 @@ The current patch set no longer hardcodes `Berek`. It adds a live selector to th
 - the original preferred-role row is repurposed into a `Berek / Normal` mode row
 - a cloned preferred-role row is inserted below it and all `PortalPlayView` role references are moved to that clone
 - the private-game row is shifted down to fit the extra control without changing the play button structure
+- the visible popup patch must account for both `Background` and `GameSettings`, not just the decorative frame row
 
 `Sneak Out_Data/resources.assets`
 
@@ -69,6 +71,11 @@ Confirmed:
 - the live portal popup now has room for a separate mode selector without stealing the preferred-role control
 - the script can deterministically rebuild that popup from a clean `level0`
 - the selector patch, invite fix, and uniform hunter-random patch can be applied together from the same script run
+
+Operational lesson:
+
+- always validate the selector patch on a temporary clean copy before applying it to the retail build
+- recent failures came from subtle assembly mistakes in startup-time listener registration, not from the higher-level mode-routing idea itself
 
 Remaining known issue:
 

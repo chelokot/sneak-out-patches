@@ -10,6 +10,43 @@ Observed active behavior:
 - that popup exposes role preference, public/private state, and the play action
 - it does not expose a normal mode selector in the current build
 
+## Internal portal popup structure
+
+Recent patching work confirmed that the visible popup is not a single flat scene subtree.
+
+Two important layers exist in parallel:
+
+- `Background`
+- `GameSettings`
+
+Practical implication:
+
+- patching only the background row visuals is not enough
+- labels, click handlers, and moving slider state can come from a different subtree than the visible frame behind them
+- any future portal selector work must inspect both layers together
+
+This explained several misleading intermediate states:
+
+- duplicated rows
+- wrong labels on the upper row
+- a lower row that worked while the upper row stayed dead
+
+## `PortalPlayView` field usage that matters for patching
+
+Important serialized references inside `PortalPlayView`:
+
+- `_preferredRoleButton`
+- `_seekerObject`
+- `_victimObject`
+- `_victimMovingPanel`
+- `_hunterMovingPanel`
+
+Practical implication:
+
+- repointing only `_preferredRoleButton` is not enough when the UI is cloned
+- the button, side labels, and moving panel references must stay internally consistent
+- otherwise the popup becomes a hybrid of one live row and one decorative row
+
 ## Hidden older mode selector
 
 The client still contains older mode-selection views.
@@ -50,6 +87,11 @@ The stable route was:
 2. patch the host flow so it creates `Berek`
 3. patch the state flow so it enters berek-specific startup
 4. patch prefab wiring so berek components exist when the mode starts
+
+The newer lesson is even stricter:
+
+- prefer extending the live `PortalPlayView`
+- do not spend patch budget on reviving disconnected legacy selectors unless the current popup is truly insufficient
 
 ## What to inspect in future UI work
 
@@ -94,3 +136,14 @@ Why this route is attractive:
 - it avoids swapping unrelated serialized component types
 - it avoids restoring the much older `GameModeView`
 - it keeps the rest of the portal cleanup flow intact and only replaces the last open step
+
+Why it still proved weak:
+
+- `GameModeViewV2` was visually recoverable
+- but it was not properly integrated into the current popup and input lifecycle
+- the live `PortalPlayView` remained the more realistic integration target
+
+Current conclusion:
+
+- `GameModeViewV2` is useful as evidence that the mode selector once existed
+- it is not the preferred long-term patch surface for the retail client

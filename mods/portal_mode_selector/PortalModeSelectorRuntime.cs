@@ -493,9 +493,9 @@ internal static class PortalModeSelectorRuntime
         }
 
         var verticalDelta = state.OriginalRoleSectionPosition.y - state.OriginalPrivateSectionPosition.y;
-        var topMarginReduction = verticalDelta * 0.48f;
-        var roleLift = verticalDelta * 0.64f;
-        var playLift = verticalDelta * 0.48f;
+        var topMarginReduction = verticalDelta * 0.38f;
+        var roleLift = verticalDelta * 0.76f;
+        var playLift = verticalDelta * 0.62f;
         var groupOffsetDown = new Vector2(0f, -verticalDelta * 0.5f);
         modeSectionRect.anchoredPosition = state.OriginalRoleSectionPosition + new Vector2(0f, verticalDelta + topMarginReduction) + groupOffsetDown;
         modeSectionRect.sizeDelta = roleSectionRect.sizeDelta;
@@ -508,9 +508,9 @@ internal static class PortalModeSelectorRuntime
         privateSectionRect.gameObject.SetActive(false);
         playSectionRect.anchoredPosition = state.OriginalPlaySectionPosition - new Vector2(0f, verticalDelta) + new Vector2(0f, playLift) + groupOffsetDown;
 
-        contentRootRect.sizeDelta = state.OriginalContentSize + new Vector2(0f, verticalDelta * 1.2f);
+        contentRootRect.sizeDelta = state.OriginalContentSize + new Vector2(0f, verticalDelta * 1.08f);
         contentRootRect.anchoredPosition = state.OriginalContentPosition;
-        popupRootRect.sizeDelta = state.OriginalPopupSize + new Vector2(0f, verticalDelta * 1.2f);
+        popupRootRect.sizeDelta = state.OriginalPopupSize + new Vector2(0f, verticalDelta * 1.08f);
         popupRootRect.anchoredPosition = state.OriginalPopupPosition;
 
         modeSectionRect.SetSiblingIndex(state.OriginalRoleSectionSiblingIndex);
@@ -688,7 +688,7 @@ internal static class PortalModeSelectorRuntime
             var button = optionObject.AddComponent<Button>();
             button.targetGraphic = backgroundImage;
             button.onClick = new Button.ButtonClickedEvent();
-            button.transition = Selectable.Transition.ColorTint;
+            button.transition = Selectable.Transition.None;
             button.colors = new ColorBlock
             {
                 normalColor = new Color(1f, 1f, 1f, 0f),
@@ -699,6 +699,23 @@ internal static class PortalModeSelectorRuntime
                 colorMultiplier = 1f,
                 fadeDuration = 0.1f
             };
+
+            var hoverTrigger = optionObject.AddComponent<EventTrigger>();
+            var hoverEnter = new EventTrigger.Entry { eventID = EventTriggerType.PointerEnter };
+            hoverEnter.callback.AddListener((UnityAction<BaseEventData>)(_ =>
+            {
+                ShortcutExtensions.DOKill(backgroundImage, false);
+                DOTweenModuleUI.DOColor(backgroundImage, MapOptionHoverColor, 0.08f);
+            }));
+            hoverTrigger.triggers.Add(hoverEnter);
+
+            var hoverExit = new EventTrigger.Entry { eventID = EventTriggerType.PointerExit };
+            hoverExit.callback.AddListener((UnityAction<BaseEventData>)(_ =>
+            {
+                ShortcutExtensions.DOKill(backgroundImage, false);
+                DOTweenModuleUI.DOColor(backgroundImage, new Color(1f, 1f, 1f, 0f), 0.08f);
+            }));
+            hoverTrigger.triggers.Add(hoverExit);
 
             var checkboxObject = new GameObject("Checkbox");
             checkboxObject.transform.SetParent(optionObject.transform, false);

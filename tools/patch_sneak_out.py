@@ -755,9 +755,6 @@ def _patch_gameassembly_mode_selector(prepared_file: PreparedFile) -> None:
             mov rcx, [rbx+0xF8]
             test rcx, rcx
             je finish
-            call 0x18320F2D0
-            mov [rsp+0x18], eax
-            mov rcx, [rbx+0xF8]
             call 0x18320FB30
             test rax, rax
             je finish
@@ -796,8 +793,13 @@ def _patch_gameassembly_mode_selector(prepared_file: PreparedFile) -> None:
             call 0x18320FB30
             test rax, rax
             je finish
+            mov [rsp+0x10], rax
             mov rcx, rax
-            mov edx, dword ptr [rsp+0x18]
+            call 0x1832130B0
+            cmp eax, 5
+            jb finish
+            mov rcx, [rsp+0x10]
+            mov edx, 4
             call 0x183212F30
             test rax, rax
             je finish

@@ -40,6 +40,18 @@ internal static class PortalPlayViewOnChangeRoleButtonPatch
 
         return true;
     }
+
+    private static void Postfix(PortalPlayView __instance)
+    {
+        try
+        {
+            PortalModeSelectorRuntime.LogOriginalRoleState(__instance, "after");
+        }
+        catch (Exception exception)
+        {
+            PortalModeSelectorRuntime.LogError("Portal selector role-button postfix failed", exception);
+        }
+    }
 }
 
 [HarmonyPatch(typeof(PortalPlayView), nameof(PortalPlayView.OnPlay))]

@@ -618,8 +618,8 @@ internal static class PortalModeSelectorRuntime
             return;
         }
 
-        var topBoundary = modeSectionRect.anchoredPosition.y - modeSectionRect.sizeDelta.y * 0.52f - 64f;
-        var bottomBoundary = roleSectionRect.anchoredPosition.y + roleSectionRect.sizeDelta.y * 0.52f + 24f;
+        var topBoundary = modeSectionRect.anchoredPosition.y - modeSectionRect.sizeDelta.y * 0.52f - 44f;
+        var bottomBoundary = roleSectionRect.anchoredPosition.y + roleSectionRect.sizeDelta.y * 0.52f + 6f;
         var sectionHeight = Mathf.Max(126f, topBoundary - bottomBoundary);
         mapSectionRect.anchoredPosition = new Vector2(state.OriginalRoleSectionPosition.x, (topBoundary + bottomBoundary) * 0.5f);
         mapSectionRect.sizeDelta = new Vector2(modeSectionRect.sizeDelta.x, sectionHeight);

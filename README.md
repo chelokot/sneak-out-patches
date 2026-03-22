@@ -50,8 +50,6 @@ External prerequisites:
 
 The Python patcher supports these retail file patches:
 
-- `mode-selector`
-  Current work-in-progress path for adding a `Classic / Crown` selector to the live portal popup.
 - `fix-private-party-first-invite`
   Fixes the stale lobby id bug when joining private parties from the first invite.
 - `uniform-hunter-random`
@@ -88,7 +86,7 @@ Non-interactive patch selection:
 ```bash
 npm run patcher -- \
   --game-dir "/path/to/Sneak Out" \
-  --patches mode-selector,fix-private-party-first-invite,uniform-hunter-random,fix-battlepass-refresh-crash
+  --patches fix-private-party-first-invite,uniform-hunter-random,fix-battlepass-refresh-crash
 ```
 
 List runtime mod ids:
@@ -265,7 +263,6 @@ npm run interop:inspect -- \
 
 - The repo intentionally contains research tooling and work-in-progress experiments.
 - Raw `level0` UI surgery proved fragile; the runtime plugin path is now the safer route for portal UI work.
-- `mode-selector` is still under active development.
 - The visible crown visual is still not fully solved.
 
 ## Documentation index

@@ -22,6 +22,11 @@ const runtimeMods = {
     projectPath: resolve(repositoryRoot, "mods/start_delay_reducer/StartDelayReducer.csproj"),
     builtDllPath: resolve(repositoryRoot, "mods/start_delay_reducer/bin/Release/net6.0/SneakOut.StartDelayReducer.dll"),
     artifactDllPath: resolve(repositoryRoot, "artifacts/runtime_mods/SneakOut.StartDelayReducer.dll")
+  },
+  "friend-invite-unlock": {
+    projectPath: resolve(repositoryRoot, "mods/friend_invite_unlock/FriendInviteUnlock.csproj"),
+    builtDllPath: resolve(repositoryRoot, "mods/friend_invite_unlock/bin/Release/net6.0/SneakOut.FriendInviteUnlock.dll"),
+    artifactDllPath: resolve(repositoryRoot, "artifacts/runtime_mods/SneakOut.FriendInviteUnlock.dll")
   }
 };
 

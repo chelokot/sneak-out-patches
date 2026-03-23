@@ -192,6 +192,16 @@ npm run mod:build:backend-redirector
 
 Runtime mod builds automatically refresh the matching DLL in `artifacts/runtime_mods/`.
 
+The offline-friend invite unlock mod lives in:
+
+- `mods/friend_invite_unlock/FriendInviteUnlock.csproj`
+
+Build it with:
+
+```bash
+npm run mod:build:friend-invite-unlock
+```
+
 Copy it into the game:
 
 ```bash

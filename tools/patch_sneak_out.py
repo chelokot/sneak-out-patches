@@ -267,6 +267,34 @@ RUNTIME_MOD_OPTIONS: tuple[RuntimeModOption, ...] = (
             "CountingToStartSeconds = 3\n"
         ),
     ),
+    RuntimeModOption(
+        option_id="friend-invite-unlock",
+        label="Install Friend Invite Unlock runtime mod",
+        details="Builds and installs the BepInEx runtime mod that keeps offline friends inviteable from the lobby list.",
+        default_enabled=False,
+        project_relative_path="mods/friend_invite_unlock/FriendInviteUnlock.csproj",
+        assembly_name="SneakOut.FriendInviteUnlock",
+        config_relative_path="BepInEx/config/chelokot.sneakout.friend-invite-unlock.cfg",
+        default_config_text=(
+            "[general]\n"
+            "## Settings file was created by version 0.1.0 of Friend Invite Unlock\n"
+            "## Plugin GUID: chelokot.sneakout.friend-invite-unlock\n"
+            "## Plugin Name: Friend Invite Unlock\n"
+            "## Plugin Version: 0.1.0\n\n"
+            "## Allow party invites to stay active for offline friends.\n"
+            "# Setting type: Boolean\n"
+            "# Default value: true\n"
+            "EnableMod = true\n\n"
+            "## Only force invite buttons when the local player is the current team leader.\n"
+            "# Setting type: Boolean\n"
+            "# Default value: true\n"
+            "RequireTeamLeader = true\n\n"
+            "## Log forced friend invite state transitions.\n"
+            "# Setting type: Boolean\n"
+            "# Default value: false\n"
+            "EnableLogging = false\n"
+        ),
+    ),
 )
 
 RUNTIME_MOD_OPTION_BY_ID = {option.option_id: option for option in RUNTIME_MOD_OPTIONS}

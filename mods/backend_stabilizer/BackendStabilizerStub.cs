@@ -7,16 +7,16 @@ using Kinguinverse.WebServiceProvider.Types.Games;
 using Kinguinverse.WebServiceProvider.Types.Users;
 using Kinguinverse.WebServiceProvider.Types_v2;
 using Kinguinverse.WebServiceProvider.Types_v2.Products;
-using Il2CppGuid = Il2CppSystem.Guid;
 using Il2CppTimeSpan = Il2CppSystem.TimeSpan;
 using Il2CppCollections = Il2CppSystem.Collections.Generic;
 using Il2CppTasks = Il2CppSystem.Threading.Tasks;
 using Il2CppNet = Il2CppSystem.Net;
 using System.Linq;
+using ClientCharacterType = Types.CharacterType;
 
-namespace SneakOut.BackendRedirector;
+namespace SneakOut.BackendStabilizer;
 
-internal static class BackendRedirectorStub
+internal static class BackendStabilizerStub
 {
     private const int MaxCurrencyAmount = 999_999;
     private const int MaxExperienceAmount = 9_999_999;
@@ -51,59 +51,11 @@ internal static class BackendRedirectorStub
         }
     }
 
-    public static Il2CppTasks.Task<Result<LogInResponseV2>> SteamLogInV2(SteamLogInRequest request)
-    {
-        lock (Sync)
-        {
-            _authorizationToken = System.Guid.NewGuid().ToString("N");
-            _sessionToken = System.Guid.NewGuid().ToString();
-            _steamId = request.SteamId;
-            _steamNickname = string.IsNullOrWhiteSpace(request.SteamNickname) ? "Community Player" : request.SteamNickname;
-            _playfabId = request.PlayfabId ?? string.Empty;
-            _pgosId = request.PgosId ?? string.Empty;
-            _timeZoneOffset = request.TimeZoneOffsetToUtc;
-
-            return Success(CreateLoginResponse());
-        }
-    }
-
-    public static Il2CppTasks.Task<Result<GetUserSessionResponse>> GetUserSession(Il2CppGuid sessionToken)
-    {
-        lock (Sync)
-        {
-            return Success(CreateUserSessionResponse());
-        }
-    }
-
-    public static Il2CppTasks.Task<Result<GetUserSessionV2Response>> GetUserSessionV2(Il2CppGuid sessionToken)
-    {
-        lock (Sync)
-        {
-            return Success(CreateUserSessionV2Response());
-        }
-    }
-
     public static Il2CppTasks.Task<Result<RefreshLobbyPlayerResponse>> RefreshPlayer()
     {
         lock (Sync)
         {
             return Success(CreateRefreshPlayerResponse());
-        }
-    }
-
-    public static Il2CppTasks.Task<Result<LogInResponseV2>> GetPlayer(string sessionToken)
-    {
-        lock (Sync)
-        {
-            return Success(CreateLoginResponse());
-        }
-    }
-
-    public static Il2CppTasks.Task<Result<WebPlayersSimplified>> GetPlayer(int userId)
-    {
-        lock (Sync)
-        {
-            return Success(CreatePlayerSimplified());
         }
     }
 
@@ -222,31 +174,86 @@ internal static class BackendRedirectorStub
         }
     }
 
-    private static LogInResponseV2 CreateLoginResponse()
+    public static void ApplyProfileOverlay(ClientCache clientCache)
     {
-        return new LogInResponseV2(_authorizationToken, _sessionToken, _kinguinEmail, _userId, CreatePlayer());
+        lock (Sync)
+        {
+            CaptureIdentity(clientCache);
+
+            if (clientCache.UserInfo is null)
+            {
+                clientCache.UserInfo = CreateUserInfo();
+            }
+
+            if (clientCache.UserWebPlayer is null)
+            {
+                clientCache.UserWebPlayer = CreatePlayer();
+            }
+            else
+            {
+                var player = clientCache.UserWebPlayer;
+                var baseData = player.BaseData ?? CreateBaseData();
+                baseData.Experience = MaxExperienceAmount;
+                player.BaseData = baseData;
+                player.Resources = CreateResources();
+                player.Cards = CreatePlayerCards();
+                player.Avatars ??= CreatePlayerAvatars();
+                player.AvatarFrames ??= CreatePlayerAvatarFrames();
+                player.CharacterSkins ??= CreatePlayerCharacterSkins();
+                player.Ownership = CreateOwnership();
+                player.Boosters ??= new PlayerBoosters();
+                player.Emotions ??= CreatePlayerEmotions();
+                player.BoostTickets ??= new PlayerBoostTickets();
+                player.ResourceSources ??= new Il2CppCollections.List<ResourceSource>();
+                player.Consumables ??= new PlayerConsumables();
+                player.Skins ??= new PlayerSkins();
+                player.Descriptions ??= new Il2CppCollections.List<DescriptionType>();
+                if (player.Characters is null || player.Characters.Count == 0)
+                {
+                    player.Characters = CreateCharacters();
+                }
+                else
+                {
+                    foreach (var character in player.Characters)
+                    {
+                        EnsureCharacterDefaults(character);
+                    }
+                }
+            }
+
+            if (clientCache.PlayerDailyQuests is null)
+            {
+                clientCache.PlayerDailyQuests = CreateDailyQuests();
+            }
+
+            if (clientCache.SeasonPass is null)
+            {
+                clientCache.SeasonPass = CreateSeasonPass();
+            }
+
+            if (clientCache.CurrentSeasonPassProgression is null && clientCache.SeasonPass is not null)
+            {
+                clientCache.CurrentSeasonPassProgression = CreateSeasonPassProgression(clientCache.SeasonPass.Name);
+            }
+
+            clientCache.Messages ??= new Il2CppCollections.List<PlayerSystemMessage>();
+            clientCache.Banned = false;
+            clientCache.PossibleFirewallBlocked = false;
+        }
     }
 
-    private static GetUserSessionResponse CreateUserSessionResponse()
+    public static void ApplyRefreshPlayerOverlay(RefreshLobbyPlayerResponse response)
     {
-        return new GetUserSessionResponse(
-            true,
-            _userId,
-            CreateMetadataDtos(),
-            CommunityServerName,
-            false,
-            _kinguinEmail);
-    }
-
-    private static GetUserSessionV2Response CreateUserSessionV2Response()
-    {
-        return new GetUserSessionV2Response(
-            true,
-            _userId,
-            CommunityServerName,
-            false,
-            _kinguinEmail,
-            new UserAllData(CreateBaseData()));
+        lock (Sync)
+        {
+            CaptureIdentity(null);
+            var seasonPass = CreateSeasonPass();
+            response.Exp = MaxExperienceAmount;
+            response.Resources = CreateResources();
+            response.Consumables ??= new PlayerConsumables();
+            response.DailyQuests = CreateDailyQuests();
+            response.CurrentSeasonPassProgression = CreateSeasonPassProgression(seasonPass.Name);
+        }
     }
 
     private static RefreshLobbyPlayerResponse CreateRefreshPlayerResponse()
@@ -299,19 +306,11 @@ internal static class BackendRedirectorStub
         player.AvatarFrames = CreatePlayerAvatarFrames();
         player.CharacterSkins = CreatePlayerCharacterSkins();
         player.Boosters = new PlayerBoosters();
-        player.Emotions = new PlayerEmotions();
+        player.Emotions = CreatePlayerEmotions();
         player.BoostTickets = new PlayerBoostTickets();
         player.Characters = CreateCharacters();
         player.Ownership = CreateOwnership();
         player.Descriptions = new Il2CppCollections.List<DescriptionType>();
-        return player;
-    }
-
-    private static WebPlayersSimplified CreatePlayerSimplified()
-    {
-        var player = new WebPlayersSimplified();
-        player.BaseData = CreateBaseData();
-        player.Characters = CreateCharacters();
         return player;
     }
 
@@ -330,8 +329,13 @@ internal static class BackendRedirectorStub
         return baseData;
     }
 
-    private static void CaptureIdentity(ClientCache clientCache)
+    private static void CaptureIdentity(ClientCache? clientCache)
     {
+        if (clientCache is null)
+        {
+            return;
+        }
+
         if (!string.IsNullOrWhiteSpace(clientCache.AuthorizationToken))
         {
             _authorizationToken = clientCache.AuthorizationToken;
@@ -434,15 +438,115 @@ internal static class BackendRedirectorStub
             character.Avatar = CreateAvatar(GetAvatarType(characterType), character.CharacterId);
             character.AvatarFrame = CreateAvatarFrame(AvatarFrameType.Diamond, character.CharacterId);
             character.SkinParts = new SkinParts();
-            character.Emotions = new CharacterEmotions();
+            character.Emotions = CreateCharacterEmotions(characterType);
             character.Description = DescriptionType.none;
             character.SkillCards = CreateCharacterSkillCards(characterType);
-            character.Fart = EmoteType.None;
-            character.Dance = EmoteType.None;
+            character.Fart = GetDefaultFart(characterType);
+            character.Dance = GetDefaultDance(characterType);
             characters.Add(character);
         }
 
         return characters;
+    }
+
+    private static void EnsureCharacterDefaults(Character character)
+    {
+        character.Avatar ??= CreateAvatar(GetAvatarType(character.Type), character.CharacterId);
+        character.AvatarFrame ??= CreateAvatarFrame(AvatarFrameType.Diamond, character.CharacterId);
+        character.SkinParts ??= new SkinParts();
+        character.Emotions ??= CreateCharacterEmotions(character.Type);
+        character.SkillCards ??= CreateCharacterSkillCards(character.Type);
+
+        if (character.Fart == EmoteType.None)
+        {
+            character.Fart = GetDefaultFart(character.Type);
+        }
+
+        if (character.Dance == EmoteType.None)
+        {
+            character.Dance = GetDefaultDance(character.Type);
+        }
+    }
+
+    private static PlayerEmotions CreatePlayerEmotions()
+    {
+        var emotions = new Il2CppCollections.List<Emote>();
+        var emoteId = 1;
+        foreach (var emoteType in System.Enum.GetValues<EmoteType>())
+        {
+            if (emoteType == EmoteType.None)
+            {
+                continue;
+            }
+
+            emotions.Add(new Emote(emoteId++, emoteType));
+        }
+
+        return new PlayerEmotions(emotions);
+    }
+
+    private static CharacterEmotions CreateCharacterEmotions(CharacterType characterType)
+    {
+        var defaultEmotes = GetDefaultCharacterEmotions(characterType);
+        return new CharacterEmotions(
+            CreateEmote(1, defaultEmotes[0]),
+            CreateEmote(2, defaultEmotes[1]),
+            CreateEmote(3, defaultEmotes[2]),
+            CreateEmote(4, defaultEmotes[3]),
+            CreateEmote(5, defaultEmotes[4]),
+            CreateEmote(6, defaultEmotes[5]));
+    }
+
+    private static Emote CreateEmote(int emoteId, EmoteType emoteType)
+    {
+        return new Emote(emoteId, emoteType);
+    }
+
+    private static EmoteType GetDefaultDance(CharacterType characterType)
+    {
+        return Types.CharacterTypeExtension.GetDefaultDanceForCharacter(ToClientCharacterType(characterType));
+    }
+
+    private static EmoteType GetDefaultFart(CharacterType characterType)
+    {
+        return characterType == CharacterType.Penguin
+            ? EmoteType.emotion_penguin_fart_1
+            : EmoteType.None;
+    }
+
+    private static EmoteType[] GetDefaultCharacterEmotions(CharacterType characterType)
+    {
+        var defaultEmotes = Types.CharacterTypeExtension.GetDefaultEmotesForCharacter(ToClientCharacterType(characterType));
+        if (defaultEmotes is not null && defaultEmotes.Length >= 6)
+        {
+            return defaultEmotes.Take(6).ToArray();
+        }
+
+        return new[]
+        {
+            EmoteType.emotion_penguin_wave,
+            EmoteType.emotion_penguin_follow_me,
+            EmoteType.emotion_penguin_like,
+            EmoteType.emotion_penguin_jump,
+            EmoteType.emotion_penguin_fart_1,
+            EmoteType.emotion_penguin_dance_1
+        };
+    }
+
+    private static ClientCharacterType ToClientCharacterType(CharacterType characterType)
+    {
+        return characterType switch
+        {
+            CharacterType.Penguin => ClientCharacterType.victim_penguin,
+            CharacterType.Ghost => ClientCharacterType.ghost,
+            CharacterType.Reaper => ClientCharacterType.murderer_ripper,
+            CharacterType.Scarecrow => ClientCharacterType.murderer_scarecrow,
+            CharacterType.Dracula => ClientCharacterType.murderer_dracula,
+            CharacterType.Butcher => ClientCharacterType.murderer_butcher,
+            CharacterType.Clown => ClientCharacterType.murderer_clown,
+            CharacterType.Mimic => ClientCharacterType.seeker_with_generic_skills,
+            _ => ClientCharacterType.victim_penguin
+        };
     }
 
     private static PlayerCards CreatePlayerCards()
@@ -655,11 +759,11 @@ internal static class BackendRedirectorStub
         progression.Experience = MaxExperienceAmount;
         progression.MaxAvailableReward = 100;
         progression.LastClaimedReward = 100;
-        progression.ClaimedRewards = "all";
+        progression.ClaimedRewards = string.Join(",", Enumerable.Range(1, 100));
         return progression;
     }
 
-    private static Il2CppTasks.Task<Result<T>> Success<T>(T value)
+    private static Il2CppTasks.Task<Result<T>> Success<T>(T value) where T : notnull
     {
         return Il2CppTasks.Task.FromResult(new Result<T>(value, true, Il2CppNet.HttpStatusCode.OK, string.Empty));
     }

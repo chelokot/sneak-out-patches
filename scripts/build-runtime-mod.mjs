@@ -13,10 +13,10 @@ const runtimeMods = {
     builtDllPath: resolve(repositoryRoot, "mods/mummy_unlock/bin/Release/net6.0/SneakOut.MummyUnlock.dll"),
     artifactDllPath: resolve(repositoryRoot, "artifacts/runtime_mods/SneakOut.MummyUnlock.dll")
   },
-  "backend-redirector": {
-    projectPath: resolve(repositoryRoot, "mods/backend_redirector/BackendRedirector.csproj"),
-    builtDllPath: resolve(repositoryRoot, "mods/backend_redirector/bin/Release/net6.0/SneakOut.BackendRedirector.dll"),
-    artifactDllPath: resolve(repositoryRoot, "artifacts/runtime_mods/SneakOut.BackendRedirector.dll")
+  "backend-stabilizer": {
+    projectPath: resolve(repositoryRoot, "mods/backend_stabilizer/BackendStabilizer.csproj"),
+    builtDllPath: resolve(repositoryRoot, "mods/backend_stabilizer/bin/Release/net6.0/SneakOut.BackendStabilizer.dll"),
+    artifactDllPath: resolve(repositoryRoot, "artifacts/runtime_mods/SneakOut.BackendStabilizer.dll")
   },
   "start-delay-reducer": {
     projectPath: resolve(repositoryRoot, "mods/start_delay_reducer/StartDelayReducer.csproj"),

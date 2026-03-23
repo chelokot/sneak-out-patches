@@ -2,7 +2,6 @@ using BepInEx.Logging;
 using Collections;
 using HarmonyLib;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
-using System.IO;
 using Types;
 using UI.Views;
 using UI.Views.Lobby;
@@ -13,7 +12,6 @@ namespace SneakOut.MummyUnlock;
 internal static class MummyUnlockRuntime
 {
     private static readonly CharacterType MummyCharacterType = CharacterType.murderer_mummy;
-    private static readonly string ExportDirectoryPath = "/var/home/chelokot/Documents/Projects/Sneakout";
     private static readonly CharacterType[] ShopSeekerOrder =
     {
         CharacterType.murderer_dracula,
@@ -32,7 +30,6 @@ internal static class MummyUnlockRuntime
     private static bool _loggedCharacterShopAvatars;
     private static bool _loggedMummySpriteCandidates;
     private static bool _loggedSeekerSelectionViewImages;
-    private static readonly HashSet<string> ExportedShopSpriteNames = new(StringComparer.OrdinalIgnoreCase);
 
     public static void Initialize(ManualLogSource logger)
     {
@@ -481,59 +478,9 @@ internal static class MummyUnlockRuntime
             var avatarImage = characterAvatars[index];
             var spriteName = avatarImage.sprite is null ? "null" : avatarImage.sprite.name;
             avatarSummaries.Add($"{index}:{avatarImage.gameObject.name}:{spriteName}:{DescribeAvatarHierarchy(avatarImage.gameObject)}");
-            TryExportShopSprite(avatarImage.sprite);
         }
 
         _logger?.LogInfo($"CharacterShopView avatar images: [{string.Join(", ", avatarSummaries)}]");
-    }
-
-    private static void TryExportShopSprite(Sprite? sprite)
-    {
-        if (sprite is null)
-        {
-            return;
-        }
-
-        var spriteName = sprite.name;
-        if (string.IsNullOrWhiteSpace(spriteName) || !spriteName.Contains("_seeker_shop", StringComparison.OrdinalIgnoreCase))
-        {
-            return;
-        }
-
-        if (!ExportedShopSpriteNames.Add(spriteName))
-        {
-            return;
-        }
-
-        try
-        {
-            var sourceTexture = sprite.texture;
-            if (sourceTexture is null)
-            {
-                _logger?.LogWarning($"Shop sprite export skipped for {spriteName}: texture is null");
-                return;
-            }
-
-            var rect = sprite.textureRect;
-            var x = Mathf.RoundToInt(rect.x);
-            var y = Mathf.RoundToInt(rect.y);
-            var width = Mathf.RoundToInt(rect.width);
-            var height = Mathf.RoundToInt(rect.height);
-            var pixels = sourceTexture.GetPixels(x, y, width, height);
-            var outputTexture = new Texture2D(width, height, TextureFormat.RGBA32, false);
-            outputTexture.SetPixels(pixels);
-            outputTexture.Apply();
-
-            var outputPath = Path.Combine(ExportDirectoryPath, $"{spriteName}.png");
-            var pngBytes = ImageConversion.EncodeToPNG(outputTexture);
-            File.WriteAllBytes(outputPath, pngBytes);
-            _logger?.LogInfo($"Exported shop sprite {spriteName} -> {outputPath}");
-            UnityEngine.Object.Destroy(outputTexture);
-        }
-        catch (Exception exception)
-        {
-            _logger?.LogError($"Shop sprite export failed for {spriteName}: {exception}");
-        }
     }
 
     private static string DescribeAvatarHierarchy(GameObject gameObject)

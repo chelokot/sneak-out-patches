@@ -43,8 +43,8 @@ External prerequisites:
   The runtime BepInEx IL2CPP mod that is replacing fragile raw UI scene surgery.
 - `mods/mummy_unlock/`
   A dedicated runtime research mod for restoring Mummy as a selectable hunter.
-- `mods/backend_redirector/`
-  The runtime BepInEx IL2CPP mod that can locally stub or redirect the dead web-service layer.
+- `mods/backend_stabilizer/`
+  The runtime BepInEx IL2CPP mod that applies a local max-profile overlay without touching stock Steam, PGOS, or matchmaking flows.
 
 ## What currently exists
 
@@ -110,7 +110,7 @@ Install runtime mods from committed DLL artifacts without building:
 npm run patcher -- \
   --game-dir "/path/to/Sneak Out" \
   --patches "" \
-  --mods backend-redirector \
+  --mods backend-stabilizer \
   --nobuild
 ```
 
@@ -180,14 +180,14 @@ WINEDLLOVERRIDES="winhttp=n,b" %command%
 
 Without that override, `winhttp.dll` is usually not picked up and the runtime plugin will not load.
 
-The backend redirector mod lives in:
+The backend stabilizer mod lives in:
 
-- `mods/backend_redirector/BackendRedirector.csproj`
+- `mods/backend_stabilizer/BackendStabilizer.csproj`
 
 Build it with:
 
 ```bash
-npm run mod:build:backend-redirector
+npm run mod:build:backend-stabilizer
 ```
 
 Runtime mod builds automatically refresh the matching DLL in `artifacts/runtime_mods/`.
@@ -206,26 +206,25 @@ Copy it into the game:
 
 ```bash
 cp -f \
-  mods/backend_redirector/bin/Release/net6.0/SneakOut.BackendRedirector.dll \
-  "/path/to/Sneak Out/BepInEx/plugins/SneakOut.BackendRedirector.dll"
+  mods/backend_stabilizer/bin/Release/net6.0/SneakOut.BackendStabilizer.dll \
+  "/path/to/Sneak Out/BepInEx/plugins/SneakOut.BackendStabilizer.dll"
 ```
 
 Its generated config file is:
 
 ```text
-/path/to/Sneak Out/BepInEx/config/chelokot.sneakout.backend-redirector.cfg
+/path/to/Sneak Out/BepInEx/config/chelokot.sneakout.backend-stabilizer.cfg
 ```
 
-The generated config stays fully disabled by default:
+The generated config keeps research logging disabled and the max-profile overlay enabled by default:
 
 - `EnableResearchLogging=false`
-- `EnableLocalStub=false`
-- `EnableRedirect=false`
+- `EnableLocalStub=true`
 
 Enable it explicitly in:
 
 ```text
-/path/to/Sneak Out/BepInEx/config/chelokot.sneakout.backend-redirector.cfg
+/path/to/Sneak Out/BepInEx/config/chelokot.sneakout.backend-stabilizer.cfg
 ```
 
 The start delay reducer mod lives in:

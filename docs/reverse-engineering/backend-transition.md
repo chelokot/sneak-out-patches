@@ -103,26 +103,82 @@ Practical meaning:
 
 The repo now contains a new research-only mod scaffold at:
 
-- `mods/backend_redirector/`
+- `mods/backend_stabilizer/`
 
 Current behavior:
 
-- logs web-service construction
-- logs environment-change requests
-- logs session-cache state at `ClientCache.OnClientConfirmed`
-- logs session-cache state before `ClientCache.RefreshPlayer`
+- can redirect `KinguinverseWebService`, `KinguinverseWebServiceV2`, and `UnityHttp` to a custom base URL
+- can serve a local maxed-account profile overlay when `EnableLocalStub=true`
+- populates `ClientCache` during `OnClientConfirmed` and `RefreshPlayer`
+- can stub late profile/meta methods such as products, resources, boosters, and metadata
+- logs web-service construction and redirect targets when research logging is enabled
 
-Current non-behavior:
+Current stubbed surface:
 
-- no HTTP redirect
-- no response rewrite
-- no session spoofing
-- no live backend replacement
+- profile/meta/store only:
+  - `ClientCache.OnClientConfirmed`
+  - `ClientCache.RefreshPlayer`
+  - `RefreshPlayer`
+  - `GetProducts`
+  - `GetProductsV2`
+  - `GetGameUserMetadata`
+  - `GetGameUserMetadatas`
+  - `SetGameUserMetadata`
+  - `SetGameUserMetadatas`
+  - `GetPlayerMessages`
+  - `GetPlayerResources`
+  - `GetMyBoosters`
+
+## Confirmed minimum backend surface
+
+Based on `dump.cs`, the current runtime mod, and the actual goal of the project, the correct minimum surface is narrower than a full backend replacement.
+
+1. leave auth/session/friends/party untouched
+   - `SteamLogInV2`
+   - `GetUserSession` / `GetUserSessionV2`
+   - `GetPlayer(...)`
+   - `GetAllUserData(...)`
+   - `GetFriends(...)`
+   - `SetHiddenOnFriendlists`
+   - `SetLastServerName`
+   - `PgosLobby` / invites / party / matchmaking
+2. apply a local max-profile overlay after the real backend/bootstrap has already run
+   - `ClientCache.OnClientConfirmed`
+   - `ClientCache.RefreshPlayer`
+3. optionally stub late economy/profile reads that the dead backend no longer serves correctly
+   - `RefreshPlayer`
+   - products/resources/messages/boosters
+   - game user metadata
+
+## Confirmed local-stub bug that mattered
+
+The original local stub built both session responses with swapped arguments:
+
+- `GetUserSessionResponse(bool authorized, int userId, List<GameUserMetadataDto> metadata, string kinguinEmail, bool hideOnFriendlists, string lastServerName)`
+- `GetUserSessionV2Response(bool authorized, int userId, string kinguinEmail, bool hideOnFriendlists, string lastServerName, UserAllData userAllData)`
+
+The older stub passed `CommunityServerName` where `kinguinEmail` should go and `_kinguinEmail` where `lastServerName` should go.
+
+The fixed runtime stub now keeps explicit state for:
+
+- `KinguinEmail`
+- `HideOnFriendlists`
+- `LastServerName`
+
+and feeds those values consistently into:
+
+- session responses
+- `UserInfoDto`
+- `ClientCache`
+
+That fix is still useful if full stub mode is ever re-enabled for research, but it is no longer part of the recommended production architecture for the stabilizer mod.
 
 ## Planned investigation order
 
-1. verify which constructor path actually builds the live HTTP client in the current retail build
-2. verify whether `WebServiceUrl` is stable after `ChangeEnvironment`
-3. confirm whether any important profile/shop path still bypasses `KinguinverseWebServiceV2`
-4. map the minimum request surface needed for private-lobby-only operation
-5. only then add controlled redirect logic
+1. verify which unlock/economy UI paths still ignore the `ClientCache` overlay and require late-method stubs
+2. make the local overlay preserve all real identity/session values while only replacing progression/unlock/economy data
+3. keep matchmaking, party, and invite flows entirely on the stock code path
+4. if needed, split the current config into:
+   - redirect-only
+   - profile-overlay-only
+   - late-economy-stub

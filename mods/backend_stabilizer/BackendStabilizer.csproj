@@ -4,8 +4,8 @@
     <LangVersion>latest</LangVersion>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <AssemblyName>SneakOut.BackendRedirector</AssemblyName>
-    <RootNamespace>SneakOut.BackendRedirector</RootNamespace>
+    <AssemblyName>SneakOut.BackendStabilizer</AssemblyName>
+    <RootNamespace>SneakOut.BackendStabilizer</RootNamespace>
     <BepInExCoreDir Condition="'$(BepInExCoreDir)' == ''">$(MSBuildThisFileDirectory)../../.tmp/runtime-mod/bepinex/BepInEx/core</BepInExCoreDir>
     <InteropDir Condition="'$(InteropDir)' == ''">/run/media/chelokot/second/SteamLibrary/steamapps/common/Sneak Out/BepInEx/interop</InteropDir>
   </PropertyGroup>

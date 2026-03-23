@@ -14,10 +14,10 @@
     "interop:inspect": "node scripts/run-dotnet.mjs run --project tools/interop_inspector/InteropInspector.csproj --",
     "mod:build:portal-mode-selector": "node scripts/build-runtime-mod.mjs portal-mode-selector",
     "mod:build:mummy-unlock": "node scripts/build-runtime-mod.mjs mummy-unlock",
-    "mod:build:backend-redirector": "node scripts/build-runtime-mod.mjs backend-redirector",
+    "mod:build:backend-stabilizer": "node scripts/build-runtime-mod.mjs backend-stabilizer",
     "mod:build:start-delay-reducer": "node scripts/build-runtime-mod.mjs start-delay-reducer",
     "mod:build:friend-invite-unlock": "node scripts/build-runtime-mod.mjs friend-invite-unlock",
-    "mods:build": "npm run mod:build:portal-mode-selector && npm run mod:build:mummy-unlock && npm run mod:build:backend-redirector && npm run mod:build:start-delay-reducer && npm run mod:build:friend-invite-unlock",
+    "mods:build": "npm run mod:build:portal-mode-selector && npm run mod:build:mummy-unlock && npm run mod:build:backend-stabilizer && npm run mod:build:start-delay-reducer && npm run mod:build:friend-invite-unlock",
     "check": "npm run mods:build"
   }
 }

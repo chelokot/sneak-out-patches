@@ -60,12 +60,27 @@ internal static class PortalModeSelectorRuntime
     private static bool _crownIconSearchCompleted;
     private static MethodInfo? _handleBerekModeStartMethod;
     private static bool _berekStartupTriggered;
+    private static readonly Assembly GameplayAssembly = typeof(PortalPlayView).Assembly;
+    private static readonly Assembly WebAssembly = typeof(Kinguinverse.WebServiceProvider.Types_v2.WebMatch).Assembly;
 
     public static void Initialize(ManualLogSource logger)
     {
         _logger = logger;
         _harmony ??= new Harmony(PortalModeSelectorPlugin.PluginGuid);
         _harmony.PatchAll();
+    }
+
+    public static Type? FindPatchedType(string typeName)
+    {
+        var assembly = typeName.StartsWith("Kinguinverse.", StringComparison.Ordinal)
+            ? WebAssembly
+            : GameplayAssembly;
+        return assembly.GetType(typeName);
+    }
+
+    public static MethodBase? FindPatchedMethod(string typeName, string methodName)
+    {
+        return AccessTools.Method(FindPatchedType(typeName), methodName);
     }
 
     public static bool TryEnsureModeRow(PortalPlayView view)

@@ -199,39 +199,27 @@ RUNTIME_MOD_OPTIONS: tuple[RuntimeModOption, ...] = (
         assembly_name="SneakOut.MummyUnlock",
     ),
     RuntimeModOption(
-        option_id="backend-redirector",
-        label="Install Backend Redirector runtime mod",
-        details="Builds and installs the BepInEx runtime mod that can locally stub or redirect the dead web-service layer.",
+        option_id="backend-stabilizer",
+        label="Install Backend Stabilizer runtime mod",
+        details="Builds and installs the BepInEx runtime mod that applies a local max-profile overlay without touching stock Steam or matchmaking flows.",
         default_enabled=False,
-        project_relative_path="mods/backend_redirector/BackendRedirector.csproj",
-        assembly_name="SneakOut.BackendRedirector",
-        config_relative_path="BepInEx/config/chelokot.sneakout.backend-redirector.cfg",
+        project_relative_path="mods/backend_stabilizer/BackendStabilizer.csproj",
+        assembly_name="SneakOut.BackendStabilizer",
+        config_relative_path="BepInEx/config/chelokot.sneakout.backend-stabilizer.cfg",
         default_config_text=(
             "[general]\n"
-            "## Settings file was created by version 0.1.0 of Backend Redirector\n"
-            "## Plugin GUID: chelokot.sneakout.backend-redirector\n"
-            "## Plugin Name: Backend Redirector\n"
+            "## Settings file was created by version 0.1.0 of Backend Stabilizer\n"
+            "## Plugin GUID: chelokot.sneakout.backend-stabilizer\n"
+            "## Plugin Name: Backend Stabilizer\n"
             "## Plugin Version: 0.1.0\n\n"
-            "## Enable backend construction and environment-change logs.\n"
+            "## Enable backend stabilizer research logs.\n"
             "# Setting type: Boolean\n"
             "# Default value: false\n"
             "EnableResearchLogging = false\n\n"
-            "## Serve maxed community account responses directly from the runtime mod.\n"
+            "## Apply a local max-profile overlay after the stock backend bootstrap has completed.\n"
             "# Setting type: Boolean\n"
-            "# Default value: false\n"
-            "EnableLocalStub = false\n\n"
-            "## Enable live backend redirection.\n"
-            "# Setting type: Boolean\n"
-            "# Default value: false\n"
-            "EnableRedirect = false\n\n"
-            "## Community-backend base URL.\n"
-            "# Setting type: String\n"
-            "# Default value: http://127.0.0.1:8080\n"
-            "TargetBaseUrl = http://127.0.0.1:8080\n\n"
-            "## Logical environment label used in redirect logs.\n"
-            "# Setting type: String\n"
-            "# Default value: CommunityLocal\n"
-            "TargetEnvironmentName = CommunityLocal\n"
+            "# Default value: true\n"
+            "EnableLocalStub = true\n"
         ),
     ),
     RuntimeModOption(

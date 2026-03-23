@@ -128,7 +128,7 @@ internal static class PhotonPlayFabLobbyControllerOnHostChooseGameModeEventPatch
 {
     private static System.Reflection.MethodBase? TargetMethod()
     {
-        return AccessTools.Method(AccessTools.TypeByName("PhotonPlayFabLobbyController"), "OnHostChooseGameModeEvent");
+        return PortalModeSelectorRuntime.FindPatchedMethod("Networking.Photon.PhotonPlayFabLobbyController", "OnHostChooseGameModeEvent");
     }
 
     private static void Prefix(object? sender, Il2CppSystem.EventArgs? args)
@@ -142,7 +142,7 @@ internal static class PhotonPlayFabLobbyControllerSetHostChosenGameModePatch
 {
     private static System.Reflection.MethodBase? TargetMethod()
     {
-        return AccessTools.Method(AccessTools.TypeByName("PhotonPlayFabLobbyController"), "set_HostChosenGameMode");
+        return PortalModeSelectorRuntime.FindPatchedMethod("Networking.Photon.PhotonPlayFabLobbyController", "set_HostChosenGameMode");
     }
 
     private static void Prefix(ref GameModeType value)
@@ -156,7 +156,7 @@ internal static class PhotonPlayFabLobbyControllerRpcRequestChangeGameModePatch
 {
     private static System.Reflection.MethodBase? TargetMethod()
     {
-        return AccessTools.Method(AccessTools.TypeByName("PhotonPlayFabLobbyController"), "RPC_RequestChangeGameMode");
+        return PortalModeSelectorRuntime.FindPatchedMethod("Networking.Photon.PhotonPlayFabLobbyController", "RPC_RequestChangeGameMode");
     }
 
     private static void Prefix(ref GameModeType gameMode)
@@ -170,7 +170,7 @@ internal static class PhotonPlayFabLobbyControllerOnSendMatchInfoToTeamEventPatc
 {
     private static System.Reflection.MethodBase? TargetMethod()
     {
-        return AccessTools.Method(AccessTools.TypeByName("PhotonPlayFabLobbyController"), "OnSendMatchInfoToTeamEvent");
+        return PortalModeSelectorRuntime.FindPatchedMethod("Networking.Photon.PhotonPlayFabLobbyController", "OnSendMatchInfoToTeamEvent");
     }
 
     private static void Prefix(object? sender, Il2CppSystem.EventArgs? args)
@@ -184,7 +184,7 @@ internal static class PhotonPlayFabLobbyControllerRpcSendMatchInfoToTeamPatch
 {
     private static System.Reflection.MethodBase? TargetMethod()
     {
-        return AccessTools.Method(AccessTools.TypeByName("PhotonPlayFabLobbyController"), "RPC_SendMatchInfoToTeam");
+        return PortalModeSelectorRuntime.FindPatchedMethod("Networking.Photon.PhotonPlayFabLobbyController", "RPC_SendMatchInfoToTeam");
     }
 
     private static void Prefix(string matchId, ref GameModeType selectedGameModeType)
@@ -198,7 +198,7 @@ internal static class GameStartControllerHandleDefaultModeStartPatch
 {
     private static System.Reflection.MethodBase? TargetMethod()
     {
-        return AccessTools.Method(AccessTools.TypeByName("Gameplay.Match.GameStartController"), "HandleDefaultModeStart");
+        return PortalModeSelectorRuntime.FindPatchedMethod("Gameplay.Match.GameStartController", "HandleDefaultModeStart");
     }
 
     private static bool Prefix(object __instance, CharacterType seekerCharacterType, ref IEnumerator __result)
@@ -212,7 +212,7 @@ internal static class GameStartControllerHandleBerekModeStartPatch
 {
     private static System.Reflection.MethodBase? TargetMethod()
     {
-        return AccessTools.Method(AccessTools.TypeByName("Gameplay.Match.GameStartController"), "HandleBerekModeStart");
+        return PortalModeSelectorRuntime.FindPatchedMethod("Gameplay.Match.GameStartController", "HandleBerekModeStart");
     }
 
     private static void Prefix(ref CharacterType seekerCharacterType)
@@ -226,7 +226,7 @@ internal static class GameStartControllerHandleSeekerPatch
 {
     private static System.Reflection.MethodBase? TargetMethod()
     {
-        return AccessTools.Method(AccessTools.TypeByName("Gameplay.Match.GameStartController"), "HandleSeeker");
+        return PortalModeSelectorRuntime.FindPatchedMethod("Gameplay.Match.GameStartController", "HandleSeeker");
     }
 
     private static void Prefix(ref CharacterType seekerCharacterType)
@@ -240,7 +240,7 @@ internal static class GameStartControllerPrepareVictimsPatch
 {
     private static System.Reflection.MethodBase? TargetMethod()
     {
-        return AccessTools.Method(AccessTools.TypeByName("Gameplay.Match.GameStartController"), "PrepareVictims");
+        return PortalModeSelectorRuntime.FindPatchedMethod("Gameplay.Match.GameStartController", "PrepareVictims");
     }
 
     private static bool Prefix(object __instance, ref CharacterType seekerCharacterType)
@@ -254,7 +254,7 @@ internal static class GameStartControllerOnConfirmSeekerCharacterEventPatch
 {
     private static System.Reflection.MethodBase? TargetMethod()
     {
-        return AccessTools.Method(AccessTools.TypeByName("Gameplay.Match.GameStartController"), "OnConfirmSeekerCharacterEvent");
+        return PortalModeSelectorRuntime.FindPatchedMethod("Gameplay.Match.GameStartController", "OnConfirmSeekerCharacterEvent");
     }
 
     private static void Prefix(object? sender, Il2CppSystem.EventArgs? args)
@@ -268,7 +268,7 @@ internal static class GameStartControllerOnSeekerChosenRequestEventPatch
 {
     private static System.Reflection.MethodBase? TargetMethod()
     {
-        return AccessTools.Method(AccessTools.TypeByName("Gameplay.Match.GameStartController"), "OnSeekerChosenRequestEvent");
+        return PortalModeSelectorRuntime.FindPatchedMethod("Gameplay.Match.GameStartController", "OnSeekerChosenRequestEvent");
     }
 
     private static void Prefix(object? sender, Il2CppSystem.EventArgs? args)
@@ -281,7 +281,7 @@ internal static class MatchStateHelperKinguinverseStartMatchPatch
 {
     private static System.Reflection.MethodBase? TargetMethod()
     {
-        return AccessTools.Method(AccessTools.TypeByName("Gameplay.Match.MatchState.MatchStateHelper"), "KinguinverseStartMatch");
+        return PortalModeSelectorRuntime.FindPatchedMethod("Gameplay.Match.MatchState.MatchStateHelper", "KinguinverseStartMatch");
     }
 
     private static void Prefix(object __instance)
@@ -295,7 +295,7 @@ internal static class BeforeSelectionStateTickPatch
 {
     private static System.Reflection.MethodBase? TargetMethod()
     {
-        return AccessTools.Method(AccessTools.TypeByName("Gameplay.Match.MatchState.BeforeSelectionState"), "Tick");
+        return PortalModeSelectorRuntime.FindPatchedMethod("Gameplay.Match.MatchState.BeforeSelectionState", "Tick");
     }
 
     private static bool Prefix(object __instance, object stateMachine)
@@ -309,7 +309,7 @@ internal static class BerekSelectionStateTickPatch
 {
     private static System.Reflection.MethodBase? TargetMethod()
     {
-        return AccessTools.Method(AccessTools.TypeByName("Gameplay.Match.MatchState.BerekSelectionState"), "Tick");
+        return PortalModeSelectorRuntime.FindPatchedMethod("Gameplay.Match.MatchState.BerekSelectionState", "Tick");
     }
 
     private static void Prefix(object __instance, object stateMachine)
@@ -323,7 +323,7 @@ internal static class SpookedNetworkPlayerAssignComponentsPatch
 {
     private static System.Reflection.MethodBase? TargetMethod()
     {
-        return AccessTools.Method(AccessTools.TypeByName("Gameplay.Player.Components.SpookedNetworkPlayer"), "AssignComponents");
+        return PortalModeSelectorRuntime.FindPatchedMethod("Gameplay.Player.Components.SpookedNetworkPlayer", "AssignComponents");
     }
 
     private static void Postfix(object __instance)
@@ -337,7 +337,7 @@ internal static class GameStartControllerGivePlayerCrownPatch
 {
     private static System.Reflection.MethodBase? TargetMethod()
     {
-        return AccessTools.Method(AccessTools.TypeByName("Gameplay.Match.GameStartController"), "GivePlayerCrown");
+        return PortalModeSelectorRuntime.FindPatchedMethod("Gameplay.Match.GameStartController", "GivePlayerCrown");
     }
 
     private static void Prefix(object __instance)
@@ -351,7 +351,7 @@ internal static class GameStartControllerInitializeBerekComponentsPatch
 {
     private static System.Reflection.MethodBase? TargetMethod()
     {
-        return AccessTools.Method(AccessTools.TypeByName("Gameplay.Match.GameStartController"), "InitializeBerekComponents");
+        return PortalModeSelectorRuntime.FindPatchedMethod("Gameplay.Match.GameStartController", "InitializeBerekComponents");
     }
 
     private static void Prefix(object __instance)
@@ -365,7 +365,7 @@ internal static class EntityBerekComponentHandleCrownPatch
 {
     private static System.Reflection.MethodBase? TargetMethod()
     {
-        return AccessTools.Method(AccessTools.TypeByName("Gameplay.Player.Components.EntityBerekComponent"), "HandleCrown");
+        return PortalModeSelectorRuntime.FindPatchedMethod("Gameplay.Player.Components.EntityBerekComponent", "HandleCrown");
     }
 
     private static void Prefix(Gameplay.Player.Components.EntityBerekComponent __instance)
@@ -379,7 +379,7 @@ internal static class MatchStateHelperKinguinverseStartMatchClosurePatch
 {
     private static System.Reflection.MethodBase? TargetMethod()
     {
-        var outerType = AccessTools.TypeByName("Gameplay.Match.MatchState.MatchStateHelper");
+        var outerType = PortalModeSelectorRuntime.FindPatchedType("Gameplay.Match.MatchState.MatchStateHelper");
         if (outerType is null)
         {
             return null;
@@ -407,7 +407,7 @@ internal static class WebMatchSetTagPatch
 {
     private static System.Reflection.MethodBase? TargetMethod()
     {
-        return AccessTools.Method(AccessTools.TypeByName("Kinguinverse.WebServiceProvider.Types_v2.WebMatch"), "set_Tag");
+        return PortalModeSelectorRuntime.FindPatchedMethod("Kinguinverse.WebServiceProvider.Types_v2.WebMatch", "set_Tag");
     }
 
     private static void Prefix(ref bool value)

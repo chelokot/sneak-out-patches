@@ -1,19 +1,10 @@
 using Collections;
 using HarmonyLib;
+using Types;
 using UI.Views;
 using UI.Views.Lobby;
 
 namespace SneakOut.MummyUnlock;
-
-[HarmonyPatch(typeof(PlayerNewMetaInventory), nameof(PlayerNewMetaInventory.LoadOwnedSeekers))]
-internal static class PlayerNewMetaInventoryLoadOwnedSeekersPatch
-{
-    private static void Postfix(PlayerNewMetaInventory __instance)
-    {
-        MummyUnlockRuntime.EnsureOwnedSeekersContainMummy(__instance);
-        MummyUnlockRuntime.LogOwnedSeekers(__instance);
-    }
-}
 
 [HarmonyPatch(typeof(SeekerSelectionViewModel), nameof(SeekerSelectionViewModel.Init))]
 internal static class SeekerSelectionViewModelInitPatch
@@ -21,7 +12,6 @@ internal static class SeekerSelectionViewModelInitPatch
     private static void Postfix(SeekerSelectionViewModel __instance)
     {
         MummyUnlockRuntime.EnsureAvailableSeekersContainMummy(__instance);
-        MummyUnlockRuntime.LogAvailableSeekers(__instance);
     }
 }
 
@@ -30,7 +20,6 @@ internal static class SeekerSelectionViewModelOnSelectionChangePatch
 {
     private static void Postfix(SeekerSelectionViewModel __instance)
     {
-        MummyUnlockRuntime.LogAvailableSeekers(__instance);
     }
 }
 
@@ -115,15 +104,5 @@ internal static class CharacterShopViewShiftPatch
     private static void Postfix(CharacterShopView __instance)
     {
         MummyUnlockRuntime.LogCharacterShopStep("Shift", __instance);
-    }
-}
-
-[HarmonyPatch(typeof(PlayerNewMetaInventory), nameof(PlayerNewMetaInventory.DoIOwnThisItem))]
-internal static class PlayerNewMetaInventoryDoIOwnThisItemPatch
-{
-    private static void Postfix(Enum itemType, ref bool __result)
-    {
-        MummyUnlockRuntime.ForceMummyOwnership(itemType, ref __result);
-        MummyUnlockRuntime.LogOwnershipCheck(itemType, __result);
     }
 }

@@ -1,4 +1,5 @@
 using Base;
+using Collections;
 using HarmonyLib;
 using Kinguinverse.WebServiceProvider;
 using Kinguinverse.WebServiceProvider.Requests;
@@ -45,6 +46,32 @@ internal static class ClientCacheOnClientConfirmedPatch
         catch (Exception exception)
         {
             BackendStabilizerRuntime.LogError("Backend stabilizer ClientCache.OnClientConfirmed postfix failed", exception);
+        }
+    }
+}
+
+[HarmonyPatch(typeof(PlayerNewMetaInventory), nameof(PlayerNewMetaInventory.GetSkillCard))]
+internal static class PlayerNewMetaInventoryGetSkillCardPatch
+{
+    private static void Postfix(SkillType skillType, ref SkillCard __result)
+    {
+        if (!BackendStabilizerRuntime.UseProfileOverlay && !BackendStabilizerRuntime.UseLocalStub)
+        {
+            return;
+        }
+
+        if (skillType == SkillType.None || __result is not null)
+        {
+            return;
+        }
+
+        try
+        {
+            __result = BackendStabilizerStub.CreateMaxSkillCard(skillType);
+        }
+        catch (Exception exception)
+        {
+            BackendStabilizerRuntime.LogError("Backend stabilizer PlayerNewMetaInventory.GetSkillCard postfix failed", exception);
         }
     }
 }

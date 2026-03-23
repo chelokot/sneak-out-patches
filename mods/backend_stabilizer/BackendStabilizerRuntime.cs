@@ -82,6 +82,16 @@ internal static class BackendStabilizerRuntime
         LogInfo($"{source}: resourceEntries={count}");
     }
 
+    public static void LogCharacterCards(string source, CharacterType characterType, int count)
+    {
+        if (!ShouldLog())
+        {
+            return;
+        }
+
+        LogInfo($"{source}: characterType={characterType}, count={count}");
+    }
+
     public static void LogError(string message, Exception exception)
     {
         _logger?.LogError($"{message}: {exception}");

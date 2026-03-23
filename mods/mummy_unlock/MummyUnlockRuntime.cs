@@ -24,9 +24,7 @@ internal static class MummyUnlockRuntime
 
     private static ManualLogSource? _logger;
     private static Harmony? _harmony;
-    private static bool _loggedOwnedSeekers;
     private static bool _loggedAvailableSeekers;
-    private static bool _loggedMummyOwnershipCheck;
     private static bool _loggedCharacterShopAvatars;
     private static bool _loggedMummySpriteCandidates;
     private static bool _loggedSeekerSelectionViewImages;
@@ -37,11 +35,6 @@ internal static class MummyUnlockRuntime
         _harmony ??= new Harmony(MummyUnlockPlugin.PluginGuid);
         _harmony.PatchAll();
         LogMummySpriteCandidatesOnce();
-    }
-
-    public static void EnsureOwnedSeekersContainMummy(PlayerNewMetaInventory inventory)
-    {
-        inventory.OwnedSeekers = AppendCharacter(inventory.OwnedSeekers, MummyCharacterType);
     }
 
     public static void EnsureAvailableSeekersContainMummy(SeekerSelectionViewModel viewModel)
@@ -104,19 +97,6 @@ internal static class MummyUnlockRuntime
         {
             _logger?.LogError($"CharacterShopView preparation failed: {exception}");
         }
-    }
-
-    public static void LogOwnedSeekers(PlayerNewMetaInventory inventory)
-    {
-        if (_loggedOwnedSeekers)
-        {
-            return;
-        }
-
-        _loggedOwnedSeekers = true;
-        var ownedSeekers = inventory.OwnedSeekers;
-        _logger?.LogInfo($"OwnedSeekers: {FormatCharacterArray(ownedSeekers)}");
-        _logger?.LogInfo($"OwnedSeekers contains mummy: {ContainsCharacter(ownedSeekers, MummyCharacterType)}");
     }
 
     public static void LogAvailableSeekers(SeekerSelectionViewModel viewModel)
@@ -197,22 +177,6 @@ internal static class MummyUnlockRuntime
         }
     }
 
-    public static void LogOwnershipCheck(Enum itemType, bool result)
-    {
-        if (_loggedMummyOwnershipCheck)
-        {
-            return;
-        }
-
-        if (!string.Equals(itemType.ToString(), MummyCharacterType.ToString(), StringComparison.Ordinal))
-        {
-            return;
-        }
-
-        _loggedMummyOwnershipCheck = true;
-        _logger?.LogInfo($"DoIOwnThisItem(murderer_mummy): {result}");
-    }
-
     public static void LogSeekerSelectionView(UI.Views.SeekerSelectionView view)
     {
         try
@@ -241,17 +205,6 @@ internal static class MummyUnlockRuntime
         {
             _logger?.LogError($"SeekerSelectionView logging failed: {exception}");
         }
-    }
-
-    public static void ForceMummyOwnership(Enum itemType, ref bool result)
-    {
-        if (!string.Equals(itemType.ToString(), MummyCharacterType.ToString(), StringComparison.Ordinal))
-        {
-            return;
-        }
-
-        result = true;
-        _logger?.LogInfo("Forced DoIOwnThisItem(murderer_mummy)=true");
     }
 
     public static bool TryRenderCharacterShopDescription(CharacterShopView shopView)

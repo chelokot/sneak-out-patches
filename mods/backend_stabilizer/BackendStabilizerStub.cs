@@ -196,7 +196,7 @@ internal static class BackendStabilizerStub
                 baseData.Experience = MaxExperienceAmount;
                 player.BaseData = baseData;
                 player.Resources = CreateResources();
-                player.Cards = CreatePlayerCards();
+                player.Cards = EnsurePlayerCards(player.Cards);
                 player.Avatars ??= CreatePlayerAvatars();
                 player.AvatarFrames ??= CreatePlayerAvatarFrames();
                 player.CharacterSkins ??= CreatePlayerCharacterSkins();
@@ -240,6 +240,45 @@ internal static class BackendStabilizerStub
             clientCache.Banned = false;
             clientCache.PossibleFirewallBlocked = false;
         }
+    }
+
+    public static Il2CppCollections.List<SkillCard> CreateCardsForCharacter(CharacterType characterType)
+    {
+        var cards = new Il2CppCollections.List<SkillCard>();
+        foreach (var skillType in System.Enum.GetValues<SkillType>())
+        {
+            if (skillType == SkillType.None || !MatchesCharacterSkill(characterType, skillType))
+            {
+                continue;
+            }
+
+            cards.Add(new SkillCard(20_000 + cards.Count + (int)characterType * 100, skillType, MaxSkillExperience, MaxSkillTier));
+        }
+
+        return cards;
+    }
+
+    public static SkillCard CreateMaxSkillCard(SkillType skillType)
+    {
+        return new SkillCard(30_000 + (int)skillType, skillType, MaxSkillExperience, MaxSkillTier);
+    }
+
+    public static SkillCard EnsureMaxSkillCard(SkillCard? skillCard, SkillType skillType)
+    {
+        if (skillCard is null)
+        {
+            return CreateMaxSkillCard(skillType);
+        }
+
+        if (skillCard.Id == 0)
+        {
+            skillCard.Id = 30_000 + (int)skillType;
+        }
+
+        skillCard.SkillType = skillType;
+        skillCard.Experience = MaxSkillExperience;
+        skillCard.Tier = MaxSkillTier;
+        return skillCard;
     }
 
     public static void ApplyRefreshPlayerOverlay(RefreshLobbyPlayerResponse response)
@@ -455,7 +494,7 @@ internal static class BackendStabilizerStub
         character.AvatarFrame ??= CreateAvatarFrame(AvatarFrameType.Diamond, character.CharacterId);
         character.SkinParts ??= new SkinParts();
         character.Emotions ??= CreateCharacterEmotions(character.Type);
-        character.SkillCards ??= CreateCharacterSkillCards(character.Type);
+        character.SkillCards = EnsureCharacterSkillCards(character.Type, character.SkillCards);
 
         if (character.Fart == EmoteType.None)
         {
@@ -567,6 +606,42 @@ internal static class BackendStabilizerStub
         return new PlayerCards(skillCards);
     }
 
+    private static PlayerCards EnsurePlayerCards(PlayerCards? playerCards)
+    {
+        if (playerCards is null || playerCards.SkillCards is null)
+        {
+            return CreatePlayerCards();
+        }
+
+        var normalizedCards = new Il2CppCollections.List<SkillCard>();
+        var existingCardsByType = new Dictionary<SkillType, SkillCard>();
+
+        foreach (var existingCard in playerCards.SkillCards)
+        {
+            if (existingCard is null || existingCard.SkillType == SkillType.None)
+            {
+                continue;
+            }
+
+            existingCardsByType[existingCard.SkillType] = EnsureMaxSkillCard(existingCard, existingCard.SkillType);
+        }
+
+        foreach (var skillType in System.Enum.GetValues<SkillType>())
+        {
+            if (skillType == SkillType.None)
+            {
+                continue;
+            }
+
+            normalizedCards.Add(existingCardsByType.TryGetValue(skillType, out var existingCard)
+                ? existingCard
+                : CreateMaxSkillCard(skillType));
+        }
+
+        playerCards.SkillCards = normalizedCards;
+        return playerCards;
+    }
+
     private static CharacterSkillCards CreateCharacterSkillCards(CharacterType characterType)
     {
         var matchingSkillTypes = System.Enum.GetValues<SkillType>()
@@ -606,6 +681,43 @@ internal static class BackendStabilizerStub
         }
 
         return characterSkillCards;
+    }
+
+    private static CharacterSkillCards EnsureCharacterSkillCards(CharacterType characterType, CharacterSkillCards? skillCards)
+    {
+        var normalizedSkillCards = skillCards ?? new CharacterSkillCards();
+        var matchingSkillTypes = System.Enum.GetValues<SkillType>()
+            .Where(skillType => skillType != SkillType.None)
+            .Where(skillType => MatchesCharacterSkill(characterType, skillType))
+            .Take(5)
+            .ToArray();
+
+        if (matchingSkillTypes.Length > 0)
+        {
+            normalizedSkillCards.ActiveSkillCard = EnsureMaxSkillCard(normalizedSkillCards.ActiveSkillCard, matchingSkillTypes[0]);
+        }
+
+        if (matchingSkillTypes.Length > 1)
+        {
+            normalizedSkillCards.PassiveSkillCard1 = EnsureMaxSkillCard(normalizedSkillCards.PassiveSkillCard1, matchingSkillTypes[1]);
+        }
+
+        if (matchingSkillTypes.Length > 2)
+        {
+            normalizedSkillCards.PassiveSkillCard2 = EnsureMaxSkillCard(normalizedSkillCards.PassiveSkillCard2, matchingSkillTypes[2]);
+        }
+
+        if (matchingSkillTypes.Length > 3)
+        {
+            normalizedSkillCards.PassiveSkillCard3 = EnsureMaxSkillCard(normalizedSkillCards.PassiveSkillCard3, matchingSkillTypes[3]);
+        }
+
+        if (matchingSkillTypes.Length > 4)
+        {
+            normalizedSkillCards.PassiveSkillCard4 = EnsureMaxSkillCard(normalizedSkillCards.PassiveSkillCard4, matchingSkillTypes[4]);
+        }
+
+        return normalizedSkillCards;
     }
 
     private static bool MatchesCharacterSkill(CharacterType characterType, SkillType skillType)

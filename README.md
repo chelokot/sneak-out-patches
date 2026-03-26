@@ -48,16 +48,12 @@ External prerequisites:
 
 ## What currently exists
 
-The Python patcher supports these retail file patches:
+The patcher is now runtime-mod only. The old `GameAssembly.dll` byte patches were removed after game updates invalidated their offsets.
 
-- `fix-private-party-first-invite`
-  Fixes the stale lobby id bug when joining private parties from the first invite.
-- `uniform-hunter-random`
-  Makes the default-mode hunter pick effectively uniform inside the preferred-role candidate pool.
-- `fix-battlepass-refresh-crash`
-  Temporarily disables a crashy battlepass refresh handler that was interfering with lobby testing.
+Runtime fixes that used to live as binary patches now ship through:
 
-The runtime mod path is now active through `BepInEx` and is the preferred direction for further UI work.
+- `core-fixes`
+  Replaces the old private-party invite join fix, uniform hunter random fix, and crashy battlepass refresh no-op with Harmony patches.
 
 ## Clone the repository
 
@@ -81,14 +77,6 @@ Explicit game path:
 npm run patcher -- --game-dir "/path/to/Sneak Out"
 ```
 
-Non-interactive patch selection:
-
-```bash
-npm run patcher -- \
-  --game-dir "/path/to/Sneak Out" \
-  --patches fix-private-party-first-invite,uniform-hunter-random,fix-battlepass-refresh-crash
-```
-
 List runtime mod ids:
 
 ```bash
@@ -100,8 +88,7 @@ Install runtime mods through the same script:
 ```bash
 npm run patcher -- \
   --game-dir "/path/to/Sneak Out" \
-  --patches "" \
-  --mods start-delay-reducer
+  --mods core-fixes,start-delay-reducer
 ```
 
 Install runtime mods from committed DLL artifacts without building:
@@ -109,8 +96,7 @@ Install runtime mods from committed DLL artifacts without building:
 ```bash
 npm run patcher -- \
   --game-dir "/path/to/Sneak Out" \
-  --patches "" \
-  --mods backend-stabilizer \
+  --mods core-fixes,backend-stabilizer \
   --nobuild
 ```
 
@@ -179,6 +165,24 @@ WINEDLLOVERRIDES="winhttp=n,b" %command%
 ```
 
 Without that override, `winhttp.dll` is usually not picked up and the runtime plugin will not load.
+
+The core fixes mod lives in:
+
+- `mods/core_fixes/CoreFixes.csproj`
+
+Build it with:
+
+```bash
+npm run mod:build:core-fixes
+```
+
+Copy it into the game:
+
+```bash
+cp -f \
+  mods/core_fixes/bin/Release/net6.0/SneakOut.CoreFixes.dll \
+  "/path/to/Sneak Out/BepInEx/plugins/SneakOut.CoreFixes.dll"
+```
 
 The backend stabilizer mod lives in:
 

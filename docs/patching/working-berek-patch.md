@@ -1,16 +1,16 @@
 # Working Mode Patch
 
-The current patch set no longer hardcodes `Berek`. It adds a live selector to the existing portal popup and keeps the older invite / random fixes alongside it.
+The current patch set no longer hardcodes `Berek`. It adds a live selector to the existing portal popup, and the former `GameAssembly.dll` helper fixes now belong in runtime mods instead of byte patches.
 
 ## What is patched in the final version
 
-`GameAssembly.dll`
+Runtime mods
 
-- `PortalPlayView.OnChangeRoleButton()` is wrapped so the original role control and the new mode control can coexist
-- `PortalPlayView.OnPlay()` loads `GameModeType` from a dedicated mode bit instead of a hardcoded `Default`
+- `Portal Mode Selector` wraps `PortalPlayView.OnChangeRoleButton()` so the original role control and the new mode control can coexist
+- `Portal Mode Selector` loads `GameModeType` from a dedicated mode bit instead of a hardcoded `Default`
 - the injected mode row reuses the `OnChangeRoleButton()` callback family, not the private/public callback path, so the real private-game toggle stays untouched
 - startup-time selector setup hooks were removed after they proved too fragile in the live lobby flow
-- the first private-party invite fix and the uniform hunter-random fix remain as separate binary patches
+- `Core Fixes` replaces the former private-party invite join fix, uniform hunter-random fix, and battlepass refresh no-op
 
 `Sneak Out_Data/level0`
 
@@ -60,14 +60,12 @@ Properties:
 - runs static validation after apply before treating the result as successful
 - validates ABI-style hook invariants on known `GameAssembly.dll` helper regions, not just byte equality
 
-## Current patch options
+## Current runtime options
 
-- `mode-selector`
+- `core-fixes`
+  replaces the former byte patches with runtime fixes for first private-party invite join, uniform hunter random, and battlepass refresh suppression
+- `portal-mode-selector`
   adds a real `Normal / Berek` selector to the current portal popup while preserving the separate preferred-role selector
-- `fix-private-party-first-invite`
-  routes invitation joins through the explicit lobby id carried by `JoinLobbyEvent`, which fixes the stale-lobby-id handoff on the first accepted invite
-- `uniform-hunter-random`
-  retargets the first `GetRandomSeeker()` threshold load to `1.0` without touching the shared global `0.1` literal, which makes the normal hunter pick effectively uniform across the preferred-role candidate pool
 
 ## Current state
 
@@ -75,7 +73,7 @@ Confirmed:
 
 - the live portal popup now has room for a separate mode selector without stealing the preferred-role control
 - the script can deterministically rebuild that popup from a clean `level0`
-- the selector patch, invite fix, and uniform hunter-random patch can be applied together from the same script run
+- the runtime selector and runtime core fixes can be installed together from the same script run
 - the crashy clone-based TMP approach has been replaced with a safer hybrid row that keeps cloned layout objects but reuses already-scene-valid TMP text nodes
 
 Operational lesson:

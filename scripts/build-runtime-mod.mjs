@@ -3,6 +3,16 @@ import { dirname, resolve } from "node:path";
 import { fileExists, localDotnetExecutablePath, repositoryRoot, runCommand } from "./lib/workspace-tools.mjs";
 
 const runtimeMods = {
+  "runtime-profiler": {
+    projectPath: resolve(repositoryRoot, "mods/runtime_profiler/RuntimeProfiler.csproj"),
+    builtDllPath: resolve(repositoryRoot, "mods/runtime_profiler/bin/Release/net6.0/SneakOut.RuntimeProfiler.dll"),
+    artifactDllPath: resolve(repositoryRoot, "artifacts/runtime_mods/SneakOut.RuntimeProfiler.dll")
+  },
+  "core-fixes": {
+    projectPath: resolve(repositoryRoot, "mods/core_fixes/CoreFixes.csproj"),
+    builtDllPath: resolve(repositoryRoot, "mods/core_fixes/bin/Release/net6.0/SneakOut.CoreFixes.dll"),
+    artifactDllPath: resolve(repositoryRoot, "artifacts/runtime_mods/SneakOut.CoreFixes.dll")
+  },
   "portal-mode-selector": {
     projectPath: resolve(repositoryRoot, "mods/portal_mode_selector/PortalModeSelector.csproj"),
     builtDllPath: resolve(repositoryRoot, "mods/portal_mode_selector/bin/Release/net6.0/SneakOut.PortalModeSelector.dll"),

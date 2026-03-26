@@ -101,87 +101,113 @@ class PreparedFile:
     restored_from_backup: bool
 
 
-MANAGED_FILES: tuple[ManagedFile, ...] = (
-    ManagedFile(
-        relative_path="GameAssembly.dll",
-        clean_sha256="4c6c11f0d477cbb1b370bdf2b85ab4b267b5f5883bf96f005989e013ab15719e",
-    ),
-)
+MANAGED_FILES: tuple[ManagedFile, ...] = ()
 
 
-PATCH_OPTIONS: tuple[PatchOption, ...] = (
-    PatchOption(
-        option_id="fix-private-party-first-invite",
-        label="Fix private party join on first invite",
-        details=(
-            "Makes the invitation join flow use the explicit lobby id from JoinLobbyEvent instead "
-            "of the stale cached lobby id, so the first accepted invite joins the host lobby."
-        ),
-        default_enabled=True,
-        file_patch_groups=(
-            FilePatchGroup(
-                relative_path="GameAssembly.dll",
-                patches=(
-                    BinaryPatch(
-                        0x81593E,
-                        "488b4e104885c9741633d2488b5c2430488b7424384883c4205fe973fadeffe81ee8ccffcccccccccccccccccccccccccccc",
-                        "488b4e104885c974214885ff741c488b57184c8bc3e808fadeff488b5c2430488b7424384883c4205fc3e813e8ccff909090",
-                        "Pass JoinLobbyEvent.LobbyId and Region into SpookedLobbyUtils.JoinLobby instead of using the stale no-arg path.",
-                    ),
-                ),
-            ),
-        ),
-    ),
-    PatchOption(
-        option_id="uniform-hunter-random",
-        label="Make hunter random selection uniform",
-        details=(
-            "Redirects the first seeker-threshold load inside ShouldStartState.GetRandomSeeker() "
-            "from 0.1 to an existing 1.0 constant without touching the shared global 0.1 value."
-        ),
-        default_enabled=True,
-        file_patch_groups=(
-            FilePatchGroup(
-                relative_path="GameAssembly.dll",
-                patches=(
-                    BinaryPatch(
-                        0x6A1D8F,
-                        "f3440f101528cced02",
-                        "f3440f101559cced02",
-                        "Load 1.0 for the first seeker bucket inside ShouldStartState.GetRandomSeeker instead of the shared 0.1 constant.",
-                    ),
-                ),
-            ),
-        ),
-    ),
-    PatchOption(
-        option_id="fix-battlepass-refresh-crash",
-        label="Disable crashy battlepass refresh handler",
-        details=(
-            "Turns BattlepassView.OnOnWebplayerRefreshEvent into a no-op to avoid the lobby "
-            "NullReferenceException currently crashing the client before portal selector testing."
-        ),
-        default_enabled=True,
-        file_patch_groups=(
-            FilePatchGroup(
-                relative_path="GameAssembly.dll",
-                patches=(
-                    BinaryPatch(
-                        0x6D43D0,
-                        "40574883ec20",
-                        "c39090909090",
-                        "Return immediately from BattlepassView.OnOnWebplayerRefreshEvent to avoid the lobby refresh NullReference crash.",
-                    ),
-                ),
-            ),
-        ),
-    ),
-)
+PATCH_OPTIONS: tuple[PatchOption, ...] = ()
 
 
 PATCH_OPTION_BY_ID = {option.option_id: option for option in PATCH_OPTIONS}
 
 RUNTIME_MOD_OPTIONS: tuple[RuntimeModOption, ...] = (
+    RuntimeModOption(
+        option_id="runtime-profiler",
+        label="Install Runtime Profiler runtime mod",
+        details="Builds and installs the BepInEx runtime mod that profiles configured game methods and writes a human-readable report on exit.",
+        default_enabled=False,
+        project_relative_path="mods/runtime_profiler/RuntimeProfiler.csproj",
+        assembly_name="SneakOut.RuntimeProfiler",
+        config_relative_path="BepInEx/config/chelokot.sneakout.runtime-profiler.cfg",
+        default_config_text=(
+            "[general]\n"
+            "## Settings file was created by version 0.1.0 of Runtime Profiler\n"
+            "## Plugin GUID: chelokot.sneakout.runtime-profiler\n"
+            "## Plugin Name: Runtime Profiler\n"
+            "## Plugin Version: 0.1.0\n\n"
+            "## Enable the runtime method profiler.\n"
+            "# Setting type: Boolean\n"
+            "# Default value: true\n"
+            "EnableMod = true\n\n"
+            "## Write profiler setup details to the BepInEx log.\n"
+            "# Setting type: Boolean\n"
+            "# Default value: false\n"
+            "EnableLogging = false\n\n"
+            "[targeting]\n"
+            "## Semicolon-separated assembly names to scan for methods.\n"
+            "# Setting type: String\n"
+            "# Default value: Assembly-CSharp;Kinguinverse\n"
+            "TargetAssemblies = Assembly-CSharp;Kinguinverse\n\n"
+            "## Semicolon-separated full type-name prefixes to include.\n"
+            "# Setting type: String\n"
+            "# Default value: Gameplay.Match.;Networking.PGOS.;UI.Views.\n"
+            "IncludeNamespacePrefixes = Gameplay.Match.;Networking.PGOS.;UI.Views.\n\n"
+            "## Semicolon-separated full type-name prefixes to exclude.\n"
+            "# Setting type: String\n"
+            "# Default value: Gameplay.Match.MatchState.;UI.Views.BattlepassView;UI.Views.DailyQuestsView\n"
+            "ExcludeNamespacePrefixes = Gameplay.Match.MatchState.;UI.Views.BattlepassView;UI.Views.DailyQuestsView\n\n"
+            "## Patch property/event accessor methods.\n"
+            "# Setting type: Boolean\n"
+            "# Default value: false\n"
+            "IncludePropertyAccessors = false\n\n"
+            "## Patch constructors.\n"
+            "# Setting type: Boolean\n"
+            "# Default value: false\n"
+            "IncludeConstructors = false\n\n"
+            "## Patch compiler-generated methods and closure/state-machine types.\n"
+            "# Setting type: Boolean\n"
+            "# Default value: false\n"
+            "IncludeCompilerGenerated = false\n\n"
+            "## Maximum number of methods to patch after filtering.\n"
+            "# Setting type: Int32\n"
+            "# Default value: 300\n"
+            "MaxPatchedMethods = 300\n\n"
+            "[report]\n"
+            "## Maximum number of methods to write into the report.\n"
+            "# Setting type: Int32\n"
+            "# Default value: 200\n"
+            "TopMethodCount = 200\n\n"
+            "## Maximum number of caller->callee edges to write into the report.\n"
+            "# Setting type: Int32\n"
+            "# Default value: 100\n"
+            "TopEdgeCount = 100\n"
+        ),
+    ),
+    RuntimeModOption(
+        option_id="core-fixes",
+        label="Install Core Fixes runtime mod",
+        details="Builds and installs the BepInEx runtime mod that replaces the former GameAssembly byte patches with Harmony fixes.",
+        default_enabled=True,
+        project_relative_path="mods/core_fixes/CoreFixes.csproj",
+        assembly_name="SneakOut.CoreFixes",
+        config_relative_path="BepInEx/config/chelokot.sneakout.core-fixes.cfg",
+        default_config_text=(
+            "[general]\n"
+            "## Settings file was created by version 0.1.0 of Core Fixes\n"
+            "## Plugin GUID: chelokot.sneakout.core-fixes\n"
+            "## Plugin Name: Core Fixes\n"
+            "## Plugin Version: 0.1.0\n\n"
+            "## Enable runtime replacements for the former GameAssembly byte patches.\n"
+            "# Setting type: Boolean\n"
+            "# Default value: true\n"
+            "EnableMod = true\n\n"
+            "## Use JoinLobbyEvent lobby id and region directly when joining from the first accepted invite.\n"
+            "# Setting type: Boolean\n"
+            "# Default value: true\n"
+            "FixPrivatePartyJoinOnFirstInvite = true\n\n"
+            "## Use uniform hunter random selection in default mode.\n"
+            "# Setting type: Boolean\n"
+            "# Default value: true\n"
+            "MakeHunterRandomSelectionUniform = true\n\n"
+            "## Turn BattlepassView.OnOnWebplayerRefreshEvent into a no-op.\n"
+            "# Setting type: Boolean\n"
+            "# Default value: true\n"
+            "DisableCrashyBattlepassRefreshHandler = true\n\n"
+            "## Log runtime replacements for the former GameAssembly byte patches.\n"
+            "# Setting type: Boolean\n"
+            "# Default value: false\n"
+            "EnableLogging = false\n"
+        ),
+    ),
     RuntimeModOption(
         option_id="portal-mode-selector",
         label="Install Portal Mode Selector runtime mod",
@@ -438,6 +464,8 @@ def choose_options_interactively(
     options: tuple[PatchOption | RuntimeModOption, ...],
     title: str,
 ) -> tuple[str, ...]:
+    if not options:
+        return ()
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         raise SystemExit("Interactive selection requires a TTY. Use command-line selection flags instead.")
     selected = [option.default_enabled for option in options]
@@ -479,6 +507,8 @@ def choose_options_interactively(
 
 
 def choose_patch_options_interactively() -> tuple[str, ...]:
+    if not PATCH_OPTIONS:
+        return ()
     return choose_options_interactively(PATCH_OPTIONS, "Patch options (1/2):")
 
 
@@ -487,10 +517,7 @@ def choose_runtime_mod_options_interactively() -> tuple[str, ...]:
 
 
 def choose_installation_plan_interactively() -> tuple[tuple[str, ...], tuple[str, ...]]:
-    return (
-        choose_patch_options_interactively(),
-        choose_runtime_mod_options_interactively(),
-    )
+    return choose_patch_options_interactively(), choose_runtime_mod_options_interactively()
 
 
 def parse_selection(
@@ -871,6 +898,9 @@ def build_parser() -> ArgumentParser:
 
 
 def print_patch_list() -> None:
+    if not PATCH_OPTIONS:
+        print("No binary patch options remain. Use runtime mods instead.")
+        return
     for option in PATCH_OPTIONS:
         print(f"{option.option_id}: {option.label}")
         print(f"  {option.details}")

@@ -173,6 +173,9 @@ internal static class AvatarAndFrameViewSetProductsPatch
             button.SetEquipped(string.Equals(selectedProductName, avatarType.ToString(), System.StringComparison.OrdinalIgnoreCase));
             ((Component)button).gameObject.SetActive(true);
         }
+
+        AvatarOwnershipHelpers.ApplyOwnedAvatarUi(__instance);
+        CoreFixesRuntime.LogAvatarUiState("AvatarAndFrameView.SetProducts", __instance);
     }
 
     private static Sprite GetAvatarRaritySprite(AvatarAndFrameView view, AvatarType avatarType)
@@ -186,5 +189,133 @@ internal static class AvatarAndFrameViewSetProductsPatch
             5 => view._tierFiveRarity,
             _ => view._tierOneRarity
         };
+    }
+}
+
+[HarmonyPatch(typeof(AvatarAndFrameView), "OnCategorySelected")]
+internal static class AvatarAndFrameViewOnCategorySelectedPatch
+{
+    private static void Postfix(AvatarAndFrameView __instance)
+    {
+        if (!CoreFixesRuntime.Enabled)
+        {
+            return;
+        }
+
+        AvatarOwnershipHelpers.ApplyOwnedAvatarUi(__instance);
+        CoreFixesRuntime.LogAvatarUiState("AvatarAndFrameView.OnCategorySelected", __instance);
+    }
+}
+
+[HarmonyPatch(typeof(AvatarAndFrameView), "BuyProduct")]
+internal static class AvatarAndFrameViewBuyProductPatch
+{
+    private static bool Prefix(AvatarAndFrameView __instance)
+    {
+        var shouldTreatAsOwned = CoreFixesRuntime.Enabled && AvatarOwnershipHelpers.ShouldTreatSelectedAvatarAsOwned(__instance);
+        CoreFixesRuntime.LogAvatarUiState($"AvatarAndFrameView.BuyProduct shouldTreatAsOwned={shouldTreatAsOwned}", __instance);
+        if (!shouldTreatAsOwned)
+        {
+            return true;
+        }
+
+        __instance.EquipModification();
+        return false;
+    }
+}
+
+[HarmonyPatch(typeof(PlayerNewMetaInventory), "DoIOwnThisItem")]
+internal static class PlayerNewMetaInventoryDoIOwnThisItemPatch
+{
+    private static void Postfix(Il2CppSystem.Enum itemType, ref bool __result)
+    {
+        if (!CoreFixesRuntime.Enabled)
+        {
+            return;
+        }
+
+        __result = true;
+
+        CoreFixesRuntime.LogAvatarOwnershipDecision("PlayerNewMetaInventory.DoIOwnThisItem", itemType, __result);
+
+    }
+}
+
+[HarmonyPatch(typeof(PlayerNewMetaInventory), "GetOwnedItemId")]
+internal static class PlayerNewMetaInventoryGetOwnedItemIdPatch
+{
+    private static void Postfix(Il2CppSystem.Enum itemType, ref int __result)
+    {
+        if (!CoreFixesRuntime.Enabled)
+        {
+            return;
+        }
+
+        __result = 1;
+
+        CoreFixesRuntime.LogAvatarOwnershipDecision("PlayerNewMetaInventory.GetOwnedItemId", itemType, __result > 0);
+
+    }
+}
+
+internal static class AvatarOwnershipHelpers
+{
+    internal static bool TryGetAvatarType(Il2CppSystem.Enum itemType, out AvatarType avatarType)
+    {
+        avatarType = AvatarType.None;
+        if (itemType is null)
+        {
+            return false;
+        }
+
+        if (!string.Equals(itemType.GetType().Name, nameof(AvatarType), System.StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (System.Enum.TryParse<AvatarType>(itemType.ToString(), out avatarType))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    internal static bool ShouldTreatSelectedAvatarAsOwned(AvatarAndFrameView view)
+    {
+        if (view._currentCategorySelected != 0)
+        {
+            return false;
+        }
+
+        return TryGetAvatarType(view._currentSelectedProduct, out var avatarType) && avatarType != AvatarType.None;
+    }
+
+    internal static void ApplyOwnedAvatarUi(AvatarAndFrameView view)
+    {
+        if (!ShouldTreatSelectedAvatarAsOwned(view))
+        {
+            return;
+        }
+
+        if (view._buyPanelObject != null)
+        {
+            view._buyPanelObject.SetActive(false);
+        }
+
+        if (view._gamepadButtonBuy != null)
+        {
+            view._gamepadButtonBuy.SetActive(false);
+        }
+
+        if (view._equipPanelObject != null)
+        {
+            view._equipPanelObject.SetActive(true);
+        }
+
+        if (view._gamepadButtonEquip != null)
+        {
+            view._gamepadButtonEquip.SetActive(true);
+        }
     }
 }

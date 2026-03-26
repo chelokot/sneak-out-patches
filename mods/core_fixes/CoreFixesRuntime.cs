@@ -2,6 +2,8 @@ using BepInEx.Logging;
 using Events;
 using Gameplay.Match.MatchState;
 using HarmonyLib;
+using Il2CppInterop.Runtime;
+using Il2CppInterop.Runtime.InteropTypes;
 using Networking.PGOS;
 using System.Reflection;
 using Types;
@@ -101,6 +103,39 @@ internal static class CoreFixesRuntime
 
         _logger?.LogInfo($"Suppressed {source}");
     }
+
+    public static void LogAvatarUiState(string source, AvatarAndFrameView view)
+    {
+        if (_configuration is null || !_configuration.EnableLogging.Value)
+        {
+            return;
+        }
+
+        var selectedProductPointer = view._currentSelectedProduct is null
+            ? IntPtr.Zero
+            : IL2CPP.Il2CppObjectBaseToPtr((Il2CppObjectBase)(object)view._currentSelectedProduct);
+        var buyPanelActive = view._buyPanelObject != null && view._buyPanelObject.activeSelf;
+        var equipPanelActive = view._equipPanelObject != null && view._equipPanelObject.activeSelf;
+        var buyGamepadActive = view._gamepadButtonBuy != null && view._gamepadButtonBuy.activeSelf;
+        var equipGamepadActive = view._gamepadButtonEquip != null && view._gamepadButtonEquip.activeSelf;
+
+        _logger?.LogInfo(
+            $"{source}: category={view._currentCategorySelected}, selectedPtr=0x{selectedProductPointer:x}, buyPanel={buyPanelActive}, equipPanel={equipPanelActive}, gamepadBuy={buyGamepadActive}, gamepadEquip={equipGamepadActive}");
+    }
+
+    public static void LogAvatarOwnershipDecision(string source, Il2CppSystem.Enum? itemType, bool result)
+    {
+        if (_configuration is null || !_configuration.EnableLogging.Value)
+        {
+            return;
+        }
+
+        var itemPointer = itemType is null
+            ? IntPtr.Zero
+            : IL2CPP.Il2CppObjectBaseToPtr((Il2CppObjectBase)(object)itemType);
+        _logger?.LogInfo($"{source}: itemPtr=0x{itemPointer:x}, result={result}");
+    }
+
 
     public static bool ShouldSuppressBackendStabilizerAvatarViewPatches()
     {

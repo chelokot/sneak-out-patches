@@ -7,6 +7,8 @@ using Kinguinverse.WebServiceProvider.Types.Games;
 using Kinguinverse.WebServiceProvider.Types.Users;
 using Kinguinverse.WebServiceProvider.Types_v2;
 using Kinguinverse.WebServiceProvider.Types_v2.Products;
+using UI.Views;
+using System.Collections;
 using System.Collections.Generic;
 using ClientCharacterType = Types.CharacterType;
 
@@ -160,6 +162,50 @@ internal static class BackendStabilizerRuntime
         }
 
         LogInfo($"{source}: internalId={internalId}");
+    }
+
+    public static void LogCostumePieces(string source, CustomizeCharacterNewMetaView view)
+    {
+        if (!ShouldLog() || view is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var getPiecesMethod = AccessTools.Method(typeof(CustomizeCharacterNewMetaView), "get__costumePieceViews");
+            if (getPiecesMethod?.Invoke(view, Array.Empty<object>()) is not IEnumerable piecesEnumerable)
+            {
+                LogInfo($"{source}: costumePieces=unavailable");
+                return;
+            }
+
+            var states = new List<string>();
+            var index = 0;
+            foreach (var item in piecesEnumerable)
+            {
+                var piece = item as CostumePieceView;
+                if (piece is null)
+                {
+                    states.Add($"{index}:null");
+                    index++;
+                    continue;
+                }
+
+                var storedSkinType = piece.StoredSkinType;
+                var storedSkinPartType = piece.StoredSkinPartType;
+                var lockObject = AccessTools.Method(typeof(CostumePieceView), "get__lockObject")?.Invoke(piece, Array.Empty<object>()) as UnityEngine.GameObject;
+                var equippedObject = AccessTools.Method(typeof(CostumePieceView), "get__equippedObject")?.Invoke(piece, Array.Empty<object>()) as UnityEngine.GameObject;
+                states.Add($"{index}:{storedSkinType}/{storedSkinPartType}:lock={(lockObject?.activeSelf ?? false)}:equipped={(equippedObject?.activeSelf ?? false)}");
+                index++;
+            }
+
+            LogInfo($"{source}: [{string.Join(", ", states)}]");
+        }
+        catch (Exception exception)
+        {
+            LogError($"{source} logging failed", exception);
+        }
     }
 
     public static void LogSkinSelectionResolution(string source, ClientCharacterType clientCharacterType, CharacterType characterType, int characterId, bool hasPlayer, bool hasCharacter)

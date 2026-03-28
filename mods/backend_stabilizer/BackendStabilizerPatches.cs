@@ -486,8 +486,74 @@ internal static class BackendStabilizerSelections
 
         SaveSelection(character);
         BackendStabilizerRuntime.LogSkinSelectionSnapshot("BackendStabilizerSelections.ApplySkinPartSelection:applied", character);
+        SyncPreviewCharacterData(skinType, skinPartType);
         PublishSkinRefresh(skinPartType, skinType);
         return true;
+    }
+
+    internal static void SyncPreviewCharacterData(SkinType skinType, SkinPartType skinPartType)
+    {
+        try
+        {
+            var gameType = AccessTools.TypeByName("Game");
+            var internalIdProperty = AccessTools.Property(gameType, "InternalId");
+            if (internalIdProperty?.GetValue(null) is not int internalId || internalId <= 0)
+            {
+                BackendStabilizerRuntime.LogSkinPreview("BackendStabilizerSelections.SyncPreviewCharacterData:noInternalId", 0, skinType, skinPartType, false);
+                return;
+            }
+
+            var previewViews = UnityEngine.Resources.FindObjectsOfTypeAll<PlayerCustomizationView>();
+            BackendStabilizerRuntime.LogSkinPreview("BackendStabilizerSelections.SyncPreviewCharacterData:views", previewViews.Length, skinType, skinPartType, true);
+            foreach (var previewView in previewViews)
+            {
+                if (previewView is null)
+                {
+                    continue;
+                }
+
+                var spookedPlayerCharacterDataMethod = AccessTools.Method(typeof(PlayerCustomizationView), "get__spookedPlayerCharacterData");
+                if (spookedPlayerCharacterDataMethod?.Invoke(previewView, Array.Empty<object>()) is not SpookedPlayerCharacterData spookedPlayerCharacterData)
+                {
+                    BackendStabilizerRuntime.LogSkinPreview("BackendStabilizerSelections.SyncPreviewCharacterData:noPlayerData", internalId, skinType, skinPartType, false);
+                    continue;
+                }
+
+                var currentCharacterData = spookedPlayerCharacterData[internalId];
+                BackendStabilizerRuntime.LogSkinPreview("BackendStabilizerSelections.SyncPreviewCharacterData:before", internalId, skinType, skinPartType, true);
+                switch (skinType)
+                {
+                    case SkinType.Head:
+                        currentCharacterData.HeadType = skinPartType;
+                        break;
+                    case SkinType.Chest:
+                        currentCharacterData.TorsoType = skinPartType;
+                        break;
+                    case SkinType.Hands:
+                        currentCharacterData.ArmsType = skinPartType;
+                        break;
+                    case SkinType.Legs:
+                        currentCharacterData.LegsType = skinPartType;
+                        break;
+                    case SkinType.Back:
+                        currentCharacterData.BackType = skinPartType;
+                        break;
+                    case SkinType.Whole:
+                        currentCharacterData.WholeType = skinPartType;
+                        break;
+                    default:
+                        return;
+                }
+
+                spookedPlayerCharacterData[internalId] = currentCharacterData;
+                AccessTools.Method(typeof(PlayerCustomizationView), "set__currentCharacterData")?.Invoke(previewView, new object[] { currentCharacterData });
+                BackendStabilizerRuntime.LogSkinPreview("BackendStabilizerSelections.SyncPreviewCharacterData:applied", internalId, skinType, skinPartType, true);
+            }
+        }
+        catch (Exception exception)
+        {
+            BackendStabilizerRuntime.LogError("Backend stabilizer preview CharacterData sync failed", exception);
+        }
     }
 
     private static void PublishSkinRefresh(SkinPartType skinPartType, SkinType skinType)
@@ -988,9 +1054,49 @@ internal static class PlayerNewMetaInventoryEmoteChangePatch
 [HarmonyPatch(typeof(PlayerNewMetaInventory), nameof(PlayerNewMetaInventory.ChangeSkinEquipped))]
 internal static class PlayerNewMetaInventoryChangeSkinEquippedPatch
 {
-    private static void Prefix(SkinPartType partType, SkinType skinType, ClientCharacterType characterType)
+    private static SkinType? _pendingSkinType;
+    private static SkinPartType? _pendingSkinPartType;
+
+    public static bool TryConsumePendingSkinType(out SkinType skinType)
     {
-        BackendStabilizerRuntime.LogSkinPath("PlayerNewMetaInventory.ChangeSkinEquipped:prefix", characterType, skinType, partType, false);
+        if (_pendingSkinType.HasValue)
+        {
+            skinType = _pendingSkinType.Value;
+            _pendingSkinType = null;
+            return true;
+        }
+
+        skinType = SkinType.None;
+        return false;
+    }
+
+    public static bool TryConsumePendingSkinPartType(out SkinPartType skinPartType)
+    {
+        if (_pendingSkinPartType.HasValue)
+        {
+            skinPartType = _pendingSkinPartType.Value;
+            _pendingSkinPartType = null;
+            return true;
+        }
+
+        skinPartType = SkinPartType.None;
+        return false;
+    }
+
+    private static bool Prefix(SkinPartType partType, SkinType skinType, ClientCharacterType characterType, ref Il2CppTasks.Task __result)
+    {
+        var handledLocally = BackendStabilizerRuntime.UsePersistentSelections
+            && BackendStabilizerSelections.ApplySkinPartSelection(characterType, skinType, partType);
+        BackendStabilizerRuntime.LogSkinPath("PlayerNewMetaInventory.ChangeSkinEquipped:prefix", characterType, skinType, partType, handledLocally);
+        if (!handledLocally)
+        {
+            return true;
+        }
+
+        _pendingSkinType = skinType;
+        _pendingSkinPartType = partType;
+        __result = Il2CppTasks.Task.CompletedTask;
+        return false;
     }
 
     private static void Postfix(SkinPartType partType, SkinType skinType, ClientCharacterType characterType, Il2CppTasks.Task __result)
@@ -1012,9 +1118,10 @@ internal static class PlayerNewMetaInventoryGetMyCurrentSkinPartTypeLoggingPatch
 [HarmonyPatch(typeof(CustomizeCharacterNewMetaView), "OnCostumePiecked")]
 internal static class CustomizeCharacterNewMetaViewOnCostumePieckedLoggingPatch
 {
-    private static void Postfix(SkinPartType skinPartType, SkinType skinType)
+    private static void Postfix(CustomizeCharacterNewMetaView __instance, SkinPartType skinPartType, SkinType skinType)
     {
         BackendStabilizerRuntime.LogSkinPreview("CustomizeCharacterNewMetaView.OnCostumePiecked", 0, skinType, skinPartType, true);
+        BackendStabilizerRuntime.LogCostumePieces("CustomizeCharacterNewMetaView.OnCostumePiecked:pieces", __instance);
     }
 }
 
@@ -1024,6 +1131,112 @@ internal static class CustomizeCharacterNewMetaViewOnEquipButtonLoggingPatch
     private static void Postfix()
     {
         BackendStabilizerRuntime.LogSkinRefreshEvent("CustomizeCharacterNewMetaView.OnEquipButton", 0);
+    }
+}
+
+[HarmonyPatch(typeof(CustomizeCharacterNewMetaView), "CostumeChange")]
+internal static class CustomizeCharacterNewMetaViewCostumeChangePatch
+{
+    private static void Postfix(CustomizeCharacterNewMetaView __instance, Il2CppTasks.Task __result)
+    {
+        if (!BackendStabilizerRuntime.UsePersistentSelections || __result is null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (__result.IsCompletedSuccessfully)
+            {
+                RefreshCostumeView(__instance);
+                return;
+            }
+
+            _ = Tasks.Task.Run(
+                async () =>
+                {
+                    while (!__result.IsCompleted)
+                    {
+                        await Tasks.Task.Delay(50).ConfigureAwait(false);
+                    }
+
+                    if (!__result.IsCompletedSuccessfully)
+                    {
+                        return;
+                    }
+
+                    RefreshCostumeView(__instance);
+                });
+        }
+        catch (Exception exception)
+        {
+            BackendStabilizerRuntime.LogError("Backend stabilizer CustomizeCharacterNewMetaView.CostumeChange postfix failed", exception);
+        }
+    }
+
+    private static void RefreshCostumeView(CustomizeCharacterNewMetaView view)
+    {
+        try
+        {
+            var currentSkinTypeProperty = AccessTools.Property(typeof(CustomizeCharacterNewMetaView), "_currentSkinType");
+            var currentSkinPartTypeProperty = AccessTools.Property(typeof(CustomizeCharacterNewMetaView), "_currentSkinPartType");
+            var currentSkinType = PlayerNewMetaInventoryChangeSkinEquippedPatch.TryConsumePendingSkinType(out var pendingSkinType)
+                ? pendingSkinType
+                : currentSkinTypeProperty?.GetValue(view) is SkinType skinType ? skinType : SkinType.None;
+            var currentSkinPartType = PlayerNewMetaInventoryChangeSkinEquippedPatch.TryConsumePendingSkinPartType(out var pendingSkinPartType)
+                ? pendingSkinPartType
+                : currentSkinPartTypeProperty?.GetValue(view) is SkinPartType skinPartType ? skinPartType : SkinPartType.None;
+            BackendStabilizerRuntime.LogSkinPreview("CustomizeCharacterNewMetaView.CostumeChange:refresh", 0, currentSkinType, currentSkinPartType, true);
+            if (currentSkinType == SkinType.None)
+            {
+                return;
+            }
+
+            AccessTools.Method(typeof(CustomizeCharacterNewMetaView), "ShowCostume")?.Invoke(view, new object[] { currentSkinType });
+            BackendStabilizerRuntime.LogCostumePieces("CustomizeCharacterNewMetaView.CostumeChange:afterShowCostume", view);
+            AccessTools.Method(typeof(CustomizeCharacterNewMetaView), "CurrentCostumeSelectedSprite")?.Invoke(view, new object[] { currentSkinType });
+            if (currentSkinPartType != SkinPartType.None)
+            {
+                AccessTools.Method(typeof(CustomizeCharacterNewMetaView), "ChangeSelectedSprite")?.Invoke(view, new object[] { currentSkinPartType });
+            }
+
+            BackendStabilizerRuntime.LogCostumePieces("CustomizeCharacterNewMetaView.CostumeChange:afterSelectionRefresh", view);
+            BackendStabilizerSelections.SyncPreviewCharacterData(currentSkinType, currentSkinPartType);
+            TryRefreshPreviewModel(currentSkinType, currentSkinPartType);
+        }
+        catch (Exception exception)
+        {
+            BackendStabilizerRuntime.LogError("Backend stabilizer CustomizeCharacterNewMetaView.CostumeChange refresh failed", exception);
+        }
+    }
+
+    private static void TryRefreshPreviewModel(SkinType skinType, SkinPartType skinPartType)
+    {
+        try
+        {
+            var previewViews = UnityEngine.Resources.FindObjectsOfTypeAll<PlayerCustomizationView>();
+            BackendStabilizerRuntime.LogSkinPreview("CustomizeCharacterNewMetaView.CostumeChange:previewViews", previewViews.Length, skinType, skinPartType, true);
+            var tryPreviewOutfitMethod = AccessTools.Method(typeof(PlayerCustomizationView), "TryPreviewOutfit");
+            if (tryPreviewOutfitMethod is null)
+            {
+                return;
+            }
+
+            foreach (var previewView in previewViews)
+            {
+                if (previewView is null)
+                {
+                    continue;
+                }
+
+                tryPreviewOutfitMethod.Invoke(previewView, new object[] { skinPartType, skinType });
+                BackendStabilizerRuntime.LogSkinPreview("CustomizeCharacterNewMetaView.CostumeChange:previewInvoked", 0, skinType, skinPartType, true);
+            }
+        }
+        catch (Exception exception)
+        {
+            BackendStabilizerRuntime.LogError("Backend stabilizer CustomizeCharacterNewMetaView preview refresh failed", exception);
+        }
     }
 }
 

@@ -1000,42 +1000,6 @@ internal static class PlayerNewMetaInventoryChangeSkinEquippedPatch
     }
 }
 
-[HarmonyPatch(typeof(PlayerNewMetaInventory), "DoIOwnThisItem")]
-internal static class PlayerNewMetaInventoryDoIOwnThisItemLoggingPatch
-{
-    private static void Postfix(Il2CppSystem.Enum itemType, bool __result)
-    {
-        if (!BackendStabilizerSelections.TryGetSkinPartType(itemType, out _))
-        {
-            return;
-        }
-
-        BackendStabilizerRuntime.LogSkinOwnershipLookup("PlayerNewMetaInventory.DoIOwnThisItem", itemType, __result);
-    }
-}
-
-[HarmonyPatch(typeof(PlayerNewMetaInventory), "GetOwnedItemId")]
-internal static class PlayerNewMetaInventoryGetOwnedItemIdSkinPatch
-{
-    private static void Postfix(Il2CppSystem.Enum itemType, ref int __result)
-    {
-        if (!BackendStabilizerSelections.TryGetSkinPartType(itemType, out var skinPartType))
-        {
-            return;
-        }
-
-        BackendStabilizerRuntime.LogSkinOwnershipLookup("PlayerNewMetaInventory.GetOwnedItemId:beforeOverride", itemType, __result);
-
-        if (!BackendStabilizerRuntime.UsePersistentSelections)
-        {
-            return;
-        }
-
-        __result = BackendStabilizerStub.GetSkinPartId(skinPartType);
-        BackendStabilizerRuntime.LogSkinOwnershipLookup("PlayerNewMetaInventory.GetOwnedItemId:afterOverride", itemType, __result);
-    }
-}
-
 [HarmonyPatch(typeof(PlayerNewMetaInventory), nameof(PlayerNewMetaInventory.GetMyCurrentSkinPartType))]
 internal static class PlayerNewMetaInventoryGetMyCurrentSkinPartTypeLoggingPatch
 {

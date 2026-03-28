@@ -46,6 +46,10 @@ internal static class LobbyPenguinSkillsRuntime
         AccessTools.Method(typeof(EntitySkillsComponent), "OnFinishedBuffPropChange");
     private static readonly System.Reflection.MethodInfo? EntitySkillsComponentHandleVictimSlideMethod =
         AccessTools.Method(typeof(EntitySkillsComponent), "HandleVictimSlide");
+    private static readonly System.Reflection.MethodInfo? EntitySkillsComponentRefreshPlayerSkillsMethod =
+        AccessTools.Method(typeof(EntitySkillsComponent), "RefreshPlayerSkills");
+    private static readonly System.Reflection.MethodInfo? EntitySkillsComponentGetSkillMethod =
+        AccessTools.Method(typeof(EntitySkillsComponent), "GetSkill");
     private static readonly System.Reflection.MethodInfo? EntitySkillsComponentRpcVictimPropChangeMethod =
         AccessTools.Method(typeof(EntitySkillsComponent), "RPC_VictimPropChange");
     private static readonly System.Reflection.MethodInfo? EntitySkillsComponentRpcVictimPropUnChangeMethod =
@@ -197,7 +201,11 @@ internal static class LobbyPenguinSkillsRuntime
             return false;
         }
 
-        var skillType = secondSkill ? entitySkillsComponent.SecondSkillType : entitySkillsComponent.FirstSkillType;
+        EntitySkillsComponentRefreshPlayerSkillsMethod?.Invoke(entitySkillsComponent, Array.Empty<object>());
+        var resolvedSkillType = EntitySkillsComponentGetSkillMethod?.Invoke(entitySkillsComponent, new object[] { !secondSkill });
+        var skillType = resolvedSkillType is SpookedSkillType currentSkillType
+            ? currentSkillType
+            : secondSkill ? entitySkillsComponent.SecondSkillType : entitySkillsComponent.FirstSkillType;
         Log($"TryHandleLobbySkillUse: second={secondSkill}, skill={skillType}, internalId={playerInternalId}");
 
         if (skillType == SpookedSkillType.VictimPropChange)

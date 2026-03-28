@@ -16,6 +16,7 @@ using UI.Views;
 using ClientCharacterType = Types.CharacterType;
 using Il2CppCollections = Il2CppSystem.Collections.Generic;
 using Il2CppTasks = Il2CppSystem.Threading.Tasks;
+using SpookedSkillType = Types.SpookedSkillType;
 using Tasks = System.Threading.Tasks;
 
 namespace SneakOut.BackendStabilizer;
@@ -50,6 +51,7 @@ internal static class BackendStabilizerSelections
     private static readonly Type? TreeSkillSlotTypeType = AccessTools.TypeByName("TreeSkillSlotType");
     private static readonly Type? MyPlayerRegistryType = AccessTools.TypeByName("MyPlayerRegistry");
     private static readonly Type? PlayersActiveSkillsType = AccessTools.TypeByName("Collections.Skills.PlayersActiveSkills");
+    private static readonly Type? EntitySkillsComponentType = AccessTools.TypeByName("Gameplay.Player.Components.EntitySkillsComponent");
     private static readonly System.Reflection.PropertyInfo? GameInternalIdProperty =
         GameType is null ? null : AccessTools.Property(GameType, "InternalId");
     private static readonly System.Reflection.MethodInfo? PlayerNewMetaInventoryGetMyPlayerRegistryMethod =
@@ -74,9 +76,10 @@ internal static class BackendStabilizerSelections
         SpookedNetworkPlayerType is null ? null : AccessTools.Method(SpookedNetworkPlayerType, "set_CharactersSkills");
     private static readonly System.Reflection.FieldInfo? SpookedNetworkPlayerEntitySkillsComponentField =
         SpookedNetworkPlayerType is null ? null : AccessTools.Field(SpookedNetworkPlayerType, "EntitySkillsComponent");
-    private static readonly Type? EntitySkillsComponentType = AccessTools.TypeByName("Gameplay.Player.Components.EntitySkillsComponent");
     private static readonly System.Reflection.MethodInfo? EntitySkillsComponentRefreshPlayerSkillsMethod =
         EntitySkillsComponentType is null ? null : AccessTools.Method(EntitySkillsComponentType, "RefreshPlayerSkills");
+    private static readonly System.Reflection.PropertyInfo? EntitySkillsComponentInternalIdProperty =
+        EntitySkillsComponentType is null ? null : AccessTools.Property(EntitySkillsComponentType, "InternalId");
     private static readonly System.Reflection.MethodInfo? CharactersSkillsToCharacterSkillsMethod =
         CharactersSkillsType is null ? null : AccessTools.Method(CharactersSkillsType, "ToCharacterSkills");
     private static readonly System.Reflection.MethodInfo? CharactersSkillsAddOrReplaceSkillInSlotMethod =
@@ -149,36 +152,27 @@ internal static class BackendStabilizerSelections
         return null;
     }
 
-    private static bool TryGetLocalCharacterForInternalId(int internalId, out Character character, out CharacterType characterType)
+    private static bool IsCurrentInternalId(int internalId)
+    {
+        return internalId > 0 && internalId == GetCurrentInternalId();
+    }
+
+    private static bool TryGetLocalCharacterForType(int internalId, CharacterType characterType, out Character character)
     {
         character = null!;
-        characterType = CharacterType.None;
 
-        if (internalId <= 0 || internalId != GetCurrentInternalId())
+        if (!IsCurrentInternalId(internalId) || characterType == CharacterType.None)
         {
             return false;
         }
 
-        var networkPlayer = GetCurrentNetworkPlayer();
-        if (networkPlayer is null)
-        {
-            return false;
-        }
-
-        if (SpookedNetworkPlayerGetCharacterTypeMethod?.Invoke(networkPlayer, Array.Empty<object>()) is not CharacterType currentCharacterType
-            || currentCharacterType == CharacterType.None)
-        {
-            return false;
-        }
-
-        var currentCharacter = GetCharacterByType(currentCharacterType);
+        var currentCharacter = GetCharacterByType(characterType);
         if (currentCharacter is null)
         {
             return false;
         }
 
         character = currentCharacter;
-        characterType = currentCharacterType;
         return true;
     }
 
@@ -229,21 +223,63 @@ internal static class BackendStabilizerSelections
         characterType = CharacterType.None;
         tier = 0;
 
-        if (!BackendStabilizerRuntime.UsePersistentSelections
-            || !TryGetLocalCharacterForInternalId(internalId, out var character, out characterType))
+        if (!BackendStabilizerRuntime.UsePersistentSelections || !IsCurrentInternalId(internalId))
         {
             return false;
         }
 
-        return TryGetSkillTier(character.SkillCards, skillType, out tier);
+        var player = GetPlayer();
+        if (player?.Characters is null)
+        {
+            return false;
+        }
+
+        foreach (var currentCharacter in player.Characters)
+        {
+            if (currentCharacter is null || !TryGetSkillTier(currentCharacter.SkillCards, skillType, out tier))
+            {
+                continue;
+            }
+
+            characterType = currentCharacter.Type;
+            return characterType != CharacterType.None;
+        }
+
+        return false;
+    }
+
+    private static bool TryMapSkillTypeToSpookedSkillType(SkillType skillType, out SpookedSkillType spookedSkillType)
+    {
+        spookedSkillType = skillType switch
+        {
+            SkillType.PenguinPropChange => SpookedSkillType.VictimPropChange,
+            SkillType.PenguinSlide => SpookedSkillType.VictimSlide,
+            SkillType.PenguinShield => SpookedSkillType.VictimShield,
+            _ => SpookedSkillType.None
+        };
+
+        return spookedSkillType != SpookedSkillType.None;
+    }
+
+    internal static bool TryGetLocalFirstSkill(object entitySkillsComponent, out SpookedSkillType spookedSkillType)
+    {
+        spookedSkillType = SpookedSkillType.None;
+
+        if (EntitySkillsComponentInternalIdProperty?.GetValue(entitySkillsComponent) is not int internalId
+            || !TryGetLocalCharacterForType(internalId, CharacterType.Penguin, out var character))
+        {
+            return false;
+        }
+
+        var activeSkillType = character.SkillCards?.ActiveSkillCard?.SkillType ?? SkillType.None;
+        return TryMapSkillTypeToSpookedSkillType(activeSkillType, out spookedSkillType);
     }
 
     internal static bool TryGetLocalSkillEquipped(int internalId, SkillType skillType, CharacterType characterType, out bool equipped)
     {
         equipped = false;
 
-        if (!TryGetLocalCharacterForInternalId(internalId, out var character, out var currentCharacterType)
-            || currentCharacterType != characterType)
+        if (!TryGetLocalCharacterForType(internalId, characterType, out var character))
         {
             return false;
         }
@@ -260,6 +296,11 @@ internal static class BackendStabilizerSelections
     internal static System.Reflection.MethodBase? GetPlayersActiveSkillsGetPlayerSkillModifierTargetMethod()
     {
         return PlayersActiveSkillsType is null ? null : AccessTools.Method(PlayersActiveSkillsType, "GetPlayerSkillModifier");
+    }
+
+    internal static System.Reflection.MethodBase? GetEntitySkillsComponentGetSkillTargetMethod()
+    {
+        return EntitySkillsComponentType is null ? null : AccessTools.Method(EntitySkillsComponentType, "GetSkill");
     }
 
     internal static bool TryGetDirectSkillModifier(object playersActiveSkills, SkillType skillType, object skillModifierType, CharacterType characterType, int tier, out float modifier)
@@ -2331,6 +2372,28 @@ internal static class PlayersActiveSkillsGetPlayerSkillModifierPatch
         if (BackendStabilizerSelections.TryGetDirectSkillModifier(__instance, cardSkillType, skillModifierType, characterType, tier, out var modifier))
         {
             __result = modifier;
+        }
+    }
+}
+
+[HarmonyPatch]
+internal static class EntitySkillsComponentGetSkillPatch
+{
+    private static System.Reflection.MethodBase? TargetMethod()
+    {
+        return BackendStabilizerSelections.GetEntitySkillsComponentGetSkillTargetMethod();
+    }
+
+    private static void Postfix(object __instance, bool firstSkill, ref SpookedSkillType __result)
+    {
+        if (!firstSkill)
+        {
+            return;
+        }
+
+        if (BackendStabilizerSelections.TryGetLocalFirstSkill(__instance, out var firstSkillType))
+        {
+            __result = firstSkillType;
         }
     }
 }

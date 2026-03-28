@@ -1180,6 +1180,7 @@ internal static class CustomizeCharacterNewMetaViewCostumeChangePatch
         {
             var currentSkinTypeProperty = AccessTools.Property(typeof(CustomizeCharacterNewMetaView), "_currentSkinType");
             var currentSkinPartTypeProperty = AccessTools.Property(typeof(CustomizeCharacterNewMetaView), "_currentSkinPartType");
+            var currentCategorySelectedIndexProperty = AccessTools.Property(typeof(CustomizeCharacterNewMetaView), "_currentCategorySelectedIndex");
             var currentSkinType = PlayerNewMetaInventoryChangeSkinEquippedPatch.TryConsumePendingSkinType(out var pendingSkinType)
                 ? pendingSkinType
                 : currentSkinTypeProperty?.GetValue(view) is SkinType skinType ? skinType : SkinType.None;
@@ -1192,7 +1193,10 @@ internal static class CustomizeCharacterNewMetaViewCostumeChangePatch
                 return;
             }
 
-            AccessTools.Method(typeof(CustomizeCharacterNewMetaView), "ShowCostume")?.Invoke(view, new object[] { currentSkinType });
+            currentSkinTypeProperty?.SetValue(view, currentSkinType);
+            currentSkinPartTypeProperty?.SetValue(view, currentSkinPartType);
+            currentCategorySelectedIndexProperty?.SetValue(view, GetCategoryIndex(currentSkinType));
+            InvokeCategoryView(view, currentSkinType);
             BackendStabilizerRuntime.LogCostumePieces("CustomizeCharacterNewMetaView.CostumeChange:afterShowCostume", view);
             AccessTools.Method(typeof(CustomizeCharacterNewMetaView), "CurrentCostumeSelectedSprite")?.Invoke(view, new object[] { currentSkinType });
             if (currentSkinPartType != SkinPartType.None)
@@ -1208,6 +1212,41 @@ internal static class CustomizeCharacterNewMetaViewCostumeChangePatch
         {
             BackendStabilizerRuntime.LogError("Backend stabilizer CustomizeCharacterNewMetaView.CostumeChange refresh failed", exception);
         }
+    }
+
+    private static int GetCategoryIndex(SkinType skinType)
+    {
+        return skinType switch
+        {
+            SkinType.Head => 0,
+            SkinType.Hands => 1,
+            SkinType.Chest => 2,
+            SkinType.Legs => 3,
+            SkinType.Back => 4,
+            SkinType.Whole => 5,
+            _ => 0
+        };
+    }
+
+    private static void InvokeCategoryView(CustomizeCharacterNewMetaView view, SkinType skinType)
+    {
+        var methodName = skinType switch
+        {
+            SkinType.Head => "ShowHeadTypes",
+            SkinType.Hands => "ShowArmsTypes",
+            SkinType.Chest => "ShowTorsoTypes",
+            SkinType.Legs => "ShowLegsTypes",
+            SkinType.Back => "ShowBackTypes",
+            SkinType.Whole => "ShowWholeTypes",
+            _ => null
+        };
+
+        if (methodName is null)
+        {
+            return;
+        }
+
+        AccessTools.Method(typeof(CustomizeCharacterNewMetaView), methodName)?.Invoke(view, Array.Empty<object>());
     }
 
     private static void TryRefreshPreviewModel(SkinType skinType, SkinPartType skinPartType)

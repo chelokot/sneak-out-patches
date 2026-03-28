@@ -176,6 +176,8 @@ WINEDLLOVERRIDES="winhttp=n,b" %command%
 
 Without that override, `winhttp.dll` is usually not picked up and the runtime plugin will not load.
 
+The patcher now configures that launch option automatically on Linux Steam installs by updating Steam `localconfig.vdf` for app `2410490`.
+
 The core fixes mod lives in:
 
 - `mods/core_fixes/CoreFixes.csproj`

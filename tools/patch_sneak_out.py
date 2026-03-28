@@ -27,6 +27,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 RUNTIME_MOD_DOTNET = REPO_ROOT / ".tmp/runtime-mod/dotnet" / ("dotnet.exe" if os.name == "nt" else "dotnet")
 LOCAL_BEPINEX_DIR = REPO_ROOT / ".tmp/runtime-mod/bepinex"
 RUNTIME_MOD_ARTIFACTS_DIR = REPO_ROOT / "artifacts/runtime_mods"
+PROTON_LAUNCH_OPTIONS = 'WINEDLLOVERRIDES="winhttp=n,b" %command%'
 RUNTIME_LOADER_ENTRY_NAMES: tuple[str, ...] = (
     "BepInEx",
     "dotnet",
@@ -479,6 +480,24 @@ def detect_game_directory() -> Path | None:
     return unique_candidates[0] if unique_candidates else None
 
 
+def candidate_localconfig_paths() -> list[Path]:
+    localconfig_paths: list[Path] = []
+    for steam_root in candidate_steam_roots():
+        userdata_dir = steam_root / "userdata"
+        if not userdata_dir.is_dir():
+            continue
+        localconfig_paths.extend(userdata_dir.glob("*/config/localconfig.vdf"))
+
+    unique_paths: list[Path] = []
+    seen: set[Path] = set()
+    for localconfig_path in localconfig_paths:
+        resolved_path = localconfig_path.expanduser()
+        if resolved_path not in seen and resolved_path.is_file():
+            seen.add(resolved_path)
+            unique_paths.append(resolved_path)
+    return unique_paths
+
+
 def resolve_game_directory(raw_path: str) -> Path:
     path = Path(raw_path).expanduser().resolve()
     if not is_valid_game_directory(path):
@@ -785,6 +804,164 @@ def resolve_runtime_mod_install_path(game_dir: Path, runtime_mod: RuntimeModOpti
     return plugins_dir / f"{runtime_mod.assembly_name}.dll"
 
 
+def is_proton_game_install(game_dir: Path) -> bool:
+    return platform.system().lower() == "linux" and (game_dir / "Sneak Out.exe").is_file()
+
+
+def split_launch_option_prefix(existing_launch_options: str) -> tuple[str, str]:
+    tokens = existing_launch_options.split()
+    prefix_tokens: list[str] = []
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if "=" not in token or token.startswith("%"):
+            break
+        prefix_tokens.append(token)
+        index += 1
+    return " ".join(prefix_tokens).strip(), " ".join(tokens[index:]).strip()
+
+
+def merge_proton_launch_options(existing_launch_options: str) -> str:
+    existing_launch_options = existing_launch_options.strip()
+    if not existing_launch_options:
+        return PROTON_LAUNCH_OPTIONS
+
+    wine_match = re.search(r'WINEDLLOVERRIDES=(["\']?)([^"\']*)(\1)', existing_launch_options)
+    if wine_match is not None:
+        current_overrides = wine_match.group(2).strip()
+        if "winhttp=" in current_overrides:
+            return existing_launch_options
+        merged_overrides = f"{current_overrides};winhttp=n,b" if current_overrides else "winhttp=n,b"
+        return (
+            existing_launch_options[:wine_match.start(2)]
+            + merged_overrides
+            + existing_launch_options[wine_match.end(2):]
+        )
+
+    prefix, remainder = split_launch_option_prefix(existing_launch_options)
+    env_prefix = 'WINEDLLOVERRIDES="winhttp=n,b"'
+    if "%command%" in existing_launch_options:
+        return f"{env_prefix} {existing_launch_options}".strip()
+    if prefix:
+        return f"{prefix} {env_prefix} %command% {remainder}".strip()
+    return f"{env_prefix} %command% {existing_launch_options}".strip()
+
+
+def unescape_vdf_string(value: str) -> str:
+    characters: list[str] = []
+    escape_next = False
+    for character in value:
+        if escape_next:
+            characters.append(character)
+            escape_next = False
+            continue
+        if character == "\\":
+            escape_next = True
+            continue
+        characters.append(character)
+    if escape_next:
+        characters.append("\\")
+    return "".join(characters)
+
+
+def escape_vdf_string(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def update_localconfig_launch_options(localconfig_path: Path) -> bool:
+    lines = localconfig_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+    pending_key: str | None = None
+    stack: list[str] = []
+    apps_closing_index: int | None = None
+    app_closing_index: int | None = None
+    launch_options_index: int | None = None
+
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith('"') and stripped.count('"') >= 4:
+            key_match = re.match(r'"([^"]+)"\s+"([^"]*)"', stripped)
+            if key_match and stack == ["UserLocalConfigStore", "Software", "Valve", "Steam", "apps", STEAM_APP_ID] and key_match.group(1) == "LaunchOptions":
+                launch_options_index = index
+            pending_key = None
+            continue
+
+        key_only_match = re.match(r'"([^"]+)"\s*$', stripped)
+        if key_only_match:
+            pending_key = key_only_match.group(1)
+            continue
+
+        if stripped == "{":
+            if pending_key is not None:
+                stack.append(pending_key)
+                pending_key = None
+            continue
+
+        if stripped == "}":
+            if stack == ["UserLocalConfigStore", "Software", "Valve", "Steam", "apps", STEAM_APP_ID]:
+                app_closing_index = index
+            elif stack == ["UserLocalConfigStore", "Software", "Valve", "Steam", "apps"]:
+                apps_closing_index = index
+            if stack:
+                stack.pop()
+            pending_key = None
+            continue
+
+        pending_key = None
+
+    if launch_options_index is not None:
+        launch_options_match = re.match(r'(\s*)"LaunchOptions"\s+"((?:\\.|[^"])*)"', lines[launch_options_index])
+        if launch_options_match is None:
+            return False
+        indent = launch_options_match.group(1)
+        current_launch_options = unescape_vdf_string(launch_options_match.group(2))
+        updated_launch_options = merge_proton_launch_options(current_launch_options)
+        updated_line = f'{indent}"LaunchOptions"\t\t"{escape_vdf_string(updated_launch_options)}"'
+        if updated_line == lines[launch_options_index]:
+            return False
+        lines[launch_options_index] = updated_line
+        localconfig_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return True
+
+    if app_closing_index is not None:
+        indent_match = re.match(r'(\s*)', lines[app_closing_index])
+        indent = indent_match.group(1) if indent_match is not None else ""
+        lines.insert(app_closing_index, f'{indent}\t"LaunchOptions"\t\t"{escape_vdf_string(PROTON_LAUNCH_OPTIONS)}"')
+        localconfig_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return True
+
+    if apps_closing_index is None:
+        return False
+
+    apps_indent_match = re.match(r'(\s*)', lines[apps_closing_index])
+    apps_indent = apps_indent_match.group(1) if apps_indent_match is not None else ""
+    lines[apps_closing_index:apps_closing_index] = [
+        f'{apps_indent}"{STEAM_APP_ID}"',
+        f"{apps_indent}" + "{",
+        f'{apps_indent}\t"LaunchOptions"\t\t"{escape_vdf_string(PROTON_LAUNCH_OPTIONS)}"',
+        f"{apps_indent}" + "}",
+    ]
+    localconfig_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return True
+
+
+def configure_proton_launch_options() -> None:
+    localconfig_paths = candidate_localconfig_paths()
+    if not localconfig_paths:
+        print("warning: no Steam localconfig.vdf files found; could not configure Proton launch options automatically")
+        return
+
+    for localconfig_path in localconfig_paths:
+        backup_path = localconfig_path.with_name(localconfig_path.name + BACKUP_SUFFIX)
+        if not backup_path.exists():
+            backup_path.write_bytes(localconfig_path.read_bytes())
+            print(f"backup:    {backup_path}")
+
+        if update_localconfig_launch_options(localconfig_path):
+            print(f"updated:   {localconfig_path}")
+        else:
+            print(f"unchanged: {localconfig_path}")
+
+
 def ensure_local_bepinex_bundle() -> None:
     bepinex_core_path = LOCAL_BEPINEX_DIR / "BepInEx/core/BepInEx.Unity.IL2CPP.dll"
     bepinex_bootstrap_path = LOCAL_BEPINEX_DIR / "winhttp.dll"
@@ -928,6 +1105,8 @@ def install_selected_runtime_mods(
 ) -> None:
     if selected_runtime_mod_option_ids:
         install_runtime_loader(game_dir)
+        if is_proton_game_install(game_dir):
+            configure_proton_launch_options()
     for option_id in selected_runtime_mod_option_ids:
         runtime_mod = RUNTIME_MOD_OPTION_BY_ID[option_id]
         source_dll_path = resolve_runtime_mod_source_dll(runtime_mod, build_runtime_mods=build_runtime_mods)
@@ -1025,6 +1204,14 @@ def rollback(game_dir: Path) -> None:
             print(f"removed:  {target_path}")
         else:
             print(f"already absent: {target_path}")
+
+    for localconfig_path in candidate_localconfig_paths():
+        backup_path = localconfig_path.with_name(localconfig_path.name + BACKUP_SUFFIX)
+        if not backup_path.is_file():
+            continue
+        localconfig_path.write_bytes(backup_path.read_bytes())
+        print(f"restored: {localconfig_path}")
+        print(f"from:     {backup_path}")
 
 
 def build_parser() -> ArgumentParser:

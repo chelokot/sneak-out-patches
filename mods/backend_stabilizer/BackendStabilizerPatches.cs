@@ -90,6 +90,8 @@ internal static class BackendStabilizerSelections
         AccessTools.Method(typeof(AvatarAndFrameView), "get__currentCategorySelected");
     private static readonly System.Reflection.MethodInfo? AvatarAndFrameViewGetCurrentSelectedProductMethod =
         AccessTools.Method(typeof(AvatarAndFrameView), "get__currentSelectedProduct");
+    private static readonly System.Reflection.FieldInfo? MyPlayerRegistryCharactersSkillsField =
+        typeof(MyPlayerRegistry).GetField("CharactersSkills", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
 
     internal static bool TryGetSkinPartType(Il2CppSystem.Enum itemType, out SkinPartType skinPartType)
     {
@@ -547,14 +549,13 @@ internal static class BackendStabilizerSelections
             return false;
         }
 
-        var charactersSkillsField = myPlayerRegistry.GetType().GetField("CharactersSkills", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
-        if (charactersSkillsField is null)
+        if (MyPlayerRegistryCharactersSkillsField is null)
         {
             BackendStabilizerRuntime.LogSkillUiEvent("BackendStabilizerSelections.SyncMyPlayerRegistryCharactersSkills", "noCharactersSkillsField");
             return false;
         }
 
-        charactersSkillsField.SetValue(myPlayerRegistry, charactersSkills);
+        MyPlayerRegistryCharactersSkillsField.SetValue(myPlayerRegistry, charactersSkills);
         BackendStabilizerRuntime.LogSkillUiEvent("BackendStabilizerSelections.SyncMyPlayerRegistryCharactersSkills", "applied");
         return true;
     }

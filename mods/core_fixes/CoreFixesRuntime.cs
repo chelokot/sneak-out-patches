@@ -15,6 +15,7 @@ internal static class CoreFixesRuntime
     private static ManualLogSource? _logger;
     private static Harmony? _harmony;
     private static CoreFixesConfig? _configuration;
+    private static readonly HashSet<string> LoggedSuppressedSources = new();
 
     public static void Initialize(ManualLogSource logger, CoreFixesConfig configuration)
     {
@@ -96,6 +97,11 @@ internal static class CoreFixesRuntime
     public static void LogLoopSuppressed(string source)
     {
         if (_configuration is null || !_configuration.EnableLogging.Value)
+        {
+            return;
+        }
+
+        if (!LoggedSuppressedSources.Add(source))
         {
             return;
         }

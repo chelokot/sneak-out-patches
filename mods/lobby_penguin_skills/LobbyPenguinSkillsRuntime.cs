@@ -7,6 +7,7 @@ using UI.Views;
 using UnityEngine;
 using ClientCharacterType = Types.CharacterType;
 using Types;
+using System.Reflection;
 
 namespace SneakOut.LobbyPenguinSkills;
 
@@ -60,8 +61,6 @@ internal static class LobbyPenguinSkillsRuntime
         AccessTools.Method(typeof(EntitySkillsComponent), "ChangeFromProp");
     private static readonly System.Reflection.PropertyInfo? EntitySkillsComponentDuringPropChangeProperty =
         AccessTools.Property(typeof(EntitySkillsComponent), "DuringPropChange");
-    private static readonly System.Reflection.FieldInfo? EntitySkillsComponentPlayerRoomRegistryField =
-        AccessTools.Field(typeof(EntitySkillsComponent), "_playerRoomRegistry");
     private static readonly Type? PlayerRoomRegistryType = AccessTools.TypeByName("PlayerRoomRegistry");
     private static readonly System.Reflection.MethodInfo? PlayerRoomRegistryGetItemMethod =
         PlayerRoomRegistryType is null ? null : AccessTools.Method(PlayerRoomRegistryType, "get_Item");
@@ -272,7 +271,7 @@ internal static class LobbyPenguinSkillsRuntime
 
     private static PlayerPropType TryGetLobbyPropType(EntitySkillsComponent entitySkillsComponent, int playerInternalId)
     {
-        var playerRoomRegistry = EntitySkillsComponentPlayerRoomRegistryField?.GetValue(entitySkillsComponent);
+        var playerRoomRegistry = GetEntitySkillsComponentPlayerRoomRegistry(entitySkillsComponent);
         if (playerRoomRegistry is null)
         {
             return PlayerPropType.None;
@@ -306,6 +305,14 @@ internal static class LobbyPenguinSkillsRuntime
 
         var randomIndex = UnityEngine.Random.Range(0, lobbyProps.Count);
         return lobbyProps[randomIndex];
+    }
+
+    private static object? GetEntitySkillsComponentPlayerRoomRegistry(EntitySkillsComponent entitySkillsComponent)
+    {
+        var playerRoomRegistryField = typeof(EntitySkillsComponent).GetField(
+            "_playerRoomRegistry",
+            BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+        return playerRoomRegistryField?.GetValue(entitySkillsComponent);
     }
 
     private static void TryEnsureViewModel(GameUIManager? gameUiManager, PlayerActionsView playerActionsView)

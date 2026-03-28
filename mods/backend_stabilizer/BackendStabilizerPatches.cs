@@ -57,10 +57,6 @@ internal static class BackendStabilizerSelections
         GameType is null ? null : AccessTools.Property(GameType, "InternalId");
     private static readonly System.Reflection.MethodInfo? PlayerNewMetaInventoryGetMyPlayerRegistryMethod =
         AccessTools.Method(typeof(PlayerNewMetaInventory), "get__myPlayerRegistry");
-    private static readonly System.Reflection.FieldInfo? PlayerNewMetaInventoryNetworkPlayerRegistryField =
-        AccessTools.Field(typeof(PlayerNewMetaInventory), "_networkPlayerRegistry");
-    private static readonly System.Reflection.FieldInfo? MyPlayerRegistryNetworkIdField =
-        MyPlayerRegistryType is null ? null : AccessTools.Field(MyPlayerRegistryType, "NetworkId");
     private static readonly System.Reflection.MethodInfo? MyPlayerRegistrySetCharactersSkillsMethod =
         MyPlayerRegistryType is null ? null : AccessTools.Method(MyPlayerRegistryType, "set_CharactersSkills");
     private static readonly System.Reflection.MethodInfo? NetworkPlayerRegistryGetItemMethod =
@@ -79,8 +75,6 @@ internal static class BackendStabilizerSelections
         SpookedNetworkPlayerType is null ? null : AccessTools.Method(SpookedNetworkPlayerType, "get_InternalId");
     private static readonly System.Reflection.MethodInfo? SpookedNetworkPlayerSetCharactersSkillsMethod =
         SpookedNetworkPlayerType is null ? null : AccessTools.Method(SpookedNetworkPlayerType, "set_CharactersSkills");
-    private static readonly System.Reflection.FieldInfo? SpookedNetworkPlayerEntitySkillsComponentField =
-        SpookedNetworkPlayerType is null ? null : AccessTools.Field(SpookedNetworkPlayerType, "EntitySkillsComponent");
     private static readonly System.Reflection.MethodInfo? EntitySkillsComponentRefreshPlayerSkillsMethod =
         EntitySkillsComponentType is null ? null : AccessTools.Method(EntitySkillsComponentType, "RefreshPlayerSkills");
     private static readonly System.Reflection.PropertyInfo? EntitySkillsComponentInternalIdProperty =
@@ -118,10 +112,11 @@ internal static class BackendStabilizerSelections
     {
         if (_currentInventory is not null
             && PlayerNewMetaInventoryGetMyPlayerRegistryMethod is not null
-            && MyPlayerRegistryNetworkIdField is not null)
+            && MyPlayerRegistryType is not null)
         {
             var myPlayerRegistry = PlayerNewMetaInventoryGetMyPlayerRegistryMethod.Invoke(_currentInventory, Array.Empty<object>());
-            if (myPlayerRegistry is not null && MyPlayerRegistryNetworkIdField.GetValue(myPlayerRegistry) is int networkId && networkId > 0)
+            var networkIdField = myPlayerRegistry?.GetType().GetField("NetworkId", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+            if (networkIdField?.GetValue(myPlayerRegistry) is int networkId && networkId > 0)
             {
                 return networkId;
             }
@@ -362,14 +357,11 @@ internal static class BackendStabilizerSelections
 
     private static object? GetNetworkPlayerRegistry()
     {
-        if (PlayerNewMetaInventoryNetworkPlayerRegistryField is null)
-        {
-            return null;
-        }
-
         if (_currentInventory is not null)
         {
-            var currentRegistry = PlayerNewMetaInventoryNetworkPlayerRegistryField.GetValue(_currentInventory);
+            var currentRegistry = _currentInventory.GetType()
+                .GetField("_networkPlayerRegistry", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public)?
+                .GetValue(_currentInventory);
             if (currentRegistry is not null)
             {
                 return currentRegistry;
@@ -393,7 +385,9 @@ internal static class BackendStabilizerSelections
             }
 
             _currentInventory = inventory;
-            var registry = PlayerNewMetaInventoryNetworkPlayerRegistryField.GetValue(inventory);
+            var registry = inventory.GetType()
+                .GetField("_networkPlayerRegistry", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public)?
+                .GetValue(inventory);
             if (registry is not null)
             {
                 return registry;
@@ -493,7 +487,7 @@ internal static class BackendStabilizerSelections
             }
 
             SpookedNetworkPlayerSetCharactersSkillsMethod.Invoke(networkPlayer, new[] { charactersSkills });
-            var entitySkillsComponent = SpookedNetworkPlayerEntitySkillsComponentField?.GetValue(networkPlayer);
+            var entitySkillsComponent = (networkPlayer as UnityEngine.Component)?.GetComponent("EntitySkillsComponent");
             EntitySkillsComponentRefreshPlayerSkillsMethod?.Invoke(entitySkillsComponent, Array.Empty<object>());
             BackendStabilizerRuntime.LogSkillUiEvent("BackendStabilizerSelections.SyncLivePlayerCharactersSkills", "applied");
         }

@@ -25,8 +25,6 @@ internal static class FreeFlyRuntime
         AccessTools.TypeByName("Gameplay.Player.Components.SpookedNetworkPlayer");
     private static readonly System.Reflection.MethodInfo? SpookedNetworkPlayerGetInternalIdMethod =
         SpookedNetworkPlayerType is null ? null : AccessTools.Method(SpookedNetworkPlayerType, "get_InternalId");
-    private static readonly System.Reflection.FieldInfo? SpookedNetworkPlayerEntityTransformComponentField =
-        SpookedNetworkPlayerType is null ? null : AccessTools.Field(SpookedNetworkPlayerType, "EntityTransformComponent");
     private static readonly Type? EntityTransformComponentType =
         AccessTools.TypeByName("Gameplay.Player.Components.EntityTransformComponent");
     private static readonly System.Reflection.MethodInfo? EntityTransformComponentForceSetPositionMethod =
@@ -71,7 +69,7 @@ internal static class FreeFlyRuntime
             return;
         }
 
-        var entityTransformComponent = SpookedNetworkPlayerEntityTransformComponentField?.GetValue(networkPlayer);
+        var entityTransformComponent = networkPlayer.GetComponent("EntityTransformComponent");
         if (entityTransformComponent is null || EntityTransformComponentForceSetPositionMethod is null)
         {
             return;
@@ -168,9 +166,15 @@ internal static class FreeFlyRuntime
         }
 
         var pressedKeys = new List<string>();
-        foreach (var control in keyboard.allKeys)
+        var allKeys = keyboard.allKeys;
+        if (allKeys is null)
         {
-            if (control.isPressed)
+            return;
+        }
+
+        foreach (var control in allKeys)
+        {
+            if (control is not null && control.isPressed)
             {
                 pressedKeys.Add(control.name);
             }

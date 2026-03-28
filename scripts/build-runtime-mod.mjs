@@ -37,6 +37,16 @@ const runtimeMods = {
     projectPath: resolve(repositoryRoot, "mods/friend_invite_unlock/FriendInviteUnlock.csproj"),
     builtDllPath: resolve(repositoryRoot, "mods/friend_invite_unlock/bin/Release/net6.0/SneakOut.FriendInviteUnlock.dll"),
     artifactDllPath: resolve(repositoryRoot, "artifacts/runtime_mods/SneakOut.FriendInviteUnlock.dll")
+  },
+  "lobby-penguin-skills": {
+    projectPath: resolve(repositoryRoot, "mods/lobby_penguin_skills/LobbyPenguinSkills.csproj"),
+    builtDllPath: resolve(repositoryRoot, "mods/lobby_penguin_skills/bin/Release/net6.0/SneakOut.LobbyPenguinSkills.dll"),
+    artifactDllPath: resolve(repositoryRoot, "artifacts/runtime_mods/SneakOut.LobbyPenguinSkills.dll")
+  },
+  "free-fly": {
+    projectPath: resolve(repositoryRoot, "mods/free_fly/FreeFly.csproj"),
+    builtDllPath: resolve(repositoryRoot, "mods/free_fly/bin/Release/net6.0/SneakOut.FreeFly.dll"),
+    artifactDllPath: resolve(repositoryRoot, "artifacts/runtime_mods/SneakOut.FreeFly.dll")
   }
 };
 

@@ -309,6 +309,71 @@ RUNTIME_MOD_OPTIONS: tuple[RuntimeModOption, ...] = (
             "EnableLogging = false\n"
         ),
     ),
+    RuntimeModOption(
+        option_id="lobby-penguin-skills",
+        label="Install Lobby Penguin Skills runtime mod",
+        details="Builds and installs the BepInEx runtime mod that enables the local penguin skill panel and lobby-only use of slide and prop change.",
+        default_enabled=False,
+        project_relative_path="mods/lobby_penguin_skills/LobbyPenguinSkills.csproj",
+        assembly_name="SneakOut.LobbyPenguinSkills",
+        config_relative_path="BepInEx/config/chelokot.sneakout.lobby-penguin-skills.cfg",
+        default_config_text=(
+            "[general]\n"
+            "## Settings file was created by version 0.1.0 of Lobby Penguin Skills\n"
+            "## Plugin GUID: chelokot.sneakout.lobby-penguin-skills\n"
+            "## Plugin Name: Lobby Penguin Skills\n"
+            "## Plugin Version: 0.1.0\n\n"
+            "## Enable lobby-only penguin skill UI and use hooks.\n"
+            "# Setting type: Boolean\n"
+            "# Default value: true\n"
+            "EnableMod = true\n\n"
+            "## Show the in-game penguin skill panel while in the lobby.\n"
+            "# Setting type: Boolean\n"
+            "# Default value: true\n"
+            "EnableLobbySkillUi = true\n\n"
+            "## Allow the local penguin to use slide and prop-change while in the lobby.\n"
+            "# Setting type: Boolean\n"
+            "# Default value: true\n"
+            "EnableLobbySkillUse = true\n\n"
+            "## Log lobby penguin skill decisions.\n"
+            "# Setting type: Boolean\n"
+            "# Default value: false\n"
+            "EnableLogging = false\n"
+        ),
+    ),
+    RuntimeModOption(
+        option_id="free-fly",
+        label="Install Free Fly runtime mod",
+        details="Builds and installs the BepInEx runtime mod that moves the local player vertically with UpArrow and DownArrow.",
+        default_enabled=False,
+        project_relative_path="mods/free_fly/FreeFly.csproj",
+        assembly_name="SneakOut.FreeFly",
+        config_relative_path="BepInEx/config/chelokot.sneakout.free-fly.cfg",
+        default_config_text=(
+            "[general]\n"
+            "## Settings file was created by version 0.1.0 of Free Fly\n"
+            "## Plugin GUID: chelokot.sneakout.free-fly\n"
+            "## Plugin Name: Free Fly\n"
+            "## Plugin Version: 0.1.0\n\n"
+            "## Enable local free-fly controls on PageUp and PageDown.\n"
+            "# Setting type: Boolean\n"
+            "# Default value: true\n"
+            "EnableMod = true\n\n"
+            "## Log local free-fly movement.\n"
+            "# Setting type: Boolean\n"
+            "# Default value: false\n"
+            "EnableLogging = false\n\n"
+            "[movement]\n"
+            "## Vertical movement speed in units per second.\n"
+            "# Setting type: Single\n"
+            "# Default value: 8\n"
+            "MovementSpeed = 8\n\n"
+            "## Axis to move on. Y is the normal Unity vertical axis.\n"
+            "# Setting type: FreeFlyAxis\n"
+            "# Default value: Y\n"
+            "Axis = Y\n"
+        ),
+    ),
 )
 
 RUNTIME_MOD_OPTION_BY_ID = {option.option_id: option for option in RUNTIME_MOD_OPTIONS}

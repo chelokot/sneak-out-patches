@@ -5,14 +5,19 @@ import {
   ensureExecutable,
   fetchToFile,
   fileExists,
+  localBepInExDirectory,
   localDotnetDirectory,
   localDotnetExecutablePath,
   localDownloadsDirectory,
+  resolvePythonCommand,
   runAndCapture,
   runCommand
 } from "./lib/workspace-tools.mjs";
 
 const dotnetVersion = process.env.SNEAKOUT_DOTNET_VERSION ?? "8.0.408";
+const bepinexVersion = process.env.SNEAKOUT_BEPINEX_VERSION ?? "5.4.23.5";
+const bepinexWindowsAssetUrl = process.env.SNEAKOUT_BEPINEX_WINDOWS_ASSET_URL
+  ?? `https://github.com/BepInEx/BepInEx/releases/download/v${bepinexVersion}/BepInEx_win_x64_${bepinexVersion}.zip`;
 
 async function ensureDotnet() {
   const dotnetExecutablePath = localDotnetExecutablePath();
@@ -60,9 +65,55 @@ async function ensureDotnet() {
   console.log(`installed dotnet ${dotnetVersion} -> ${localDotnetDirectory}`);
 }
 
+async function extractZipArchive(archivePath, destinationPath) {
+  const { command, prefix } = await resolvePythonCommand();
+  const extractorScript = [
+    "from pathlib import Path",
+    "import shutil",
+    "import sys",
+    "import zipfile",
+    "archive_path = Path(sys.argv[1])",
+    "destination_path = Path(sys.argv[2])",
+    "if destination_path.exists():",
+    "    shutil.rmtree(destination_path)",
+    "destination_path.mkdir(parents=True, exist_ok=True)",
+    "with zipfile.ZipFile(archive_path) as archive_file:",
+    "    archive_file.extractall(destination_path)"
+  ].join("\n");
+
+  await runCommand(command, [
+    ...prefix,
+    "-c",
+    extractorScript,
+    archivePath,
+    destinationPath
+  ]);
+}
+
+async function ensureBepInEx() {
+  const bepinexCorePath = join(localBepInExDirectory, "BepInEx", "core", "BepInEx.Unity.IL2CPP.dll");
+  const bepinexBootstrapPath = join(localBepInExDirectory, "winhttp.dll");
+  if (await fileExists(bepinexCorePath) && await fileExists(bepinexBootstrapPath)) {
+    console.log(`BepInEx ${bepinexVersion} already installed`);
+    return;
+  }
+
+  await ensureDirectory(localDownloadsDirectory);
+  const archivePath = join(localDownloadsDirectory, `BepInEx_win_x64_${bepinexVersion}.zip`);
+  await fetchToFile(bepinexWindowsAssetUrl, archivePath);
+  await extractZipArchive(archivePath, localBepInExDirectory);
+
+  if (!(await fileExists(bepinexCorePath)) || !(await fileExists(bepinexBootstrapPath))) {
+    throw new Error(`BepInEx install did not produce ${bepinexCorePath}`);
+  }
+
+  console.log(`installed BepInEx ${bepinexVersion} -> ${localBepInExDirectory}`);
+}
+
 async function main() {
   console.log("Bootstrapping local Sneak Out tooling");
   await ensureDotnet();
+  await ensureBepInEx();
   console.log("Local tooling is ready");
 }
 

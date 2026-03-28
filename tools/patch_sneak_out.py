@@ -6,11 +6,10 @@ import hashlib
 import os
 import platform
 import re
+import shutil
 import subprocess
 import sys
-import termios
 import textwrap
-import tty
 from argparse import ArgumentParser
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,8 +24,17 @@ GAME_DIRECTORY_NAME = "Sneak Out"
 BACKUP_SUFFIX = ".codex-sneak-out.bak"
 ABSENT_MARKER_SUFFIX = ".codex-sneak-out.absent"
 REPO_ROOT = Path(__file__).resolve().parent.parent
-RUNTIME_MOD_DOTNET = REPO_ROOT / ".tmp/runtime-mod/dotnet/dotnet"
+RUNTIME_MOD_DOTNET = REPO_ROOT / ".tmp/runtime-mod/dotnet" / ("dotnet.exe" if os.name == "nt" else "dotnet")
+LOCAL_BEPINEX_DIR = REPO_ROOT / ".tmp/runtime-mod/bepinex"
 RUNTIME_MOD_ARTIFACTS_DIR = REPO_ROOT / "artifacts/runtime_mods"
+RUNTIME_LOADER_ENTRY_NAMES: tuple[str, ...] = (
+    "BepInEx",
+    "dotnet",
+    ".doorstop_version",
+    "doorstop_config.ini",
+    "winhttp.dll",
+    "changelog.txt",
+)
 
 
 @dataclass(frozen=True)
@@ -500,6 +508,28 @@ def prompt_for_game_directory(detected_path: Path | None) -> Path:
 
 
 def read_key() -> str:
+    if os.name == "nt":
+        import msvcrt
+
+        first = msvcrt.getwch()
+        if first in {"\x00", "\xe0"}:
+            second = msvcrt.getwch()
+            if second == "H":
+                return "up"
+            if second == "P":
+                return "down"
+            return "other"
+        if first == " ":
+            return "space"
+        if first in {"\r", "\n"}:
+            return "enter"
+        if first.lower() == "q":
+            return "quit"
+        return "other"
+
+    import termios
+    import tty
+
     file_descriptor = sys.stdin.fileno()
     old_settings = termios.tcgetattr(file_descriptor)
     try:
@@ -742,12 +772,40 @@ def write_prepared_files(prepared_files: dict[str, PreparedFile]) -> None:
 
 
 def resolve_runtime_mod_install_path(game_dir: Path, runtime_mod: RuntimeModOption) -> Path:
-    bepinex_dir = game_dir / "BepInEx"
-    if not bepinex_dir.is_dir():
-        raise SystemExit(f"Missing BepInEx directory: {bepinex_dir}")
-    plugins_dir = bepinex_dir / "plugins"
-    plugins_dir.mkdir(parents=True, exist_ok=True)
+    plugins_dir = game_dir / "BepInEx" / "plugins"
     return plugins_dir / f"{runtime_mod.assembly_name}.dll"
+
+
+def ensure_local_bepinex_bundle() -> None:
+    bepinex_core_path = LOCAL_BEPINEX_DIR / "BepInEx/core/BepInEx.Unity.IL2CPP.dll"
+    bepinex_bootstrap_path = LOCAL_BEPINEX_DIR / "winhttp.dll"
+    if bepinex_core_path.is_file() and bepinex_bootstrap_path.is_file():
+        return
+    raise SystemExit(
+        f"Missing local BepInEx bundle: {LOCAL_BEPINEX_DIR}\n"
+        "Run npm install first so the repo can bootstrap its local BepInEx runtime files."
+    )
+
+
+def install_runtime_loader(game_dir: Path) -> None:
+    ensure_local_bepinex_bundle()
+    for entry_name in RUNTIME_LOADER_ENTRY_NAMES:
+        source_path = LOCAL_BEPINEX_DIR / entry_name
+        if not source_path.exists():
+            raise SystemExit(f"Missing local BepInEx entry: {source_path}")
+        target_path = game_dir / entry_name
+        absent_marker_path = target_path.with_name(target_path.name + ABSENT_MARKER_SUFFIX)
+        target_existed = target_path.exists()
+        if source_path.is_dir():
+            shutil.copytree(source_path, target_path, dirs_exist_ok=True)
+        else:
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_path, target_path)
+        if not target_existed and not absent_marker_path.exists():
+            absent_marker_path.write_text("absent\n", encoding="utf-8")
+
+    plugins_dir = game_dir / "BepInEx" / "plugins"
+    plugins_dir.mkdir(parents=True, exist_ok=True)
 
 
 def resolve_runtime_mod_config_path(game_dir: Path, runtime_mod: RuntimeModOption) -> Path | None:
@@ -859,6 +917,8 @@ def install_selected_runtime_mods(
     *,
     build_runtime_mods: bool,
 ) -> None:
+    if selected_runtime_mod_option_ids:
+        install_runtime_loader(game_dir)
     for option_id in selected_runtime_mod_option_ids:
         runtime_mod = RUNTIME_MOD_OPTION_BY_ID[option_id]
         source_dll_path = resolve_runtime_mod_source_dll(runtime_mod, build_runtime_mods=build_runtime_mods)
@@ -942,6 +1002,20 @@ def rollback(game_dir: Path) -> None:
                 print(f"removed:  {config_path}")
             else:
                 print(f"already absent: {config_path}")
+
+    for entry_name in reversed(RUNTIME_LOADER_ENTRY_NAMES):
+        target_path = game_dir / entry_name
+        absent_marker_path = target_path.with_name(target_path.name + ABSENT_MARKER_SUFFIX)
+        if not absent_marker_path.is_file():
+            continue
+        if target_path.is_dir():
+            shutil.rmtree(target_path, ignore_errors=True)
+            print(f"removed:  {target_path}")
+        elif target_path.is_file():
+            target_path.unlink()
+            print(f"removed:  {target_path}")
+        else:
+            print(f"already absent: {target_path}")
 
 
 def build_parser() -> ArgumentParser:

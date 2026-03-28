@@ -16,7 +16,8 @@ On Linux you can use:
 make install
 ```
 
-That installs the repo-managed `.NET SDK` into `.tmp/`, so the build commands do not depend on a global `dotnet` install.
+That installs the repo-managed `.NET SDK` and `BepInEx` runtime bundle into `.tmp/`, so the build and install commands do not depend on a global `dotnet` install or a separately managed BepInEx archive.
+The local SDK is used by the repo scripts directly and is not added to your global `PATH`, so `dotnet --version` in a separate shell may still fail even when the bootstrap succeeded.
 
 Committed runtime mod DLLs live in:
 
@@ -28,6 +29,13 @@ External prerequisites:
 
 - `Node.js 20+`
 - `Python 3`
+
+`npm install` now bootstraps both:
+
+- the repo-managed `.NET SDK` in `.tmp/runtime-mod/dotnet`
+- the repo-managed `BepInEx IL2CPP x64` bundle in `.tmp/runtime-mod/bepinex`
+
+When you install runtime mods through the patcher, it will automatically lay down `BepInEx`, `winhttp.dll`, `doorstop_config.ini`, and the bundled runtime files into the target game directory if they are missing.
 
 ## Repository layout
 

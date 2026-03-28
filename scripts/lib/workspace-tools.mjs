@@ -9,6 +9,7 @@ export const repositoryRoot = resolve(libraryDirectory, "..", "..");
 export const temporaryDirectory = resolve(repositoryRoot, ".tmp");
 export const runtimeModDirectory = resolve(temporaryDirectory, "runtime-mod");
 export const localDotnetDirectory = resolve(runtimeModDirectory, "dotnet");
+export const localBepInExDirectory = resolve(runtimeModDirectory, "bepinex");
 export const localDownloadsDirectory = resolve(temporaryDirectory, "downloads");
 
 export function localDotnetExecutablePath() {

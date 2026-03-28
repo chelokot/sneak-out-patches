@@ -38,6 +38,14 @@ internal static class BackendStabilizerOverlay
 
 internal static class BackendStabilizerSelections
 {
+    private static readonly Type? GameType = AccessTools.TypeByName("Game");
+    private static readonly System.Reflection.PropertyInfo? GameInternalIdProperty =
+        GameType is null ? null : AccessTools.Property(GameType, "InternalId");
+    private static readonly System.Reflection.MethodInfo? PlayerCustomizationViewGetSpookedPlayerCharacterDataMethod =
+        AccessTools.Method(typeof(PlayerCustomizationView), "get__spookedPlayerCharacterData");
+    private static readonly System.Reflection.MethodInfo? PlayerCustomizationViewSetCurrentCharacterDataMethod =
+        AccessTools.Method(typeof(PlayerCustomizationView), "set__currentCharacterData");
+
     internal static bool TryGetSkinPartType(Il2CppSystem.Enum itemType, out SkinPartType skinPartType)
     {
         skinPartType = SkinPartType.None;
@@ -52,6 +60,11 @@ internal static class BackendStabilizerSelections
     private static WebPlayer? GetPlayer()
     {
         return BackendStabilizerRuntime.CurrentClientCache?.UserWebPlayer;
+    }
+
+    private static int GetCurrentInternalId()
+    {
+        return GameInternalIdProperty?.GetValue(null) is int internalId ? internalId : 0;
     }
 
     private static Character? GetCharacterByType(CharacterType characterType)
@@ -495,9 +508,8 @@ internal static class BackendStabilizerSelections
     {
         try
         {
-            var gameType = AccessTools.TypeByName("Game");
-            var internalIdProperty = AccessTools.Property(gameType, "InternalId");
-            if (internalIdProperty?.GetValue(null) is not int internalId || internalId <= 0)
+            var internalId = GetCurrentInternalId();
+            if (internalId <= 0)
             {
                 BackendStabilizerRuntime.LogSkinPreview("BackendStabilizerSelections.SyncPreviewCharacterData:noInternalId", 0, skinType, skinPartType, false);
                 return;
@@ -512,8 +524,7 @@ internal static class BackendStabilizerSelections
                     continue;
                 }
 
-                var spookedPlayerCharacterDataMethod = AccessTools.Method(typeof(PlayerCustomizationView), "get__spookedPlayerCharacterData");
-                if (spookedPlayerCharacterDataMethod?.Invoke(previewView, Array.Empty<object>()) is not SpookedPlayerCharacterData spookedPlayerCharacterData)
+                if (PlayerCustomizationViewGetSpookedPlayerCharacterDataMethod?.Invoke(previewView, Array.Empty<object>()) is not SpookedPlayerCharacterData spookedPlayerCharacterData)
                 {
                     BackendStabilizerRuntime.LogSkinPreview("BackendStabilizerSelections.SyncPreviewCharacterData:noPlayerData", internalId, skinType, skinPartType, false);
                     continue;
@@ -546,7 +557,7 @@ internal static class BackendStabilizerSelections
                 }
 
                 spookedPlayerCharacterData[internalId] = currentCharacterData;
-                AccessTools.Method(typeof(PlayerCustomizationView), "set__currentCharacterData")?.Invoke(previewView, new object[] { currentCharacterData });
+                PlayerCustomizationViewSetCurrentCharacterDataMethod?.Invoke(previewView, new object[] { currentCharacterData });
                 BackendStabilizerRuntime.LogSkinPreview("BackendStabilizerSelections.SyncPreviewCharacterData:applied", internalId, skinType, skinPartType, true);
             }
         }
@@ -558,9 +569,8 @@ internal static class BackendStabilizerSelections
 
     private static void PublishSkinRefresh(SkinPartType skinPartType, SkinType skinType)
     {
-        var gameType = AccessTools.TypeByName("Game");
-        var internalIdProperty = AccessTools.Property(gameType, "InternalId");
-        if (internalIdProperty?.GetValue(null) is not int internalId)
+        var internalId = GetCurrentInternalId();
+        if (internalId == 0)
         {
             BackendStabilizerRuntime.LogSkinPreview("BackendStabilizerSelections.PublishSkinRefresh:noInternalId", 0, skinType, skinPartType, false);
             return;

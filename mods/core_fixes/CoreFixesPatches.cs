@@ -7,7 +7,6 @@ using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using Il2CppSystem;
 using Kinguinverse.WebServiceProvider.Types_v2;
 using Networking.PGOS;
-using System.Reflection;
 using System.Linq;
 using Types;
 using UI.Buttons;
@@ -76,38 +75,6 @@ internal static class DailyQuestsViewRefreshPatch
 
         CoreFixesRuntime.LogLoopSuppressed("DailyQuestsView.Refresh");
         return false;
-    }
-}
-
-[HarmonyPatch]
-internal static class BackendStabilizerAvatarAndFrameViewSetProductsPatch
-{
-    private static MethodBase? TargetMethod()
-    {
-        return CoreFixesRuntime.FindBackendStabilizerMethod(
-            "SneakOut.BackendStabilizer.AvatarAndFrameViewSetProductsPatch",
-            "Postfix");
-    }
-
-    private static bool Prefix()
-    {
-        return !CoreFixesRuntime.ShouldSuppressBackendStabilizerAvatarViewPatches();
-    }
-}
-
-[HarmonyPatch]
-internal static class BackendStabilizerAvatarAndFrameViewOpenPatch
-{
-    private static MethodBase? TargetMethod()
-    {
-        return CoreFixesRuntime.FindBackendStabilizerMethod(
-            "SneakOut.BackendStabilizer.AvatarAndFrameViewOpenPatch",
-            "Postfix");
-    }
-
-    private static bool Prefix()
-    {
-        return !CoreFixesRuntime.ShouldSuppressBackendStabilizerAvatarViewPatches();
     }
 }
 
@@ -251,10 +218,7 @@ internal static class PlayerNewMetaInventoryGetOwnedItemIdPatch
             return;
         }
 
-        __result = 1;
-
         CoreFixesRuntime.LogAvatarOwnershipDecision("PlayerNewMetaInventory.GetOwnedItemId", itemType, __result > 0);
-
     }
 }
 

@@ -8,6 +8,7 @@ using Kinguinverse.WebServiceProvider.Types.Users;
 using Kinguinverse.WebServiceProvider.Types_v2;
 using Kinguinverse.WebServiceProvider.Types_v2.Products;
 using System.Collections.Generic;
+using ClientCharacterType = Types.CharacterType;
 
 namespace SneakOut.BackendStabilizer;
 
@@ -17,6 +18,7 @@ internal static class BackendStabilizerRuntime
     private static Harmony? _harmony;
     private static BackendStabilizerConfig? _configuration;
     private static readonly HashSet<string> SuppressedLoopSources = new();
+    private static ClientCache? _currentClientCache;
 
     public static void Initialize(ManualLogSource logger, BackendStabilizerConfig configuration)
     {
@@ -25,11 +27,19 @@ internal static class BackendStabilizerRuntime
         _harmony ??= new Harmony(BackendStabilizerPlugin.PluginGuid);
         _harmony.PatchAll();
         BackendStabilizerStub.Initialize();
-        LogInfo($"Configured localStubEnabled={configuration.EnableLocalStub.Value}, profileOverlayEnabled={configuration.EnableProfileOverlay.Value}");
+        LocalSelectionsStore.Initialize();
+        LogInfo($"Configured localStubEnabled={configuration.EnableLocalStub.Value}, profileOverlayEnabled={configuration.EnableProfileOverlay.Value}, persistentSelectionsEnabled={configuration.EnablePersistentSelections.Value}");
     }
 
     public static bool UseProfileOverlay => _configuration is not null && _configuration.EnableProfileOverlay.Value;
     public static bool UseLocalStub => _configuration is not null && _configuration.EnableLocalStub.Value;
+    public static bool UsePersistentSelections => _configuration is not null && _configuration.EnablePersistentSelections.Value;
+    public static ClientCache? CurrentClientCache => _currentClientCache;
+
+    public static void TrackClientCache(ClientCache clientCache)
+    {
+        _currentClientCache = clientCache;
+    }
 
     public static void LogClientCacheState(string source, ClientCache clientCache)
     {
@@ -90,6 +100,109 @@ internal static class BackendStabilizerRuntime
         }
 
         LogInfo($"{source}: characterType={characterType}, count={count}");
+    }
+
+    public static void LogSkinPath(string source, CharacterType characterType, SkinType skinType, SkinPartType skinPartType, bool handledLocally)
+    {
+        if (!ShouldLog())
+        {
+            return;
+        }
+
+        LogInfo($"{source}: characterType={characterType}, skinType={skinType}, skinPartType={skinPartType}, handledLocally={handledLocally}");
+    }
+
+    public static void LogSkinPath(string source, ClientCharacterType characterType, SkinType skinType, SkinPartType skinPartType, bool handledLocally)
+    {
+        if (!ShouldLog())
+        {
+            return;
+        }
+
+        LogInfo($"{source}: characterType={characterType}, skinType={skinType}, skinPartType={skinPartType}, handledLocally={handledLocally}");
+    }
+
+    public static void LogSkinWebCall(string source, int characterId, int itemId, bool handledLocally)
+    {
+        if (!ShouldLog())
+        {
+            return;
+        }
+
+        LogInfo($"{source}: characterId={characterId}, itemId={itemId}, handledLocally={handledLocally}");
+    }
+
+    public static void LogSkinRemove(string source, int characterId, SkinType skinType, bool handledLocally)
+    {
+        if (!ShouldLog())
+        {
+            return;
+        }
+
+        LogInfo($"{source}: characterId={characterId}, skinType={skinType}, handledLocally={handledLocally}");
+    }
+
+    public static void LogSkinPreview(string source, int internalId, SkinType skinType, SkinPartType skinPartType, bool taskCompleted)
+    {
+        if (!ShouldLog())
+        {
+            return;
+        }
+
+        LogInfo($"{source}: internalId={internalId}, skinType={skinType}, skinPartType={skinPartType}, taskCompleted={taskCompleted}");
+    }
+
+    public static void LogSkinRefreshEvent(string source, int internalId)
+    {
+        if (!ShouldLog())
+        {
+            return;
+        }
+
+        LogInfo($"{source}: internalId={internalId}");
+    }
+
+    public static void LogSkinSelectionResolution(string source, ClientCharacterType clientCharacterType, CharacterType characterType, int characterId, bool hasPlayer, bool hasCharacter)
+    {
+        if (!ShouldLog())
+        {
+            return;
+        }
+
+        LogInfo($"{source}: clientCharacterType={clientCharacterType}, characterType={characterType}, characterId={characterId}, hasPlayer={hasPlayer}, hasCharacter={hasCharacter}");
+    }
+
+    public static void LogSkinSelectionSnapshot(string source, Character character)
+    {
+        if (!ShouldLog())
+        {
+            return;
+        }
+
+        var skinParts = character.SkinParts;
+        LogInfo(
+            $"{source}: characterId={character.CharacterId}, characterType={character.Type}, characterSkin={character.CharacterSkin}, head={skinParts?.Head?.SkinPartType}, chest={skinParts?.Chest?.SkinPartType}, legs={skinParts?.Legs?.SkinPartType}, hands={skinParts?.Hands?.SkinPartType}, back={skinParts?.Back?.SkinPartType}, whole={skinParts?.Whole?.SkinPartType}");
+    }
+
+    public static void LogPersistentSelectionLoad(string source, Character character, PersistedCharacterSelection selection)
+    {
+        if (!ShouldLog())
+        {
+            return;
+        }
+
+        LogInfo(
+            $"{source}: characterId={character.CharacterId}, characterType={character.Type}, characterSkin={selection.CharacterSkin}, head={selection.HeadSkinPartType}, chest={selection.ChestSkinPartType}, legs={selection.LegsSkinPartType}, hands={selection.HandsSkinPartType}, back={selection.BackSkinPartType}, whole={selection.WholeSkinPartType}");
+    }
+
+    public static void LogSkinOwnershipLookup(string source, object? itemType, object? result)
+    {
+        if (!ShouldLog())
+        {
+            return;
+        }
+
+        LogInfo($"{source}: itemType={itemType}, result={result}");
     }
 
     public static void LogError(string message, Exception exception)

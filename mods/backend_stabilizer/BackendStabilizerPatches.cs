@@ -1,6 +1,8 @@
 using Base;
 using Collections;
+using Events;
 using HarmonyLib;
+using Kinguinverse.DataUtils.Events;
 using Kinguinverse.WebServiceProvider;
 using Kinguinverse.WebServiceProvider.Requests;
 using Kinguinverse.WebServiceProvider.Responses;
@@ -8,7 +10,9 @@ using Kinguinverse.WebServiceProvider.Responses.V2;
 using Kinguinverse.WebServiceProvider.Types.Games;
 using Kinguinverse.WebServiceProvider.Types_v2;
 using Kinguinverse.WebServiceProvider.Types_v2.Products;
+using UI;
 using UI.Views;
+using ClientCharacterType = Types.CharacterType;
 using Il2CppCollections = Il2CppSystem.Collections.Generic;
 using Il2CppTasks = Il2CppSystem.Threading.Tasks;
 using Tasks = System.Threading.Tasks;
@@ -32,6 +36,808 @@ internal static class BackendStabilizerOverlay
     }
 }
 
+internal static class BackendStabilizerSelections
+{
+    internal static bool TryGetSkinPartType(Il2CppSystem.Enum itemType, out SkinPartType skinPartType)
+    {
+        skinPartType = SkinPartType.None;
+        if (itemType is null)
+        {
+            return false;
+        }
+
+        return System.Enum.TryParse(itemType.ToString(), out skinPartType) && skinPartType != SkinPartType.None;
+    }
+
+    private static WebPlayer? GetPlayer()
+    {
+        return BackendStabilizerRuntime.CurrentClientCache?.UserWebPlayer;
+    }
+
+    private static Character? GetCharacterByType(CharacterType characterType)
+    {
+        var characters = GetPlayer()?.Characters;
+        if (characters is null)
+        {
+            return null;
+        }
+
+        foreach (var character in characters)
+        {
+            if (character is not null && character.Type == characterType)
+            {
+                return character;
+            }
+        }
+
+        return null;
+    }
+
+    private static Character? GetCharacterById(int characterId)
+    {
+        var characters = GetPlayer()?.Characters;
+        if (characters is null)
+        {
+            return null;
+        }
+
+        foreach (var character in characters)
+        {
+            if (character is not null && character.CharacterId == characterId)
+            {
+                return character;
+            }
+        }
+
+        return null;
+    }
+
+    private static void SaveSelection(Character character)
+    {
+        LocalSelectionsStore.SaveCharacterSelection(character);
+    }
+
+    private static bool TryGetCharacterId(CharacterType characterType, out int characterId)
+    {
+        characterId = 0;
+        var character = GetCharacterByType(characterType);
+        if (character is null)
+        {
+            return false;
+        }
+
+        characterId = character.CharacterId;
+        return characterId != 0;
+    }
+
+    private static bool TryMapClientCharacterType(ClientCharacterType clientCharacterType, out CharacterType characterType)
+    {
+        characterType = clientCharacterType switch
+        {
+            ClientCharacterType.victim_penguin => CharacterType.Penguin,
+            ClientCharacterType.ghost => CharacterType.Ghost,
+            ClientCharacterType.murderer_ripper => CharacterType.Reaper,
+            ClientCharacterType.murderer_scarecrow => CharacterType.Scarecrow,
+            ClientCharacterType.murderer_dracula => CharacterType.Dracula,
+            ClientCharacterType.murderer_butcher => CharacterType.Butcher,
+            ClientCharacterType.murderer_clown => CharacterType.Clown,
+            ClientCharacterType.seeker_with_generic_skills => CharacterType.Mimic,
+            _ => CharacterType.None
+        };
+
+        return characterType != CharacterType.None;
+    }
+
+    private static bool TryGetCharacterId(ClientCharacterType clientCharacterType, out int characterId)
+    {
+        characterId = 0;
+        return TryMapClientCharacterType(clientCharacterType, out var characterType) && TryGetCharacterId(characterType, out characterId);
+    }
+
+    private static bool TryResolveCharacterSkin(int characterSkinTypeId, out CharacterSkin characterSkin)
+    {
+        characterSkin = CharacterSkin.None;
+        var skins = GetPlayer()?.CharacterSkins?.Skins;
+        if (skins is not null)
+        {
+            foreach (var skin in skins)
+            {
+                if (skin is not null && skin.Id == characterSkinTypeId)
+                {
+                    characterSkin = skin.Skin;
+                    return characterSkin != CharacterSkin.None;
+                }
+            }
+        }
+
+        if (!System.Enum.IsDefined(typeof(CharacterSkin), characterSkinTypeId))
+        {
+            return false;
+        }
+
+        characterSkin = (CharacterSkin)characterSkinTypeId;
+        return characterSkin != CharacterSkin.None;
+    }
+
+    private static bool TryParseAvatarProduct(Il2CppSystem.Enum productType, out AvatarType avatarType, out AvatarFrameType avatarFrameType, out DescriptionType descriptionType)
+    {
+        avatarType = AvatarType.None;
+        avatarFrameType = AvatarFrameType.None;
+        descriptionType = DescriptionType.none;
+        if (productType is null)
+        {
+            return false;
+        }
+
+        var typeName = productType.GetType().Name;
+        var valueName = productType.ToString();
+
+        if (string.Equals(typeName, nameof(AvatarType), StringComparison.Ordinal) && System.Enum.TryParse(valueName, out avatarType))
+        {
+            return avatarType != AvatarType.None;
+        }
+
+        if (string.Equals(typeName, nameof(AvatarFrameType), StringComparison.Ordinal) && System.Enum.TryParse(valueName, out avatarFrameType))
+        {
+            return avatarFrameType != AvatarFrameType.None;
+        }
+
+        if (string.Equals(typeName, nameof(DescriptionType), StringComparison.Ordinal) && System.Enum.TryParse(valueName, out descriptionType))
+        {
+            return descriptionType != DescriptionType.none;
+        }
+
+        return false;
+    }
+
+    public static bool ApplyAvatarSelection(int characterId, int avatarId)
+    {
+        if (!BackendStabilizerRuntime.UsePersistentSelections)
+        {
+            return false;
+        }
+
+        var player = GetPlayer();
+        var character = GetCharacterById(characterId);
+        var avatars = player?.Avatars?.Avatars;
+        if (character is null || avatars is null)
+        {
+            return false;
+        }
+
+        foreach (var avatar in avatars)
+        {
+            if (avatar is null || avatar.Id != avatarId)
+            {
+                continue;
+            }
+
+            character.Avatar = avatar;
+            SaveSelection(character);
+            return true;
+        }
+
+        return false;
+    }
+
+    public static bool ApplyAvatarFrameSelection(int characterId, int avatarFrameId)
+    {
+        if (!BackendStabilizerRuntime.UsePersistentSelections)
+        {
+            return false;
+        }
+
+        var player = GetPlayer();
+        var character = GetCharacterById(characterId);
+        var avatarFrames = player?.AvatarFrames?.AvatarFrames;
+        if (character is null || avatarFrames is null)
+        {
+            return false;
+        }
+
+        foreach (var avatarFrame in avatarFrames)
+        {
+            if (avatarFrame is null || avatarFrame.Id != avatarFrameId)
+            {
+                continue;
+            }
+
+            character.AvatarFrame = avatarFrame;
+            SaveSelection(character);
+            return true;
+        }
+
+        return false;
+    }
+
+    public static bool ApplyTitleSelection(int characterId, DescriptionType descriptionType)
+    {
+        if (!BackendStabilizerRuntime.UsePersistentSelections)
+        {
+            return false;
+        }
+
+        var player = GetPlayer();
+        var character = GetCharacterById(characterId);
+        if (character is null || player is null)
+        {
+            return false;
+        }
+
+        player.Descriptions ??= new Il2CppCollections.List<DescriptionType>();
+        if (!player.Descriptions.Contains(descriptionType))
+        {
+            player.Descriptions.Add(descriptionType);
+        }
+
+        character.Description = descriptionType;
+        SaveSelection(character);
+        return true;
+    }
+
+    public static bool ApplyDanceSelection(int characterId, EmoteType emoteType)
+    {
+        if (!BackendStabilizerRuntime.UsePersistentSelections)
+        {
+            return false;
+        }
+
+        var character = GetCharacterById(characterId);
+        if (character is null)
+        {
+            return false;
+        }
+
+        character.Dance = emoteType;
+        SaveSelection(character);
+        return true;
+    }
+
+    public static bool ApplyFartSelection(int characterId, EmoteType emoteType)
+    {
+        if (!BackendStabilizerRuntime.UsePersistentSelections)
+        {
+            return false;
+        }
+
+        var character = GetCharacterById(characterId);
+        if (character is null)
+        {
+            return false;
+        }
+
+        character.Fart = emoteType;
+        SaveSelection(character);
+        return true;
+    }
+
+    public static bool ApplyCharacterSkinSelection(int characterId, int characterSkinTypeId)
+    {
+        if (!BackendStabilizerRuntime.UsePersistentSelections)
+        {
+            return false;
+        }
+
+        var player = GetPlayer();
+        var character = GetCharacterById(characterId);
+        if (player is null || character is null)
+        {
+            return false;
+        }
+
+        if (!TryResolveCharacterSkin(characterSkinTypeId, out var characterSkin))
+        {
+            return false;
+        }
+
+        player.CharacterSkins ??= new PlayerCharacterSkins(new Il2CppCollections.List<PlayerCharacterSkin>());
+        player.CharacterSkins.Skins ??= new Il2CppCollections.List<PlayerCharacterSkin>();
+        var skinId = BackendStabilizerStub.GetCharacterSkinId(characterSkin);
+        var existingSkin = false;
+        foreach (var skin in player.CharacterSkins.Skins)
+        {
+            if (skin is null || skin.Skin != characterSkin)
+            {
+                continue;
+            }
+
+            skin.Id = skinId;
+            existingSkin = true;
+            break;
+        }
+
+        if (!existingSkin)
+        {
+            player.CharacterSkins.Skins.Add(new PlayerCharacterSkin(skinId, characterSkin));
+        }
+
+        character.CharacterSkin = characterSkin;
+        SaveSelection(character);
+        return true;
+    }
+
+    public static bool ApplySkinPartSelection(int characterId, int skinPartId)
+    {
+        if (!BackendStabilizerRuntime.UsePersistentSelections)
+        {
+            return false;
+        }
+
+        var player = GetPlayer();
+        var character = GetCharacterById(characterId);
+        var skinParts = player?.Skins?.SkinParts;
+        if (character is null || skinParts is null)
+        {
+            return false;
+        }
+
+        foreach (var skinPart in skinParts)
+        {
+            if (skinPart is null || skinPart.Id != skinPartId)
+            {
+                continue;
+            }
+
+            character.SkinParts ??= new SkinParts();
+            switch (skinPart.SkinType)
+            {
+                case SkinType.Head:
+                    character.SkinParts.Head = skinPart;
+                    break;
+                case SkinType.Chest:
+                    character.SkinParts.Chest = skinPart;
+                    break;
+                case SkinType.Legs:
+                    character.SkinParts.Legs = skinPart;
+                    break;
+                case SkinType.Hands:
+                    character.SkinParts.Hands = skinPart;
+                    break;
+                case SkinType.Back:
+                    character.SkinParts.Back = skinPart;
+                    break;
+                case SkinType.Whole:
+                    character.SkinParts.Whole = skinPart;
+                    break;
+                default:
+                    return false;
+            }
+
+            SaveSelection(character);
+            return true;
+        }
+
+        return false;
+    }
+
+    public static bool ApplySkinPartSelection(ClientCharacterType clientCharacterType, SkinType skinType, SkinPartType skinPartType)
+    {
+        if (!BackendStabilizerRuntime.UsePersistentSelections)
+        {
+            return false;
+        }
+
+        var player = GetPlayer();
+        if (!TryMapClientCharacterType(clientCharacterType, out var characterType))
+        {
+            BackendStabilizerRuntime.LogSkinSelectionResolution("BackendStabilizerSelections.ApplySkinPartSelection:mapFailed", clientCharacterType, CharacterType.None, 0, player is not null, false);
+            return false;
+        }
+
+        var character = GetCharacterByType(characterType);
+        var characterId = character?.CharacterId ?? 0;
+        BackendStabilizerRuntime.LogSkinSelectionResolution("BackendStabilizerSelections.ApplySkinPartSelection:resolved", clientCharacterType, characterType, characterId, player is not null, character is not null);
+        if (player is null || character is null)
+        {
+            return false;
+        }
+
+        player.Skins ??= new PlayerSkins(new Il2CppCollections.List<SkinPart>());
+        player.Skins.SkinParts ??= new Il2CppCollections.List<SkinPart>();
+
+        SkinPart? selectedSkinPart = null;
+        foreach (var skinPart in player.Skins.SkinParts)
+        {
+            if (skinPart is null || skinPart.SkinPartType != skinPartType)
+            {
+                continue;
+            }
+
+            selectedSkinPart = skinPart;
+            break;
+        }
+
+        if (selectedSkinPart is null)
+        {
+            selectedSkinPart = new SkinPart(BackendStabilizerStub.GetSkinPartId(skinPartType), skinType, skinPartType);
+            player.Skins.SkinParts.Add(selectedSkinPart);
+        }
+        else
+        {
+            selectedSkinPart.Id = BackendStabilizerStub.GetSkinPartId(skinPartType);
+            selectedSkinPart.SkinType = skinType;
+            selectedSkinPart.SkinPartType = skinPartType;
+        }
+
+        character.SkinParts ??= new SkinParts();
+        switch (skinType)
+        {
+            case SkinType.Head:
+                character.SkinParts.Head = selectedSkinPart;
+                break;
+            case SkinType.Chest:
+                character.SkinParts.Chest = selectedSkinPart;
+                break;
+            case SkinType.Legs:
+                character.SkinParts.Legs = selectedSkinPart;
+                break;
+            case SkinType.Hands:
+                character.SkinParts.Hands = selectedSkinPart;
+                break;
+            case SkinType.Back:
+                character.SkinParts.Back = selectedSkinPart;
+                break;
+            case SkinType.Whole:
+                character.SkinParts.Whole = selectedSkinPart;
+                break;
+            default:
+                return false;
+        }
+
+        SaveSelection(character);
+        BackendStabilizerRuntime.LogSkinSelectionSnapshot("BackendStabilizerSelections.ApplySkinPartSelection:applied", character);
+        PublishSkinRefresh(skinPartType, skinType);
+        return true;
+    }
+
+    private static void PublishSkinRefresh(SkinPartType skinPartType, SkinType skinType)
+    {
+        var gameType = AccessTools.TypeByName("Game");
+        var internalIdProperty = AccessTools.Property(gameType, "InternalId");
+        if (internalIdProperty?.GetValue(null) is not int internalId)
+        {
+            BackendStabilizerRuntime.LogSkinPreview("BackendStabilizerSelections.PublishSkinRefresh:noInternalId", 0, skinType, skinPartType, false);
+            return;
+        }
+
+        if (internalId <= 0)
+        {
+            BackendStabilizerRuntime.LogSkinPreview("BackendStabilizerSelections.PublishSkinRefresh:invalidInternalId", internalId, skinType, skinPartType, false);
+            return;
+        }
+
+        BackendStabilizerRuntime.LogSkinPreview("BackendStabilizerSelections.PublishSkinRefresh:publish", internalId, skinType, skinPartType, true);
+        GameEventsManager.Publish<TryOnCharacterOutfitLocallyEvent>(null, new TryOnCharacterOutfitLocallyEvent(internalId, skinPartType, skinType));
+        GameEventsManager.Publish<RefreshCharacterOutfit>(null, new RefreshCharacterOutfit(internalId));
+    }
+
+    public static bool RemoveSkinPartSelection(int characterId, SkinType skinType)
+    {
+        if (!BackendStabilizerRuntime.UsePersistentSelections)
+        {
+            return false;
+        }
+
+        var character = GetCharacterById(characterId);
+        if (character?.SkinParts is null)
+        {
+            return false;
+        }
+
+        switch (skinType)
+        {
+            case SkinType.Head:
+                character.SkinParts.Head = null;
+                break;
+            case SkinType.Chest:
+                character.SkinParts.Chest = null;
+                break;
+            case SkinType.Legs:
+                character.SkinParts.Legs = null;
+                break;
+            case SkinType.Hands:
+                character.SkinParts.Hands = null;
+                break;
+            case SkinType.Back:
+                character.SkinParts.Back = null;
+                break;
+            case SkinType.Whole:
+                character.SkinParts.Whole = null;
+                break;
+            default:
+                return false;
+        }
+
+        SaveSelection(character);
+        return true;
+    }
+
+    public static bool ApplyTreeSkillSelection(ClientCharacterType clientCharacterType, SkillType skillType, int slotType)
+    {
+        if (!BackendStabilizerRuntime.UsePersistentSelections)
+        {
+            return false;
+        }
+
+        var player = GetPlayer();
+        if (!TryMapClientCharacterType(clientCharacterType, out var characterType))
+        {
+            return false;
+        }
+
+        var character = GetCharacterByType(characterType);
+        var cards = player?.Cards?.SkillCards;
+        if (character is null || cards is null)
+        {
+            return false;
+        }
+
+        SkillCard? selectedCard = null;
+        foreach (var card in cards)
+        {
+            if (card is not null && card.SkillType == skillType)
+            {
+                selectedCard = card;
+                break;
+            }
+        }
+
+        if (selectedCard is null)
+        {
+            return false;
+        }
+
+        character.SkillCards ??= new CharacterSkillCards();
+        switch (slotType)
+        {
+            case 1:
+                character.SkillCards.PassiveSkillCard1 = selectedCard;
+                break;
+            case 2:
+                character.SkillCards.PassiveSkillCard2 = selectedCard;
+                break;
+            case 3:
+                character.SkillCards.PassiveSkillCard3 = selectedCard;
+                break;
+            case 4:
+                character.SkillCards.PassiveSkillCard4 = selectedCard;
+                break;
+            default:
+                return false;
+        }
+
+        SaveSelection(character);
+        return true;
+    }
+
+    public static bool ApplyAvatarModificationSelection(Il2CppSystem.Enum productType, ClientCharacterType clientCharacterType)
+    {
+        if (!BackendStabilizerRuntime.UsePersistentSelections || !TryGetCharacterId(clientCharacterType, out var characterId))
+        {
+            return false;
+        }
+
+        if (!TryParseAvatarProduct(productType, out var avatarType, out var avatarFrameType, out var descriptionType))
+        {
+            return false;
+        }
+
+        if (avatarType != AvatarType.None)
+        {
+            return ApplyAvatarSelection(characterId, BackendStabilizerStub.GetAvatarId(avatarType));
+        }
+
+        if (avatarFrameType != AvatarFrameType.None)
+        {
+            return ApplyAvatarFrameSelection(characterId, BackendStabilizerStub.GetAvatarFrameId(avatarFrameType));
+        }
+
+        if (descriptionType != DescriptionType.none)
+        {
+            return ApplyTitleSelection(characterId, descriptionType);
+        }
+
+        return false;
+    }
+
+    public static void SaveCurrentCharacterSelection(CharacterType characterType)
+    {
+        if (!BackendStabilizerRuntime.UsePersistentSelections)
+        {
+            return;
+        }
+
+        var clientCache = BackendStabilizerRuntime.CurrentClientCache;
+        Character? character = null;
+        var characters = clientCache?.UserWebPlayer?.Characters;
+        if (characters is not null)
+        {
+            foreach (var existingCharacter in characters)
+            {
+                if (existingCharacter is null || existingCharacter.Type != characterType)
+                {
+                    continue;
+                }
+
+                character = existingCharacter;
+                break;
+            }
+        }
+
+        if (character is null)
+        {
+            return;
+        }
+
+        LocalSelectionsStore.SaveCharacterSelection(character);
+    }
+
+    public static void SaveCurrentCharacterSelection(ClientCharacterType clientCharacterType)
+    {
+        if (!TryMapClientCharacterType(clientCharacterType, out var characterType))
+        {
+            return;
+        }
+
+        SaveCurrentCharacterSelection(characterType);
+    }
+
+    public static void SaveCharacterSkinSelection(int characterId, int characterSkinTypeId)
+    {
+        if (!BackendStabilizerRuntime.UsePersistentSelections || !BackendStabilizerStub.TryGetCharacterTypeById(characterId, out var characterType))
+        {
+            return;
+        }
+
+        if (!TryResolveCharacterSkin(characterSkinTypeId, out var characterSkin))
+        {
+            return;
+        }
+
+        LocalSelectionsStore.SaveCharacterSkin(characterType, characterSkin);
+    }
+
+    public static void SaveAfterCompletion(Il2CppTasks.Task task, CharacterType characterType)
+    {
+        if (!BackendStabilizerRuntime.UsePersistentSelections || task is null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (task.IsCompletedSuccessfully)
+            {
+                SaveCurrentCharacterSelection(characterType);
+                return;
+            }
+
+            _ = Tasks.Task.Run(
+                async () =>
+                {
+                    while (!task.IsCompleted)
+                    {
+                        await Tasks.Task.Delay(50).ConfigureAwait(false);
+                    }
+
+                    if (!task.IsCompletedSuccessfully)
+                    {
+                        return;
+                    }
+
+                    SaveCurrentCharacterSelection(characterType);
+                });
+        }
+        catch (Exception exception)
+        {
+            BackendStabilizerRuntime.LogError("Backend stabilizer selection persistence failed", exception);
+        }
+    }
+
+    public static void SaveAfterCompletion(Il2CppTasks.Task task, ClientCharacterType clientCharacterType)
+    {
+        if (!TryMapClientCharacterType(clientCharacterType, out var characterType))
+        {
+            return;
+        }
+
+        SaveAfterCompletion(task, characterType);
+    }
+
+    public static void SaveSkinPartAfterCompletion(Il2CppTasks.Task task, ClientCharacterType clientCharacterType, SkinType skinType, SkinPartType skinPartType)
+    {
+        if (!BackendStabilizerRuntime.UsePersistentSelections || task is null)
+        {
+            return;
+        }
+
+        if (!TryMapClientCharacterType(clientCharacterType, out var characterType))
+        {
+            return;
+        }
+
+        try
+        {
+            if (task.IsCompletedSuccessfully)
+            {
+                LocalSelectionsStore.SaveSkinPartSelection(characterType, skinType, skinPartType);
+                return;
+            }
+
+            _ = Tasks.Task.Run(
+                async () =>
+                {
+                    while (!task.IsCompleted)
+                    {
+                        await Tasks.Task.Delay(50).ConfigureAwait(false);
+                    }
+
+                    if (!task.IsCompletedSuccessfully)
+                    {
+                        return;
+                    }
+
+                    LocalSelectionsStore.SaveSkinPartSelection(characterType, skinType, skinPartType);
+                });
+        }
+        catch (Exception exception)
+        {
+            BackendStabilizerRuntime.LogError("Backend stabilizer skin persistence failed", exception);
+        }
+    }
+
+    public static void SaveAfterCompletion(Il2CppTasks.Task<bool> task, CharacterType characterType)
+    {
+        if (!BackendStabilizerRuntime.UsePersistentSelections || task is null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (task.IsCompletedSuccessfully)
+            {
+                if (task.Result)
+                {
+                    SaveCurrentCharacterSelection(characterType);
+                }
+
+                return;
+            }
+
+            _ = Tasks.Task.Run(
+                async () =>
+                {
+                    while (!task.IsCompleted)
+                    {
+                        await Tasks.Task.Delay(50).ConfigureAwait(false);
+                    }
+
+                    if (!task.IsCompletedSuccessfully || !task.Result)
+                    {
+                        return;
+                    }
+
+                    SaveCurrentCharacterSelection(characterType);
+                });
+        }
+        catch (Exception exception)
+        {
+            BackendStabilizerRuntime.LogError("Backend stabilizer selection persistence failed", exception);
+        }
+    }
+
+    public static void SaveAfterCompletion(Il2CppTasks.Task<bool> task, ClientCharacterType clientCharacterType)
+    {
+        if (!TryMapClientCharacterType(clientCharacterType, out var characterType))
+        {
+            return;
+        }
+
+        SaveAfterCompletion(task, characterType);
+    }
+}
+
 [HarmonyPatch(typeof(ClientCache), nameof(ClientCache.OnClientConfirmed))]
 internal static class ClientCacheOnClientConfirmedPatch
 {
@@ -39,6 +845,7 @@ internal static class ClientCacheOnClientConfirmedPatch
     {
         try
         {
+            BackendStabilizerRuntime.TrackClientCache(__instance);
             BackendStabilizerOverlay.EnsureClientCache(__instance);
 
             BackendStabilizerRuntime.LogClientCacheState("ClientCache.OnClientConfirmed", __instance);
@@ -83,6 +890,7 @@ internal static class ClientCacheRefreshPlayerPatch
     {
         try
         {
+            BackendStabilizerRuntime.TrackClientCache(__instance);
             if (BackendStabilizerRuntime.UseLocalStub)
             {
                 BackendStabilizerStub.PopulateClientCache(__instance);
@@ -145,6 +953,307 @@ internal static class ClientCacheRefreshPlayerPatch
         {
             BackendStabilizerRuntime.LogError("Backend stabilizer ClientCache.RefreshPlayer completion overlay failed", exception);
         }
+    }
+}
+
+[HarmonyPatch(typeof(PlayerNewMetaInventory), nameof(PlayerNewMetaInventory.OnAvatarModyficationChange))]
+internal static class PlayerNewMetaInventoryOnAvatarModyficationChangePatch
+{
+    private static bool Prefix(Il2CppSystem.Enum productType, ClientCharacterType characterType, ref Il2CppTasks.Task<bool> __result)
+    {
+        if (!BackendStabilizerRuntime.UsePersistentSelections || !BackendStabilizerSelections.ApplyAvatarModificationSelection(productType, characterType))
+        {
+            return true;
+        }
+
+        __result = Il2CppTasks.Task.FromResult(true);
+        return false;
+    }
+
+    private static void Postfix(ClientCharacterType characterType, Il2CppTasks.Task<bool> __result)
+    {
+        BackendStabilizerSelections.SaveAfterCompletion(__result, characterType);
+    }
+}
+
+[HarmonyPatch(typeof(PlayerNewMetaInventory), nameof(PlayerNewMetaInventory.EmoteChange))]
+internal static class PlayerNewMetaInventoryEmoteChangePatch
+{
+    private static void Postfix(ClientCharacterType characterType, Il2CppTasks.Task<bool> __result)
+    {
+        BackendStabilizerSelections.SaveAfterCompletion(__result, characterType);
+    }
+}
+
+[HarmonyPatch(typeof(PlayerNewMetaInventory), nameof(PlayerNewMetaInventory.ChangeSkinEquipped))]
+internal static class PlayerNewMetaInventoryChangeSkinEquippedPatch
+{
+    private static void Prefix(SkinPartType partType, SkinType skinType, ClientCharacterType characterType)
+    {
+        BackendStabilizerRuntime.LogSkinPath("PlayerNewMetaInventory.ChangeSkinEquipped:prefix", characterType, skinType, partType, false);
+    }
+
+    private static void Postfix(SkinPartType partType, SkinType skinType, ClientCharacterType characterType, Il2CppTasks.Task __result)
+    {
+        BackendStabilizerSelections.SaveAfterCompletion(__result, characterType);
+        BackendStabilizerSelections.SaveSkinPartAfterCompletion(__result, characterType, skinType, partType);
+    }
+}
+
+[HarmonyPatch(typeof(PlayerNewMetaInventory), "DoIOwnThisItem")]
+internal static class PlayerNewMetaInventoryDoIOwnThisItemLoggingPatch
+{
+    private static void Postfix(Il2CppSystem.Enum itemType, bool __result)
+    {
+        if (!BackendStabilizerSelections.TryGetSkinPartType(itemType, out _))
+        {
+            return;
+        }
+
+        BackendStabilizerRuntime.LogSkinOwnershipLookup("PlayerNewMetaInventory.DoIOwnThisItem", itemType, __result);
+    }
+}
+
+[HarmonyPatch(typeof(PlayerNewMetaInventory), "GetOwnedItemId")]
+internal static class PlayerNewMetaInventoryGetOwnedItemIdSkinPatch
+{
+    private static void Postfix(Il2CppSystem.Enum itemType, ref int __result)
+    {
+        if (!BackendStabilizerSelections.TryGetSkinPartType(itemType, out var skinPartType))
+        {
+            return;
+        }
+
+        BackendStabilizerRuntime.LogSkinOwnershipLookup("PlayerNewMetaInventory.GetOwnedItemId:beforeOverride", itemType, __result);
+
+        if (!BackendStabilizerRuntime.UsePersistentSelections)
+        {
+            return;
+        }
+
+        __result = BackendStabilizerStub.GetSkinPartId(skinPartType);
+        BackendStabilizerRuntime.LogSkinOwnershipLookup("PlayerNewMetaInventory.GetOwnedItemId:afterOverride", itemType, __result);
+    }
+}
+
+[HarmonyPatch(typeof(PlayerNewMetaInventory), nameof(PlayerNewMetaInventory.GetMyCurrentSkinPartType))]
+internal static class PlayerNewMetaInventoryGetMyCurrentSkinPartTypeLoggingPatch
+{
+    private static void Postfix(SkinType skinType, ClientCharacterType characterType, SkinPartType __result)
+    {
+        BackendStabilizerRuntime.LogSkinPath("PlayerNewMetaInventory.GetMyCurrentSkinPartType", characterType, skinType, __result, true);
+    }
+}
+
+[HarmonyPatch(typeof(CustomizeCharacterNewMetaView), "OnCostumePiecked")]
+internal static class CustomizeCharacterNewMetaViewOnCostumePieckedLoggingPatch
+{
+    private static void Postfix(SkinPartType skinPartType, SkinType skinType)
+    {
+        BackendStabilizerRuntime.LogSkinPreview("CustomizeCharacterNewMetaView.OnCostumePiecked", 0, skinType, skinPartType, true);
+    }
+}
+
+[HarmonyPatch(typeof(CustomizeCharacterNewMetaView), "OnEquipButton")]
+internal static class CustomizeCharacterNewMetaViewOnEquipButtonLoggingPatch
+{
+    private static void Postfix()
+    {
+        BackendStabilizerRuntime.LogSkinRefreshEvent("CustomizeCharacterNewMetaView.OnEquipButton", 0);
+    }
+}
+
+[HarmonyPatch(typeof(PlayerCustomizationView), "OnTryOnCharacterOutfitLocally")]
+internal static class PlayerCustomizationViewTryOnCharacterOutfitLoggingPatch
+{
+    private static void Postfix(object sender, EventArgs args)
+    {
+        if (args is null || !string.Equals(args.GetType().Name, nameof(TryOnCharacterOutfitLocallyEvent), StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var internalId = AccessTools.Property(args.GetType(), "InternalId")?.GetValue(args) is int value ? value : 0;
+        var skinType = AccessTools.Property(args.GetType(), "SkinType")?.GetValue(args) is SkinType currentSkinType ? currentSkinType : SkinType.None;
+        var skinPartType = AccessTools.Property(args.GetType(), "CostumeType")?.GetValue(args) is SkinPartType currentSkinPartType ? currentSkinPartType : SkinPartType.None;
+        BackendStabilizerRuntime.LogSkinPreview("PlayerCustomizationView.OnTryOnCharacterOutfitLocally", internalId, skinType, skinPartType, true);
+    }
+}
+
+[HarmonyPatch(typeof(PlayerCustomizationView), "OnRefreshCharacterOutfit")]
+internal static class PlayerCustomizationViewRefreshCharacterOutfitLoggingPatch
+{
+    private static void Postfix(object sender, EventArgs args)
+    {
+        if (args is null || !string.Equals(args.GetType().Name, nameof(RefreshCharacterOutfit), StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var internalId = AccessTools.Property(args.GetType(), "InternalId")?.GetValue(args) is int value ? value : 0;
+        BackendStabilizerRuntime.LogSkinRefreshEvent("PlayerCustomizationView.OnRefreshCharacterOutfit", internalId);
+    }
+}
+
+[HarmonyPatch(typeof(PlayerCustomizationView), "TryPreviewOutfit")]
+internal static class PlayerCustomizationViewTryPreviewOutfitLoggingPatch
+{
+    private static void Postfix(SkinPartType costumeType, SkinType skinType)
+    {
+        BackendStabilizerRuntime.LogSkinPreview("PlayerCustomizationView.TryPreviewOutfit", 0, skinType, costumeType, true);
+    }
+}
+
+
+[HarmonyPatch(typeof(PlayerNewMetaInventory), nameof(PlayerNewMetaInventory.OnTreeSkillChange))]
+internal static class PlayerNewMetaInventoryOnTreeSkillChangePatch
+{
+    private static bool Prefix(SkillType cardSkillType, int slotType, ClientCharacterType characterType, ref Il2CppTasks.Task<bool> __result)
+    {
+        if (!BackendStabilizerRuntime.UsePersistentSelections)
+        {
+            return true;
+        }
+
+        if (!BackendStabilizerSelections.ApplyTreeSkillSelection(characterType, cardSkillType, slotType))
+        {
+            return true;
+        }
+
+        __result = Il2CppTasks.Task.FromResult(true);
+        return false;
+    }
+
+    private static void Postfix(ClientCharacterType characterType, Il2CppTasks.Task<bool> __result)
+    {
+        BackendStabilizerSelections.SaveAfterCompletion(__result, characterType);
+    }
+}
+
+[HarmonyPatch(typeof(KinguinverseWebService), nameof(KinguinverseWebService.PutOnCharacterSkin))]
+internal static class KinguinverseWebServicePutOnCharacterSkinPatch
+{
+    private static bool Prefix(int characterId, int characterSkinTypeId, ref Il2CppTasks.Task<Result<bool>> __result)
+    {
+        var handledLocally = BackendStabilizerRuntime.UsePersistentSelections && BackendStabilizerSelections.ApplyCharacterSkinSelection(characterId, characterSkinTypeId);
+        BackendStabilizerRuntime.LogSkinWebCall("KinguinverseWebService.PutOnCharacterSkin:prefix", characterId, characterSkinTypeId, handledLocally);
+        if (!handledLocally)
+        {
+            BackendStabilizerSelections.SaveCharacterSkinSelection(characterId, characterSkinTypeId);
+            return true;
+        }
+
+        __result = BackendStabilizerStub.SuccessBoolean();
+        return false;
+    }
+}
+
+[HarmonyPatch(typeof(KinguinverseWebService), nameof(KinguinverseWebService.PutOnAvatar))]
+internal static class KinguinverseWebServicePutOnAvatarPatch
+{
+    private static bool Prefix(int characterId, int avatarId, ref Il2CppTasks.Task<Result<bool>> __result)
+    {
+        if (!BackendStabilizerRuntime.UsePersistentSelections || !BackendStabilizerSelections.ApplyAvatarSelection(characterId, avatarId))
+        {
+            return true;
+        }
+
+        __result = BackendStabilizerStub.SuccessBoolean();
+        return false;
+    }
+}
+
+[HarmonyPatch(typeof(KinguinverseWebService), nameof(KinguinverseWebService.PutOnAvatarFrame))]
+internal static class KinguinverseWebServicePutOnAvatarFramePatch
+{
+    private static bool Prefix(int characterId, int avatarFrameId, ref Il2CppTasks.Task<Result<bool>> __result)
+    {
+        if (!BackendStabilizerRuntime.UsePersistentSelections || !BackendStabilizerSelections.ApplyAvatarFrameSelection(characterId, avatarFrameId))
+        {
+            return true;
+        }
+
+        __result = BackendStabilizerStub.SuccessBoolean();
+        return false;
+    }
+}
+
+[HarmonyPatch(typeof(KinguinverseWebService), nameof(KinguinverseWebService.PutOnCharacterDescription))]
+internal static class KinguinverseWebServicePutOnCharacterDescriptionPatch
+{
+    private static bool Prefix(int characterId, DescriptionType descriptionType, ref Il2CppTasks.Task<Result<bool>> __result)
+    {
+        if (!BackendStabilizerRuntime.UsePersistentSelections || !BackendStabilizerSelections.ApplyTitleSelection(characterId, descriptionType))
+        {
+            return true;
+        }
+
+        __result = BackendStabilizerStub.SuccessBoolean();
+        return false;
+    }
+}
+
+[HarmonyPatch(typeof(KinguinverseWebService), nameof(KinguinverseWebService.PutOnCharacterFart))]
+internal static class KinguinverseWebServicePutOnCharacterFartPatch
+{
+    private static bool Prefix(int characterId, EmoteType emoteFart, ref Il2CppTasks.Task<Result<bool>> __result)
+    {
+        if (!BackendStabilizerRuntime.UsePersistentSelections || !BackendStabilizerSelections.ApplyFartSelection(characterId, emoteFart))
+        {
+            return true;
+        }
+
+        __result = BackendStabilizerStub.SuccessBoolean();
+        return false;
+    }
+}
+
+[HarmonyPatch(typeof(KinguinverseWebService), nameof(KinguinverseWebService.PutOnCharacterDance))]
+internal static class KinguinverseWebServicePutOnCharacterDancePatch
+{
+    private static bool Prefix(int characterId, EmoteType emoteFart, ref Il2CppTasks.Task<Result<bool>> __result)
+    {
+        if (!BackendStabilizerRuntime.UsePersistentSelections || !BackendStabilizerSelections.ApplyDanceSelection(characterId, emoteFart))
+        {
+            return true;
+        }
+
+        __result = BackendStabilizerStub.SuccessBoolean();
+        return false;
+    }
+}
+
+[HarmonyPatch(typeof(KinguinverseWebService), nameof(KinguinverseWebService.PutOnSkinPart))]
+internal static class KinguinverseWebServicePutOnSkinPartPatch
+{
+    private static bool Prefix(int characterId, int skinPartId, ref Il2CppTasks.Task<Result<bool>> __result)
+    {
+        var handledLocally = BackendStabilizerRuntime.UsePersistentSelections && BackendStabilizerSelections.ApplySkinPartSelection(characterId, skinPartId);
+        BackendStabilizerRuntime.LogSkinWebCall("KinguinverseWebService.PutOnSkinPart:prefix", characterId, skinPartId, handledLocally);
+        if (!handledLocally)
+        {
+            return true;
+        }
+
+        __result = BackendStabilizerStub.SuccessBoolean();
+        return false;
+    }
+}
+
+[HarmonyPatch(typeof(KinguinverseWebService), nameof(KinguinverseWebService.PutOffSkinPart))]
+internal static class KinguinverseWebServicePutOffSkinPartPatch
+{
+    private static bool Prefix(int characterId, SkinType skinType, ref Il2CppTasks.Task<Result<bool>> __result)
+    {
+        var handledLocally = BackendStabilizerRuntime.UsePersistentSelections && BackendStabilizerSelections.RemoveSkinPartSelection(characterId, skinType);
+        BackendStabilizerRuntime.LogSkinRemove("KinguinverseWebService.PutOffSkinPart:prefix", characterId, skinType, handledLocally);
+        if (!handledLocally)
+        {
+            return true;
+        }
+
+        __result = BackendStabilizerStub.SuccessBoolean();
+        return false;
     }
 }
 

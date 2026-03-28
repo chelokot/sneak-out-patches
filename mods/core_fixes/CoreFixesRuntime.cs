@@ -5,7 +5,6 @@ using HarmonyLib;
 using Il2CppInterop.Runtime;
 using Il2CppInterop.Runtime.InteropTypes;
 using Networking.PGOS;
-using System.Reflection;
 using Types;
 using UI.Views;
 
@@ -136,30 +135,4 @@ internal static class CoreFixesRuntime
         _logger?.LogInfo($"{source}: itemPtr=0x{itemPointer:x}, result={result}");
     }
 
-
-    public static bool ShouldSuppressBackendStabilizerAvatarViewPatches()
-    {
-        return Enabled;
-    }
-
-    public static MethodBase? FindBackendStabilizerMethod(string typeName, string methodName)
-    {
-        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
-        {
-            if (!string.Equals(assembly.GetName().Name, "SneakOut.BackendStabilizer", StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            var type = assembly.GetType(typeName, throwOnError: false);
-            if (type is null)
-            {
-                return null;
-            }
-
-            return type.GetMethod(methodName, BindingFlags.Static | BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-        }
-
-        return null;
-    }
 }

@@ -165,6 +165,10 @@ internal static class BackendStabilizerStub
             }
 
             clientCache.UserWebPlayer = CreatePlayer();
+            if (BackendStabilizerRuntime.UsePersistentSelections)
+            {
+                LocalSelectionsStore.ApplySelections(clientCache.UserWebPlayer);
+            }
             clientCache.PlayerDailyQuests = CreateDailyQuests();
             clientCache.CurrentSeasonPassProgression = CreateSeasonPassProgression(seasonPass.Name);
             clientCache.SeasonPass = seasonPass;
@@ -192,33 +196,25 @@ internal static class BackendStabilizerStub
             else
             {
                 var player = clientCache.UserWebPlayer;
-                var baseData = player.BaseData ?? CreateBaseData();
-                baseData.Experience = MaxExperienceAmount;
-                player.BaseData = baseData;
-                player.Resources = CreateResources();
+                player.BaseData ??= CreateBaseData();
                 player.Cards = EnsurePlayerCards(player.Cards);
-                player.Avatars ??= CreatePlayerAvatars();
-                player.AvatarFrames ??= CreatePlayerAvatarFrames();
-                player.CharacterSkins ??= CreatePlayerCharacterSkins();
+                player.Avatars = EnsurePlayerAvatars(player.Avatars);
+                player.AvatarFrames = EnsurePlayerAvatarFrames(player.AvatarFrames);
+                player.CharacterSkins = EnsurePlayerCharacterSkins(player.CharacterSkins);
                 player.Ownership = CreateOwnership();
                 player.Boosters ??= new PlayerBoosters();
-                player.Emotions ??= CreatePlayerEmotions();
+                player.Emotions = EnsurePlayerEmotions(player.Emotions);
                 player.BoostTickets ??= new PlayerBoostTickets();
                 player.ResourceSources ??= new Il2CppCollections.List<ResourceSource>();
                 player.Consumables ??= new PlayerConsumables();
-                player.Skins ??= new PlayerSkins();
-                player.Descriptions ??= new Il2CppCollections.List<DescriptionType>();
-                if (player.Characters is null || player.Characters.Count == 0)
-                {
-                    player.Characters = CreateCharacters();
-                }
-                else
-                {
-                    foreach (var character in player.Characters)
-                    {
-                        EnsureCharacterDefaults(character);
-                    }
-                }
+                player.Skins = EnsurePlayerSkins(player.Skins);
+                player.Descriptions = EnsureDescriptions(player.Descriptions);
+                player.Characters = EnsureCharacters(player.Characters);
+            }
+
+            if (BackendStabilizerRuntime.UsePersistentSelections && clientCache.UserWebPlayer is not null)
+            {
+                LocalSelectionsStore.ApplySelections(clientCache.UserWebPlayer);
             }
 
             if (clientCache.PlayerDailyQuests is null)
@@ -260,7 +256,7 @@ internal static class BackendStabilizerStub
 
     public static SkillCard CreateMaxSkillCard(SkillType skillType)
     {
-        return new SkillCard(30_000 + (int)skillType, skillType, MaxSkillExperience, MaxSkillTier);
+        return new SkillCard(GetSkillCardId(skillType), skillType, MaxSkillExperience, MaxSkillTier);
     }
 
     public static SkillCard EnsureMaxSkillCard(SkillCard? skillCard, SkillType skillType)
@@ -270,11 +266,7 @@ internal static class BackendStabilizerStub
             return CreateMaxSkillCard(skillType);
         }
 
-        if (skillCard.Id == 0)
-        {
-            skillCard.Id = 30_000 + (int)skillType;
-        }
-
+        skillCard.Id = GetSkillCardId(skillType);
         skillCard.SkillType = skillType;
         skillCard.Experience = MaxSkillExperience;
         skillCard.Tier = MaxSkillTier;
@@ -287,8 +279,6 @@ internal static class BackendStabilizerStub
         {
             CaptureIdentity(null);
             var seasonPass = CreateSeasonPass();
-            response.Exp = MaxExperienceAmount;
-            response.Resources = CreateResources();
             response.Consumables ??= new PlayerConsumables();
             response.DailyQuests = CreateDailyQuests();
             response.CurrentSeasonPassProgression = CreateSeasonPassProgression(seasonPass.Name);
@@ -413,6 +403,39 @@ internal static class BackendStabilizerStub
         _timeZoneOffset = baseData.TimeZoneOffset;
     }
 
+    public static string GetProfileStorageKey()
+    {
+        lock (Sync)
+        {
+            return _steamId != 0 ? $"steam:{_steamId}" : $"user:{_userId}";
+        }
+    }
+
+    public static bool TryGetCharacterTypeById(int characterId, out CharacterType characterType)
+    {
+        lock (Sync)
+        {
+            var clientCache = BackendStabilizerRuntime.CurrentClientCache;
+            var characters = clientCache?.UserWebPlayer?.Characters;
+            if (characters is not null)
+            {
+                foreach (var character in characters)
+                {
+                    if (character is null || character.CharacterId != characterId)
+                    {
+                        continue;
+                    }
+
+                    characterType = character.Type;
+                    return true;
+                }
+            }
+
+            characterType = CharacterType.None;
+            return false;
+        }
+    }
+
     private static Il2CppCollections.List<GameUserMetadataDto> CreateMetadataDtos()
     {
         var values = new Il2CppCollections.List<GameUserMetadataDto>();
@@ -434,6 +457,67 @@ internal static class BackendStabilizerStub
         values.Add(new Resource(ResourceType.Level, 100));
         values.Add(new Resource(ResourceType.BattlePassExperience, MaxExperienceAmount));
         return new PlayerResources(values);
+    }
+
+    public static int GetAvatarId(AvatarType avatarType)
+    {
+        return 100_000 + (int)avatarType;
+    }
+
+    public static int GetAvatarFrameId(AvatarFrameType avatarFrameType)
+    {
+        return 110_000 + (int)avatarFrameType;
+    }
+
+    public static int GetEmoteId(EmoteType emoteType)
+    {
+        return 120_000 + (int)emoteType;
+    }
+
+    public static int GetSkinPartId(SkinPartType skinPartType)
+    {
+        return 130_000 + (int)skinPartType;
+    }
+
+    public static int GetCharacterSkinId(CharacterSkin characterSkin)
+    {
+        return 140_000 + (int)characterSkin;
+    }
+
+    public static int GetSkillCardId(SkillType skillType)
+    {
+        return 30_000 + (int)skillType;
+    }
+
+    public static SkinType GetSkinTypeForSkinPart(SkinPartType skinPartType)
+    {
+        var skinPartName = skinPartType.ToString();
+        if (skinPartName.Contains("Head", StringComparison.Ordinal))
+        {
+            return SkinType.Head;
+        }
+
+        if (skinPartName.Contains("Torso", StringComparison.Ordinal) || skinPartName.Contains("Chest", StringComparison.Ordinal))
+        {
+            return SkinType.Chest;
+        }
+
+        if (skinPartName.Contains("Legs", StringComparison.Ordinal))
+        {
+            return SkinType.Legs;
+        }
+
+        if (skinPartName.Contains("Arms", StringComparison.Ordinal) || skinPartName.Contains("Hands", StringComparison.Ordinal))
+        {
+            return SkinType.Hands;
+        }
+
+        if (skinPartName.Contains("Back", StringComparison.Ordinal))
+        {
+            return SkinType.Back;
+        }
+
+        return SkinType.Whole;
     }
 
     private static PlayerOwnership CreateOwnership()
@@ -510,7 +594,6 @@ internal static class BackendStabilizerStub
     private static PlayerEmotions CreatePlayerEmotions()
     {
         var emotions = new Il2CppCollections.List<Emote>();
-        var emoteId = 1;
         foreach (var emoteType in System.Enum.GetValues<EmoteType>())
         {
             if (emoteType == EmoteType.None)
@@ -518,7 +601,7 @@ internal static class BackendStabilizerStub
                 continue;
             }
 
-            emotions.Add(new Emote(emoteId++, emoteType));
+            emotions.Add(new Emote(GetEmoteId(emoteType), emoteType));
         }
 
         return new PlayerEmotions(emotions);
@@ -591,7 +674,6 @@ internal static class BackendStabilizerStub
     private static PlayerCards CreatePlayerCards()
     {
         var skillCards = new Il2CppCollections.List<SkillCard>();
-        var cardId = 1;
 
         foreach (var skillType in System.Enum.GetValues<SkillType>())
         {
@@ -600,7 +682,7 @@ internal static class BackendStabilizerStub
                 continue;
             }
 
-            skillCards.Add(new SkillCard(cardId++, skillType, MaxSkillExperience, MaxSkillTier));
+            skillCards.Add(CreateMaxSkillCard(skillType));
         }
 
         return new PlayerCards(skillCards);
@@ -738,7 +820,6 @@ internal static class BackendStabilizerStub
     private static PlayerAvatars CreatePlayerAvatars()
     {
         var avatars = new Il2CppCollections.List<Avatar>();
-        var avatarId = 1;
 
         foreach (var avatarType in System.Enum.GetValues<AvatarType>())
         {
@@ -747,7 +828,7 @@ internal static class BackendStabilizerStub
                 continue;
             }
 
-            avatars.Add(CreateAvatar(avatarType, avatarId++));
+            avatars.Add(CreateAvatar(avatarType, GetAvatarId(avatarType)));
         }
 
         return new PlayerAvatars(avatars);
@@ -756,7 +837,6 @@ internal static class BackendStabilizerStub
     private static PlayerAvatarFrames CreatePlayerAvatarFrames()
     {
         var frames = new Il2CppCollections.List<AvatarFrame>();
-        var frameId = 1;
 
         foreach (var frameType in System.Enum.GetValues<AvatarFrameType>())
         {
@@ -765,7 +845,7 @@ internal static class BackendStabilizerStub
                 continue;
             }
 
-            frames.Add(CreateAvatarFrame(frameType, frameId++));
+            frames.Add(CreateAvatarFrame(frameType, GetAvatarFrameId(frameType)));
         }
 
         return new PlayerAvatarFrames(frames);
@@ -774,7 +854,6 @@ internal static class BackendStabilizerStub
     private static PlayerCharacterSkins CreatePlayerCharacterSkins()
     {
         var skins = new Il2CppCollections.List<PlayerCharacterSkin>();
-        var skinId = 1;
 
         foreach (var characterSkin in System.Enum.GetValues<CharacterSkin>())
         {
@@ -783,10 +862,269 @@ internal static class BackendStabilizerStub
                 continue;
             }
 
-            skins.Add(new PlayerCharacterSkin(skinId++, characterSkin));
+            skins.Add(new PlayerCharacterSkin(GetCharacterSkinId(characterSkin), characterSkin));
         }
 
         return new PlayerCharacterSkins(skins);
+    }
+
+    private static PlayerAvatars EnsurePlayerAvatars(PlayerAvatars? avatars)
+    {
+        var normalizedAvatars = avatars ?? new PlayerAvatars(new Il2CppCollections.List<Avatar>());
+        normalizedAvatars.Avatars ??= new Il2CppCollections.List<Avatar>();
+        var existingAvatars = new Dictionary<AvatarType, Avatar>();
+        foreach (var avatar in normalizedAvatars.Avatars)
+        {
+            if (avatar is null || avatar.AvatarType == AvatarType.None)
+            {
+                continue;
+            }
+
+            existingAvatars[avatar.AvatarType] = avatar;
+        }
+        var mergedAvatars = new Il2CppCollections.List<Avatar>();
+
+        foreach (var avatarType in System.Enum.GetValues<AvatarType>())
+        {
+            if (avatarType == AvatarType.None)
+            {
+                continue;
+            }
+
+            if (existingAvatars.TryGetValue(avatarType, out var avatar))
+            {
+                avatar.Id = GetAvatarId(avatarType);
+                avatar.AvatarType = avatarType;
+                mergedAvatars.Add(avatar);
+                continue;
+            }
+
+            mergedAvatars.Add(CreateAvatar(avatarType, GetAvatarId(avatarType)));
+        }
+
+        normalizedAvatars.Avatars = mergedAvatars;
+        return normalizedAvatars;
+    }
+
+    private static PlayerAvatarFrames EnsurePlayerAvatarFrames(PlayerAvatarFrames? avatarFrames)
+    {
+        var normalizedFrames = avatarFrames ?? new PlayerAvatarFrames(new Il2CppCollections.List<AvatarFrame>());
+        normalizedFrames.AvatarFrames ??= new Il2CppCollections.List<AvatarFrame>();
+        var existingFrames = new Dictionary<AvatarFrameType, AvatarFrame>();
+        foreach (var frame in normalizedFrames.AvatarFrames)
+        {
+            if (frame is null || frame.AvatarFrameType == AvatarFrameType.None)
+            {
+                continue;
+            }
+
+            existingFrames[frame.AvatarFrameType] = frame;
+        }
+        var mergedFrames = new Il2CppCollections.List<AvatarFrame>();
+
+        foreach (var avatarFrameType in System.Enum.GetValues<AvatarFrameType>())
+        {
+            if (avatarFrameType == AvatarFrameType.None)
+            {
+                continue;
+            }
+
+            if (existingFrames.TryGetValue(avatarFrameType, out var frame))
+            {
+                frame.Id = GetAvatarFrameId(avatarFrameType);
+                frame.AvatarFrameType = avatarFrameType;
+                mergedFrames.Add(frame);
+                continue;
+            }
+
+            mergedFrames.Add(CreateAvatarFrame(avatarFrameType, GetAvatarFrameId(avatarFrameType)));
+        }
+
+        normalizedFrames.AvatarFrames = mergedFrames;
+        return normalizedFrames;
+    }
+
+    private static PlayerCharacterSkins EnsurePlayerCharacterSkins(PlayerCharacterSkins? characterSkins)
+    {
+        var normalizedCharacterSkins = characterSkins ?? new PlayerCharacterSkins(new Il2CppCollections.List<PlayerCharacterSkin>());
+        normalizedCharacterSkins.Skins ??= new Il2CppCollections.List<PlayerCharacterSkin>();
+        var existingCharacterSkins = new Dictionary<CharacterSkin, PlayerCharacterSkin>();
+        foreach (var skin in normalizedCharacterSkins.Skins)
+        {
+            if (skin is null || skin.Skin == CharacterSkin.None)
+            {
+                continue;
+            }
+
+            existingCharacterSkins[skin.Skin] = skin;
+        }
+        var mergedCharacterSkins = new Il2CppCollections.List<PlayerCharacterSkin>();
+
+        foreach (var characterSkin in System.Enum.GetValues<CharacterSkin>())
+        {
+            if (characterSkin == CharacterSkin.None)
+            {
+                continue;
+            }
+
+            if (existingCharacterSkins.TryGetValue(characterSkin, out var skin))
+            {
+                skin.Id = GetCharacterSkinId(characterSkin);
+                skin.Skin = characterSkin;
+                mergedCharacterSkins.Add(skin);
+                continue;
+            }
+
+            mergedCharacterSkins.Add(new PlayerCharacterSkin(GetCharacterSkinId(characterSkin), characterSkin));
+        }
+
+        normalizedCharacterSkins.Skins = mergedCharacterSkins;
+        return normalizedCharacterSkins;
+    }
+
+    private static PlayerEmotions EnsurePlayerEmotions(PlayerEmotions? playerEmotions)
+    {
+        var normalizedEmotions = playerEmotions ?? new PlayerEmotions(new Il2CppCollections.List<Emote>());
+        normalizedEmotions.AllEmotions ??= new Il2CppCollections.List<Emote>();
+        var existingEmotions = new Dictionary<EmoteType, Emote>();
+        foreach (var emote in normalizedEmotions.AllEmotions)
+        {
+            if (emote is null || emote.EmoteType == EmoteType.None)
+            {
+                continue;
+            }
+
+            existingEmotions[emote.EmoteType] = emote;
+        }
+        var mergedEmotions = new Il2CppCollections.List<Emote>();
+
+        foreach (var emoteType in System.Enum.GetValues<EmoteType>())
+        {
+            if (emoteType == EmoteType.None)
+            {
+                continue;
+            }
+
+            if (existingEmotions.TryGetValue(emoteType, out var emote))
+            {
+                emote.EmoteId = GetEmoteId(emoteType);
+                emote.EmoteType = emoteType;
+                mergedEmotions.Add(emote);
+                continue;
+            }
+
+            mergedEmotions.Add(new Emote(GetEmoteId(emoteType), emoteType));
+        }
+
+        normalizedEmotions.AllEmotions = mergedEmotions;
+        return normalizedEmotions;
+    }
+
+    private static PlayerSkins EnsurePlayerSkins(PlayerSkins? playerSkins)
+    {
+        var normalizedSkins = playerSkins ?? new PlayerSkins(new Il2CppCollections.List<SkinPart>());
+        normalizedSkins.SkinParts ??= new Il2CppCollections.List<SkinPart>();
+        var existingSkinParts = new Dictionary<SkinPartType, SkinPart>();
+        foreach (var skinPart in normalizedSkins.SkinParts)
+        {
+            if (skinPart is null || skinPart.SkinPartType == SkinPartType.None)
+            {
+                continue;
+            }
+
+            existingSkinParts[skinPart.SkinPartType] = skinPart;
+        }
+        var mergedSkinParts = new Il2CppCollections.List<SkinPart>();
+
+        foreach (var skinPartType in System.Enum.GetValues<SkinPartType>())
+        {
+            if (skinPartType == SkinPartType.None)
+            {
+                continue;
+            }
+
+            if (existingSkinParts.TryGetValue(skinPartType, out var skinPart))
+            {
+                skinPart.Id = GetSkinPartId(skinPartType);
+                skinPart.SkinPartType = skinPartType;
+                skinPart.SkinType = GetSkinTypeForSkinPart(skinPartType);
+                mergedSkinParts.Add(skinPart);
+                continue;
+            }
+
+            mergedSkinParts.Add(new SkinPart(GetSkinPartId(skinPartType), GetSkinTypeForSkinPart(skinPartType), skinPartType));
+        }
+
+        normalizedSkins.SkinParts = mergedSkinParts;
+        return normalizedSkins;
+    }
+
+    private static Il2CppCollections.List<DescriptionType> EnsureDescriptions(Il2CppCollections.List<DescriptionType>? descriptions)
+    {
+        var mergedDescriptions = descriptions ?? new Il2CppCollections.List<DescriptionType>();
+        foreach (var descriptionType in System.Enum.GetValues<DescriptionType>())
+        {
+            if (descriptionType == DescriptionType.none || mergedDescriptions.Contains(descriptionType))
+            {
+                continue;
+            }
+
+            mergedDescriptions.Add(descriptionType);
+        }
+
+        return mergedDescriptions;
+    }
+
+    private static Il2CppCollections.List<Character> EnsureCharacters(Il2CppCollections.List<Character>? characters)
+    {
+        if (characters is null || characters.Count == 0)
+        {
+            return CreateCharacters();
+        }
+
+        var existingCharacters = new Dictionary<CharacterType, Character>();
+        var mergedCharacters = new Il2CppCollections.List<Character>();
+        var nextCharacterId = 1;
+
+        foreach (var character in characters)
+        {
+            if (character is null || character.Type == CharacterType.None)
+            {
+                continue;
+            }
+
+            existingCharacters[character.Type] = character;
+            if (character.CharacterId >= nextCharacterId)
+            {
+                nextCharacterId = character.CharacterId + 1;
+            }
+        }
+
+        foreach (var characterType in System.Enum.GetValues<CharacterType>())
+        {
+            if (characterType is CharacterType.None or CharacterType.Seeker)
+            {
+                continue;
+            }
+
+            if (existingCharacters.TryGetValue(characterType, out var character))
+            {
+                EnsureCharacterDefaults(character);
+                mergedCharacters.Add(character);
+                continue;
+            }
+
+            var createdCharacter = new Character();
+            createdCharacter.CharacterId = nextCharacterId++;
+            createdCharacter.Type = characterType;
+            createdCharacter.CharacterSkin = CharacterSkin.None;
+            createdCharacter.Description = DescriptionType.none;
+            createdCharacter.SkinParts = new SkinParts();
+            EnsureCharacterDefaults(createdCharacter);
+            mergedCharacters.Add(createdCharacter);
+        }
+
+        return mergedCharacters;
     }
 
     private static Avatar CreateAvatar(AvatarType avatarType, int id)
@@ -878,6 +1216,11 @@ internal static class BackendStabilizerStub
     private static Il2CppTasks.Task<Result<T>> Success<T>(T value) where T : notnull
     {
         return Il2CppTasks.Task.FromResult(new Result<T>(value, true, Il2CppNet.HttpStatusCode.OK, string.Empty));
+    }
+
+    public static Il2CppTasks.Task<Result<bool>> SuccessBoolean()
+    {
+        return Success(true);
     }
 
     private static Il2CppTasks.Task<Result> Success()

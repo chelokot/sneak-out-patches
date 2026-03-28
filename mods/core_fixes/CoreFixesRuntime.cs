@@ -135,4 +135,17 @@ internal static class CoreFixesRuntime
         _logger?.LogInfo($"{source}: itemPtr=0x{itemPointer:x}, result={result}");
     }
 
+    public static void LogAvatarAction(string source, AvatarAndFrameView view)
+    {
+        if (_configuration is null || !_configuration.EnableLogging.Value)
+        {
+            return;
+        }
+
+        var selectedProductPointer = view._currentSelectedProduct is null
+            ? IntPtr.Zero
+            : IL2CPP.Il2CppObjectBaseToPtr((Il2CppObjectBase)(object)view._currentSelectedProduct);
+        _logger?.LogInfo($"{source}: category={view._currentCategorySelected}, selectedPtr=0x{selectedProductPointer:x}");
+    }
+
 }

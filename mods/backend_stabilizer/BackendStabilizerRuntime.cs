@@ -241,6 +241,48 @@ internal static class BackendStabilizerRuntime
             $"{source}: characterId={character.CharacterId}, characterType={character.Type}, characterSkin={selection.CharacterSkin}, head={selection.HeadSkinPartType}, chest={selection.ChestSkinPartType}, legs={selection.LegsSkinPartType}, hands={selection.HandsSkinPartType}, back={selection.BackSkinPartType}, whole={selection.WholeSkinPartType}");
     }
 
+    public static void LogSkillSelectionSnapshot(string source, Character character)
+    {
+        if (!ShouldLog())
+        {
+            return;
+        }
+
+        var skillCards = character.SkillCards;
+        LogInfo(
+            $"{source}: characterId={character.CharacterId}, characterType={character.Type}, active={skillCards?.ActiveSkillCard?.SkillType}, passive1={skillCards?.PassiveSkillCard1?.SkillType}, passive2={skillCards?.PassiveSkillCard2?.SkillType}, passive3={skillCards?.PassiveSkillCard3?.SkillType}, passive4={skillCards?.PassiveSkillCard4?.SkillType}");
+    }
+
+    public static void LogPersistentSelectionStore(string source, string profileKey, CharacterType characterType)
+    {
+        if (!ShouldLog())
+        {
+            return;
+        }
+
+        LogInfo($"{source}: profileKey={profileKey}, characterType={characterType}");
+    }
+
+    public static void LogPersistentSelectionStore(string source, string profileKey, CharacterType characterType, SkinType skinType, SkinPartType skinPartType)
+    {
+        if (!ShouldLog())
+        {
+            return;
+        }
+
+        LogInfo($"{source}: profileKey={profileKey}, characterType={characterType}, skinType={skinType}, skinPartType={skinPartType}");
+    }
+
+    public static void LogPersistentSelectionFileWrite(string source, string storagePath)
+    {
+        if (!ShouldLog())
+        {
+            return;
+        }
+
+        LogInfo($"{source}: storagePath={storagePath}");
+    }
+
     public static void LogSkinOwnershipLookup(string source, object? itemType, object? result)
     {
         if (!ShouldLog())
@@ -249,6 +291,39 @@ internal static class BackendStabilizerRuntime
         }
 
         LogInfo($"{source}: itemType={itemType}, result={result}");
+    }
+
+    public static void LogSkillUiEvent(string source, object? details)
+    {
+        if (!ShouldLog())
+        {
+            return;
+        }
+
+        LogInfo($"{source}: {details}");
+    }
+
+    public static void LogAvatarModificationSelection(string source, object? productType, ClientCharacterType characterType, bool handledLocally)
+    {
+        if (!ShouldLog())
+        {
+            return;
+        }
+
+        var objectPointer = productType is Il2CppInterop.Runtime.InteropTypes.Il2CppObjectBase objectBase
+            ? Il2CppInterop.Runtime.IL2CPP.Il2CppObjectBaseToPtr(objectBase)
+            : IntPtr.Zero;
+        LogInfo($"{source}: productPtr=0x{objectPointer:x}, characterType={characterType}, handledLocally={handledLocally}");
+    }
+
+    public static void LogAvatarSelectionSync(string source, int characterId, CharacterType characterType, AvatarType avatarType, AvatarFrameType avatarFrameType, DescriptionType descriptionType, bool applied)
+    {
+        if (!ShouldLog())
+        {
+            return;
+        }
+
+        LogInfo($"{source}: characterId={characterId}, characterType={characterType}, avatarType={avatarType}, avatarFrameType={avatarFrameType}, descriptionType={descriptionType}, applied={applied}");
     }
 
     public static void LogError(string message, Exception exception)

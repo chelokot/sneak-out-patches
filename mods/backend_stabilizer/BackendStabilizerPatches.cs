@@ -11,6 +11,7 @@ using Kinguinverse.WebServiceProvider.Types.Games;
 using Kinguinverse.WebServiceProvider.Types_v2;
 using Kinguinverse.WebServiceProvider.Types_v2.Products;
 using UI;
+using UI.Buttons;
 using UI.Views;
 using ClientCharacterType = Types.CharacterType;
 using Il2CppCollections = Il2CppSystem.Collections.Generic;
@@ -38,13 +39,38 @@ internal static class BackendStabilizerOverlay
 
 internal static class BackendStabilizerSelections
 {
+    private static AvatarType _pendingAvatarType = AvatarType.None;
+    private static AvatarFrameType _pendingAvatarFrameType = AvatarFrameType.None;
+    private static DescriptionType _pendingDescriptionType = DescriptionType.none;
     private static readonly Type? GameType = AccessTools.TypeByName("Game");
+    private static readonly Type? SpookedNetworkPlayerType = AccessTools.TypeByName("Gameplay.Player.Components.SpookedNetworkPlayer");
+    private static readonly Type? CharactersSkillsType = AccessTools.TypeByName("CharactersSkills");
+    private static readonly Type? TreeSkillSlotTypeType = AccessTools.TypeByName("TreeSkillSlotType");
+    private static readonly Type? MyPlayerRegistryType = AccessTools.TypeByName("MyPlayerRegistry");
     private static readonly System.Reflection.PropertyInfo? GameInternalIdProperty =
         GameType is null ? null : AccessTools.Property(GameType, "InternalId");
+    private static readonly System.Reflection.MethodInfo? PlayerNewMetaInventoryGetMyPlayerRegistryMethod =
+        AccessTools.Method(typeof(PlayerNewMetaInventory), "get__myPlayerRegistry");
+    private static readonly System.Reflection.MethodInfo? MyPlayerRegistrySetCharactersSkillsMethod =
+        MyPlayerRegistryType is null ? null : AccessTools.Method(MyPlayerRegistryType, "set_CharactersSkills");
     private static readonly System.Reflection.MethodInfo? PlayerCustomizationViewGetSpookedPlayerCharacterDataMethod =
         AccessTools.Method(typeof(PlayerCustomizationView), "get__spookedPlayerCharacterData");
     private static readonly System.Reflection.MethodInfo? PlayerCustomizationViewSetCurrentCharacterDataMethod =
         AccessTools.Method(typeof(PlayerCustomizationView), "set__currentCharacterData");
+    private static readonly System.Reflection.MethodInfo? CharactersSkillsToCharacterSkillsMethod =
+        CharactersSkillsType is null ? null : AccessTools.Method(CharactersSkillsType, "ToCharacterSkills");
+    private static readonly System.Reflection.MethodInfo? CharactersSkillsAddOrReplaceSkillInSlotMethod =
+        CharactersSkillsType is null ? null : AccessTools.Method(CharactersSkillsType, "AddOrReplaceSkillInSlot");
+    private static readonly System.Reflection.MethodInfo? CharactersSkillsGetSkillFromSlotMethod =
+        CharactersSkillsType is null ? null : AccessTools.Method(CharactersSkillsType, "GetSkillFromSlot");
+    private static readonly System.Reflection.MethodInfo? AvatarAndFrameViewGetCurrentCategorySelectedMethod =
+        AccessTools.Method(typeof(AvatarAndFrameView), "get__currentCategorySelected");
+    private static readonly System.Reflection.MethodInfo? AvatarAndFrameViewGetCurrentSelectedProductMethod =
+        AccessTools.Method(typeof(AvatarAndFrameView), "get__currentSelectedProduct");
+    private static readonly System.Reflection.FieldInfo? MyPlayerRegistryCharactersSkillsField =
+        MyPlayerRegistryType is null ? null : AccessTools.Field(MyPlayerRegistryType, "CharactersSkills");
+    private static readonly System.Reflection.FieldInfo? MainBoostersViewEquippedSkillsField =
+        AccessTools.Field(typeof(MainBoostersView), "_equippedSkills");
 
     internal static bool TryGetSkinPartType(Il2CppSystem.Enum itemType, out SkinPartType skinPartType)
     {
@@ -110,6 +136,145 @@ internal static class BackendStabilizerSelections
         LocalSelectionsStore.SaveCharacterSelection(character);
     }
 
+    private static object? GetCurrentNetworkPlayer()
+    {
+        if (SpookedNetworkPlayerType is null)
+        {
+            return null;
+        }
+
+        var internalId = GetCurrentInternalId();
+        if (internalId <= 0)
+        {
+            return null;
+        }
+
+        var il2CppType = Il2CppInterop.Runtime.Il2CppType.From(SpookedNetworkPlayerType);
+        foreach (var networkPlayer in UnityEngine.Resources.FindObjectsOfTypeAll(il2CppType))
+        {
+            if (networkPlayer is null)
+            {
+                continue;
+            }
+
+            var getInternalIdMethod = AccessTools.Method(networkPlayer.GetType(), "get_InternalId");
+            if (getInternalIdMethod?.Invoke(networkPlayer, Array.Empty<object>()) is int playerInternalId && playerInternalId == internalId)
+            {
+                return networkPlayer;
+            }
+        }
+
+        return null;
+    }
+
+    internal static void SyncInventoryRegistryCharactersSkills(PlayerNewMetaInventory inventory)
+    {
+        try
+        {
+            var player = GetPlayer();
+            if (player?.Characters is null || CharactersSkillsToCharacterSkillsMethod is null || PlayerNewMetaInventoryGetMyPlayerRegistryMethod is null || MyPlayerRegistrySetCharactersSkillsMethod is null)
+            {
+                return;
+            }
+
+            var myPlayerRegistry = PlayerNewMetaInventoryGetMyPlayerRegistryMethod.Invoke(inventory, Array.Empty<object>());
+            if (myPlayerRegistry is null)
+            {
+                BackendStabilizerRuntime.LogSkillUiEvent("BackendStabilizerSelections.SyncInventoryRegistryCharactersSkills", "noRegistry");
+                return;
+            }
+
+            var charactersSkills = CharactersSkillsToCharacterSkillsMethod.Invoke(null, new object[] { player.Characters });
+            if (charactersSkills is null)
+            {
+                return;
+            }
+
+            MyPlayerRegistrySetCharactersSkillsMethod.Invoke(myPlayerRegistry, new[] { charactersSkills });
+            BackendStabilizerRuntime.LogSkillUiEvent("BackendStabilizerSelections.SyncInventoryRegistryCharactersSkills", "applied");
+        }
+        catch (Exception exception)
+        {
+            BackendStabilizerRuntime.LogError("Backend stabilizer registry skill sync failed", exception);
+        }
+    }
+
+    internal static void SyncOpenBoosterViews()
+    {
+        try
+        {
+            foreach (var view in UnityEngine.Resources.FindObjectsOfTypeAll<MainBoostersView>())
+            {
+                if (view is null)
+                {
+                    continue;
+                }
+
+                var runtimeType = view.GetType();
+                var inventory =
+                    AccessTools.Method(runtimeType, "get__playerNewMetaInventory")?.Invoke(view, Array.Empty<object>()) as PlayerNewMetaInventory
+                    ?? AccessTools.Field(runtimeType, "_playerNewMetaInventory")?.GetValue(view) as PlayerNewMetaInventory;
+                if (inventory is null)
+                {
+                    continue;
+                }
+
+                SyncInventoryRegistryCharactersSkills(inventory);
+            }
+
+            PlayerNewMetaInventoryOnTreeSkillChangePatch.RefreshSkillViews();
+        }
+        catch (Exception exception)
+        {
+            BackendStabilizerRuntime.LogError("Backend stabilizer open booster skill sync failed", exception);
+        }
+    }
+
+    private static void SyncLivePlayerAvatarState(Character character)
+    {
+        try
+        {
+            var networkPlayer = GetCurrentNetworkPlayer();
+            if (networkPlayer is null)
+            {
+                BackendStabilizerRuntime.LogAvatarSelectionSync("BackendStabilizerSelections.SyncLivePlayerAvatarState:noNetworkPlayer", character.CharacterId, character.Type, character.Avatar?.AvatarType ?? AvatarType.None, character.AvatarFrame?.AvatarFrameType ?? AvatarFrameType.None, character.Description, false);
+                return;
+            }
+
+            var runtimeType = networkPlayer.GetType();
+            var avatarType = character.Avatar?.AvatarType ?? AvatarType.None;
+            switch (character.Type)
+            {
+                case CharacterType.Penguin:
+                    AccessTools.Method(runtimeType, "set_VictimAvatarType")?.Invoke(networkPlayer, new object[] { avatarType });
+                    break;
+                case CharacterType.Reaper:
+                    AccessTools.Method(runtimeType, "set_RipperAvatarType")?.Invoke(networkPlayer, new object[] { avatarType });
+                    break;
+                case CharacterType.Dracula:
+                    AccessTools.Method(runtimeType, "set_DraculaAvatarType")?.Invoke(networkPlayer, new object[] { avatarType });
+                    break;
+                case CharacterType.Scarecrow:
+                    AccessTools.Method(runtimeType, "set_ScarecrowAvatarType")?.Invoke(networkPlayer, new object[] { avatarType });
+                    break;
+                case CharacterType.Butcher:
+                    AccessTools.Method(runtimeType, "set_ButcherAvatarType")?.Invoke(networkPlayer, new object[] { avatarType });
+                    break;
+                case CharacterType.Clown:
+                    AccessTools.Method(runtimeType, "set_ClownAvatarType")?.Invoke(networkPlayer, new object[] { avatarType });
+                    break;
+            }
+
+            AccessTools.Method(runtimeType, "set_AvatarFrameBorderType")?.Invoke(networkPlayer, new object[] { character.AvatarFrame?.AvatarFrameType ?? AvatarFrameType.None });
+            AccessTools.Method(runtimeType, "set_DescriptionType")?.Invoke(networkPlayer, new object[] { character.Description });
+            BackendStabilizerRuntime.LogAvatarSelectionSync("BackendStabilizerSelections.SyncLivePlayerAvatarState:applied", character.CharacterId, character.Type, avatarType, character.AvatarFrame?.AvatarFrameType ?? AvatarFrameType.None, character.Description, true);
+        }
+        catch (Exception exception)
+        {
+            BackendStabilizerRuntime.LogError("Backend stabilizer live avatar sync failed", exception);
+        }
+    }
+
     private static bool TryGetCharacterId(CharacterType characterType, out int characterId)
     {
         characterId = 0;
@@ -141,7 +306,7 @@ internal static class BackendStabilizerSelections
         return characterType != CharacterType.None;
     }
 
-    private static bool TryGetCharacterId(ClientCharacterType clientCharacterType, out int characterId)
+    internal static bool TryGetCharacterId(ClientCharacterType clientCharacterType, out int characterId)
     {
         characterId = 0;
         return TryMapClientCharacterType(clientCharacterType, out var characterType) && TryGetCharacterId(characterType, out characterId);
@@ -182,25 +347,219 @@ internal static class BackendStabilizerSelections
             return false;
         }
 
-        var typeName = productType.GetType().Name;
-        var valueName = productType.ToString();
-
-        if (string.Equals(typeName, nameof(AvatarType), StringComparison.Ordinal) && System.Enum.TryParse(valueName, out avatarType))
+        var runtimeType = productType.GetType();
+        var typeName = runtimeType.Name;
+        var valueField = AccessTools.Field(runtimeType, "value__");
+        var value = valueField?.GetValue(productType) switch
         {
+            int intValue => intValue,
+            byte byteValue => byteValue,
+            short shortValue => shortValue,
+            long longValue => unchecked((int)longValue),
+            _ => int.MinValue
+        };
+        BackendStabilizerRuntime.LogSkillUiEvent("BackendStabilizerSelections.TryParseAvatarProduct", $"typeName={typeName}, value={value}");
+        if (value == int.MinValue)
+        {
+            return false;
+        }
+
+        if (string.Equals(typeName, nameof(AvatarType), StringComparison.Ordinal) && System.Enum.IsDefined(typeof(AvatarType), value))
+        {
+            avatarType = (AvatarType)value;
             return avatarType != AvatarType.None;
         }
 
-        if (string.Equals(typeName, nameof(AvatarFrameType), StringComparison.Ordinal) && System.Enum.TryParse(valueName, out avatarFrameType))
+        if (string.Equals(typeName, nameof(AvatarFrameType), StringComparison.Ordinal) && System.Enum.IsDefined(typeof(AvatarFrameType), value))
         {
+            avatarFrameType = (AvatarFrameType)value;
             return avatarFrameType != AvatarFrameType.None;
         }
 
-        if (string.Equals(typeName, nameof(DescriptionType), StringComparison.Ordinal) && System.Enum.TryParse(valueName, out descriptionType))
+        if (string.Equals(typeName, nameof(DescriptionType), StringComparison.Ordinal) && System.Enum.IsDefined(typeof(DescriptionType), value))
         {
+            descriptionType = (DescriptionType)value;
             return descriptionType != DescriptionType.none;
         }
 
         return false;
+    }
+
+    internal static bool TryParseAvatarProductFromView(AvatarAndFrameView view, out AvatarType avatarType, out AvatarFrameType avatarFrameType, out DescriptionType descriptionType)
+    {
+        avatarType = AvatarType.None;
+        avatarFrameType = AvatarFrameType.None;
+        descriptionType = DescriptionType.none;
+
+        if (view is null)
+        {
+            return false;
+        }
+
+        var category = view._currentCategorySelected;
+        var selectedProduct = view._currentSelectedProduct;
+        if (selectedProduct is null)
+        {
+            selectedProduct = TryGetSelectedAvatarProductFromButtons(view);
+        }
+        if (category < 0 || selectedProduct is null)
+        {
+            return false;
+        }
+
+        var runtimeType = selectedProduct.GetType();
+        var valueField = AccessTools.Field(runtimeType, "value__");
+        var value = valueField?.GetValue(selectedProduct) switch
+        {
+            int intValue => intValue,
+            byte byteValue => byteValue,
+            short shortValue => shortValue,
+            long longValue => unchecked((int)longValue),
+            _ => int.MinValue
+        };
+        if (value == int.MinValue)
+        {
+            return false;
+        }
+
+        switch (category)
+        {
+            case 0 when System.Enum.IsDefined(typeof(AvatarType), value):
+                avatarType = (AvatarType)value;
+                return avatarType != AvatarType.None;
+            case 1 when System.Enum.IsDefined(typeof(AvatarFrameType), value):
+                avatarFrameType = (AvatarFrameType)value;
+                return avatarFrameType != AvatarFrameType.None;
+            case 2 when System.Enum.IsDefined(typeof(DescriptionType), value):
+                descriptionType = (DescriptionType)value;
+                return descriptionType != DescriptionType.none;
+        }
+
+        return false;
+    }
+
+    private static Il2CppSystem.Enum? TryGetSelectedAvatarProductFromButtons(AvatarAndFrameView view)
+    {
+        var eventSystemType = AccessTools.TypeByName("UnityEngine.EventSystems.EventSystem");
+        var currentEventSystem = eventSystemType is null
+            ? null
+            : AccessTools.Property(eventSystemType, "current")?.GetValue(null);
+        var selectedObject = currentEventSystem is null
+            ? null
+            : AccessTools.Property(eventSystemType!, "currentSelectedGameObject")?.GetValue(currentEventSystem) as UnityEngine.GameObject;
+        if (selectedObject is null)
+        {
+            return null;
+        }
+
+        if (view._avatarModyfiRecordButtons is not null)
+        {
+            foreach (var button in view._avatarModyfiRecordButtons)
+            {
+                if (button is null)
+                {
+                    continue;
+                }
+
+                var buttonComponent = AccessTools.Field(button.GetType(), "_button")?.GetValue(button) as UnityEngine.Component;
+                if (button.gameObject == selectedObject || buttonComponent?.gameObject == selectedObject)
+                {
+                    return button.StoredProduct;
+                }
+            }
+        }
+
+        if (view._titleRecordButtons is not null)
+        {
+            foreach (var button in view._titleRecordButtons)
+            {
+                if (button is null)
+                {
+                    continue;
+                }
+
+                var buttonComponent = AccessTools.Field(button.GetType(), "_button")?.GetValue(button) as UnityEngine.Component;
+                if (button.gameObject == selectedObject || buttonComponent?.gameObject == selectedObject)
+                {
+                    return button.StoredProduct;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    internal static void RememberPendingAvatarSelection(AvatarAndFrameView view, Il2CppSystem.Enum productType)
+    {
+        if (TryParseAvatarProduct(productType, out var avatarType, out var avatarFrameType, out var descriptionType)
+            || TryParseAvatarProductFromView(view, out avatarType, out avatarFrameType, out descriptionType))
+        {
+            _pendingAvatarType = avatarType;
+            _pendingAvatarFrameType = avatarFrameType;
+            _pendingDescriptionType = descriptionType;
+            BackendStabilizerRuntime.LogSkillUiEvent("BackendStabilizerSelections.RememberPendingAvatarSelection", $"avatar={avatarType}, frame={avatarFrameType}, title={descriptionType}");
+        }
+    }
+
+    internal static void RememberPendingAvatarSelection(Il2CppSystem.Enum productType)
+    {
+        BackendStabilizerRuntime.LogSkillUiEvent("BackendStabilizerSelections.RememberPendingAvatarSelection:entered", $"productPtr=0x{Il2CppInterop.Runtime.IL2CPP.Il2CppObjectBaseToPtr((Il2CppInterop.Runtime.InteropTypes.Il2CppObjectBase)(object)productType):x}");
+        if (!TryParseAvatarProduct(productType, out var avatarType, out var avatarFrameType, out var descriptionType))
+        {
+            BackendStabilizerRuntime.LogSkillUiEvent("BackendStabilizerSelections.RememberPendingAvatarSelection", "parseFailed");
+            return;
+        }
+
+        _pendingAvatarType = avatarType;
+        _pendingAvatarFrameType = avatarFrameType;
+        _pendingDescriptionType = descriptionType;
+        BackendStabilizerRuntime.LogSkillUiEvent("BackendStabilizerSelections.RememberPendingAvatarSelection", $"avatar={avatarType}, frame={avatarFrameType}, title={descriptionType}");
+    }
+
+    private static bool TryConsumePendingAvatarSelection(out AvatarType avatarType, out AvatarFrameType avatarFrameType, out DescriptionType descriptionType)
+    {
+        avatarType = _pendingAvatarType;
+        avatarFrameType = _pendingAvatarFrameType;
+        descriptionType = _pendingDescriptionType;
+        var parsed = avatarType != AvatarType.None || avatarFrameType != AvatarFrameType.None || descriptionType != DescriptionType.none;
+        if (!parsed)
+        {
+            return false;
+        }
+
+        _pendingAvatarType = AvatarType.None;
+        _pendingAvatarFrameType = AvatarFrameType.None;
+        _pendingDescriptionType = DescriptionType.none;
+        BackendStabilizerRuntime.LogSkillUiEvent("BackendStabilizerSelections.TryConsumePendingAvatarSelection", $"avatar={avatarType}, frame={avatarFrameType}, title={descriptionType}");
+        return true;
+    }
+
+    internal static bool TryParseAvatarProductFromAnyOpenView(out AvatarType avatarType, out AvatarFrameType avatarFrameType, out DescriptionType descriptionType)
+    {
+        avatarType = AvatarType.None;
+        avatarFrameType = AvatarFrameType.None;
+        descriptionType = DescriptionType.none;
+
+        foreach (var view in UnityEngine.Resources.FindObjectsOfTypeAll<AvatarAndFrameView>())
+        {
+            if (view is null)
+            {
+                continue;
+            }
+
+            if (TryParseAvatarProductFromView(view, out avatarType, out avatarFrameType, out descriptionType))
+            {
+                BackendStabilizerRuntime.LogSkillUiEvent("BackendStabilizerSelections.TryParseAvatarProductFromAnyOpenView", $"avatar={avatarType}, frame={avatarFrameType}, title={descriptionType}");
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    internal static bool TryGetAvatarMenuCharacterId(out int characterId)
+    {
+        return TryGetCharacterId(CharacterType.Penguin, out characterId);
     }
 
     public static bool ApplyAvatarSelection(int characterId, int avatarId)
@@ -226,6 +585,7 @@ internal static class BackendStabilizerSelections
             }
 
             character.Avatar = avatar;
+            SyncLivePlayerAvatarState(character);
             SaveSelection(character);
             return true;
         }
@@ -256,6 +616,7 @@ internal static class BackendStabilizerSelections
             }
 
             character.AvatarFrame = avatarFrame;
+            SyncLivePlayerAvatarState(character);
             SaveSelection(character);
             return true;
         }
@@ -284,6 +645,7 @@ internal static class BackendStabilizerSelections
         }
 
         character.Description = descriptionType;
+        SyncLivePlayerAvatarState(character);
         SaveSelection(character);
         return true;
     }
@@ -628,6 +990,42 @@ internal static class BackendStabilizerSelections
         return true;
     }
 
+    private static SkillCard? FindSkillCard(Il2CppCollections.List<SkillCard> cards, SkillType skillType)
+    {
+        foreach (var card in cards)
+        {
+            if (card is not null && card.SkillType == skillType)
+            {
+                return card;
+            }
+        }
+
+        return null;
+    }
+
+    private static SkillType GetRegistrySkillFromSlot(object charactersSkills, ClientCharacterType clientCharacterType, int slotType)
+    {
+        if (CharactersSkillsGetSkillFromSlotMethod is null || TreeSkillSlotTypeType is null)
+        {
+            return SkillType.None;
+        }
+
+        var slotValue = System.Enum.ToObject(TreeSkillSlotTypeType, slotType);
+        return CharactersSkillsGetSkillFromSlotMethod.Invoke(charactersSkills, new[] { slotValue, (object)clientCharacterType }) is SkillType skillType
+            ? skillType
+            : SkillType.None;
+    }
+
+    private static void RebuildCharacterSkillCardsFromRegistry(object charactersSkills, ClientCharacterType clientCharacterType, Character character, Il2CppCollections.List<SkillCard> cards)
+    {
+        character.SkillCards ??= new CharacterSkillCards();
+        character.SkillCards.ActiveSkillCard = FindSkillCard(cards, GetRegistrySkillFromSlot(charactersSkills, clientCharacterType, 1));
+        character.SkillCards.PassiveSkillCard1 = FindSkillCard(cards, GetRegistrySkillFromSlot(charactersSkills, clientCharacterType, 2));
+        character.SkillCards.PassiveSkillCard2 = FindSkillCard(cards, GetRegistrySkillFromSlot(charactersSkills, clientCharacterType, 3));
+        character.SkillCards.PassiveSkillCard3 = FindSkillCard(cards, GetRegistrySkillFromSlot(charactersSkills, clientCharacterType, 4));
+        character.SkillCards.PassiveSkillCard4 = null;
+    }
+
     public static bool ApplyTreeSkillSelection(ClientCharacterType clientCharacterType, SkillType skillType, int slotType)
     {
         if (!BackendStabilizerRuntime.UsePersistentSelections)
@@ -643,6 +1041,46 @@ internal static class BackendStabilizerSelections
 
         var character = GetCharacterByType(characterType);
         var cards = player?.Cards?.SkillCards;
+        if (player is null || character is null || cards is null)
+        {
+            return false;
+        }
+
+        var selectedCard = FindSkillCard(cards, skillType);
+        if (selectedCard is null)
+        {
+            return false;
+        }
+
+        if (CharactersSkillsToCharacterSkillsMethod is null || TreeSkillSlotTypeType is null || CharactersSkillsAddOrReplaceSkillInSlotMethod is null)
+        {
+            return false;
+        }
+
+        var charactersSkills = CharactersSkillsToCharacterSkillsMethod.Invoke(null, new object[] { player.Characters });
+        if (charactersSkills is null)
+        {
+            return false;
+        }
+
+        var slotValue = System.Enum.ToObject(TreeSkillSlotTypeType, slotType);
+        CharactersSkillsAddOrReplaceSkillInSlotMethod.Invoke(charactersSkills, new object[] { skillType, slotValue, clientCharacterType, selectedCard.Tier });
+        RebuildCharacterSkillCardsFromRegistry(charactersSkills, clientCharacterType, character, cards);
+        BackendStabilizerRuntime.LogSkillSelectionSnapshot("BackendStabilizerSelections.ApplyTreeSkillSelection:applied", character);
+        SaveSelection(character);
+        return true;
+    }
+
+    public static bool ApplySkillCardSelection(int characterId, int skillCardSlot, int skillCardId)
+    {
+        if (!BackendStabilizerRuntime.UsePersistentSelections)
+        {
+            return false;
+        }
+
+        var player = GetPlayer();
+        var character = GetCharacterById(characterId);
+        var cards = player?.Cards?.SkillCards;
         if (character is null || cards is null)
         {
             return false;
@@ -651,7 +1089,7 @@ internal static class BackendStabilizerSelections
         SkillCard? selectedCard = null;
         foreach (var card in cards)
         {
-            if (card is not null && card.SkillType == skillType)
+            if (card is not null && card.Id == skillCardId)
             {
                 selectedCard = card;
                 break;
@@ -664,26 +1102,104 @@ internal static class BackendStabilizerSelections
         }
 
         character.SkillCards ??= new CharacterSkillCards();
-        switch (slotType)
+        switch (skillCardSlot)
         {
             case 1:
-                character.SkillCards.PassiveSkillCard1 = selectedCard;
+                character.SkillCards.ActiveSkillCard = selectedCard;
                 break;
             case 2:
-                character.SkillCards.PassiveSkillCard2 = selectedCard;
+                character.SkillCards.PassiveSkillCard1 = selectedCard;
                 break;
             case 3:
-                character.SkillCards.PassiveSkillCard3 = selectedCard;
+                character.SkillCards.PassiveSkillCard2 = selectedCard;
                 break;
             case 4:
+                character.SkillCards.PassiveSkillCard3 = selectedCard;
+                break;
+            case 5:
                 character.SkillCards.PassiveSkillCard4 = selectedCard;
                 break;
             default:
                 return false;
         }
 
+        BackendStabilizerRuntime.LogSkillSelectionSnapshot("BackendStabilizerSelections.ApplySkillCardSelection:applied", character);
         SaveSelection(character);
+        SyncOpenBoosterViews();
         return true;
+    }
+
+    public static bool RemoveSkillCardSelection(int characterId, int skillCardSlot)
+    {
+        if (!BackendStabilizerRuntime.UsePersistentSelections)
+        {
+            return false;
+        }
+
+        var character = GetCharacterById(characterId);
+        if (character?.SkillCards is null)
+        {
+            return false;
+        }
+
+        switch (skillCardSlot)
+        {
+            case 1:
+                character.SkillCards.ActiveSkillCard = null;
+                break;
+            case 2:
+                character.SkillCards.PassiveSkillCard1 = null;
+                break;
+            case 3:
+                character.SkillCards.PassiveSkillCard2 = null;
+                break;
+            case 4:
+                character.SkillCards.PassiveSkillCard3 = null;
+                break;
+            case 5:
+                character.SkillCards.PassiveSkillCard4 = null;
+                break;
+            default:
+                return false;
+        }
+
+        BackendStabilizerRuntime.LogSkillSelectionSnapshot("BackendStabilizerSelections.RemoveSkillCardSelection:applied", character);
+        SaveSelection(character);
+        SyncOpenBoosterViews();
+        return true;
+    }
+
+    public static void ApplyStartupSkinSelectionsToLivePreview()
+    {
+        if (!BackendStabilizerRuntime.UsePersistentSelections)
+        {
+            return;
+        }
+
+        var character = GetCharacterByType(CharacterType.Penguin);
+        if (character?.SkinParts is null)
+        {
+            return;
+        }
+
+        ApplyStartupSkinPart(character.SkinParts.Head);
+        ApplyStartupSkinPart(character.SkinParts.Chest);
+        ApplyStartupSkinPart(character.SkinParts.Legs);
+        ApplyStartupSkinPart(character.SkinParts.Hands);
+        ApplyStartupSkinPart(character.SkinParts.Back);
+        ApplyStartupSkinPart(character.SkinParts.Whole);
+    }
+
+    private static void ApplyStartupSkinPart(SkinPart skinPart)
+    {
+        if (skinPart is null || skinPart.SkinType == SkinType.None || skinPart.SkinPartType == SkinPartType.None)
+        {
+            return;
+        }
+
+        BackendStabilizerRuntime.LogSkinPreview("BackendStabilizerSelections.ApplyStartupSkinSelectionsToLivePreview", 0, skinPart.SkinType, skinPart.SkinPartType, true);
+        SyncPreviewCharacterData(skinPart.SkinType, skinPart.SkinPartType);
+        PublishSkinRefresh(skinPart.SkinPartType, skinPart.SkinType);
     }
 
     public static bool ApplyAvatarModificationSelection(Il2CppSystem.Enum productType, ClientCharacterType clientCharacterType)
@@ -693,7 +1209,21 @@ internal static class BackendStabilizerSelections
             return false;
         }
 
-        if (!TryParseAvatarProduct(productType, out var avatarType, out var avatarFrameType, out var descriptionType))
+        var parsed = TryParseAvatarProduct(productType, out var avatarType, out var avatarFrameType, out var descriptionType);
+        BackendStabilizerRuntime.LogSkillUiEvent("BackendStabilizerSelections.ApplyAvatarModificationSelection:direct", $"parsed={parsed}, avatar={avatarType}, frame={avatarFrameType}, title={descriptionType}");
+        if (!parsed)
+        {
+            parsed = TryParseAvatarProductFromAnyOpenView(out avatarType, out avatarFrameType, out descriptionType);
+            BackendStabilizerRuntime.LogSkillUiEvent("BackendStabilizerSelections.ApplyAvatarModificationSelection:view", $"parsed={parsed}, avatar={avatarType}, frame={avatarFrameType}, title={descriptionType}");
+        }
+
+        if (!parsed)
+        {
+            parsed = TryConsumePendingAvatarSelection(out avatarType, out avatarFrameType, out descriptionType);
+            BackendStabilizerRuntime.LogSkillUiEvent("BackendStabilizerSelections.ApplyAvatarModificationSelection:pending", $"parsed={parsed}, avatar={avatarType}, frame={avatarFrameType}, title={descriptionType}");
+        }
+
+        if (!parsed)
         {
             return false;
         }
@@ -914,6 +1444,72 @@ internal static class BackendStabilizerSelections
     }
 }
 
+[HarmonyPatch(typeof(AvatarAndFrameView), "EquipModification")]
+internal static class AvatarAndFrameViewEquipModificationPatch
+{
+    private static bool Prefix(AvatarAndFrameView __instance)
+    {
+        if (__instance is not null && BackendStabilizerSelections.TryParseAvatarProductFromView(__instance, out var avatarType, out var avatarFrameType, out var descriptionType))
+        {
+            BackendStabilizerRuntime.LogSkillUiEvent("AvatarAndFrameView.EquipModification", $"avatar={avatarType}, frame={avatarFrameType}, title={descriptionType}");
+        }
+        else
+        {
+            BackendStabilizerRuntime.LogSkillUiEvent("AvatarAndFrameView.EquipModification", "selectionUnavailable");
+        }
+
+        return true;
+    }
+}
+
+[HarmonyPatch(typeof(AvatarAndFrameView), "BuyProduct")]
+internal static class AvatarAndFrameViewBuyProductPatch
+{
+    private static void Prefix(AvatarAndFrameView __instance)
+    {
+        if (__instance is not null && BackendStabilizerSelections.TryParseAvatarProductFromView(__instance, out var avatarType, out var avatarFrameType, out var descriptionType))
+        {
+            BackendStabilizerRuntime.LogSkillUiEvent("AvatarAndFrameView.BuyProduct", $"avatar={avatarType}, frame={avatarFrameType}, title={descriptionType}");
+        }
+        else
+        {
+            BackendStabilizerRuntime.LogSkillUiEvent("AvatarAndFrameView.BuyProduct", "selectionUnavailable");
+        }
+    }
+}
+
+[HarmonyPatch(typeof(AvatarModyfiRecordButton), "PassChosenCostume")]
+internal static class AvatarModyfiRecordButtonPassChosenCostumePatch
+{
+    private static void Prefix(AvatarModyfiRecordButton __instance)
+    {
+        if (__instance?.StoredProduct is null)
+        {
+            BackendStabilizerRuntime.LogSkillUiEvent("AvatarModyfiRecordButton.PassChosenCostume", "storedProductNull");
+            return;
+        }
+
+        BackendStabilizerRuntime.LogSkillUiEvent("AvatarModyfiRecordButton.PassChosenCostume", "storedProductPresent");
+        BackendStabilizerSelections.RememberPendingAvatarSelection(__instance.StoredProduct);
+    }
+}
+
+[HarmonyPatch(typeof(TitleRecordButton), "PassChosenCostume")]
+internal static class TitleRecordButtonPassChosenCostumePatch
+{
+    private static void Prefix(TitleRecordButton __instance)
+    {
+        if (__instance?.StoredProduct is null)
+        {
+            BackendStabilizerRuntime.LogSkillUiEvent("TitleRecordButton.PassChosenCostume", "storedProductNull");
+            return;
+        }
+
+        BackendStabilizerRuntime.LogSkillUiEvent("TitleRecordButton.PassChosenCostume", "storedProductPresent");
+        BackendStabilizerSelections.RememberPendingAvatarSelection(__instance.StoredProduct);
+    }
+}
+
 [HarmonyPatch(typeof(ClientCache), nameof(ClientCache.OnClientConfirmed))]
 internal static class ClientCacheOnClientConfirmedPatch
 {
@@ -1037,7 +1633,15 @@ internal static class PlayerNewMetaInventoryOnAvatarModyficationChangePatch
 {
     private static bool Prefix(Il2CppSystem.Enum productType, ClientCharacterType characterType, ref Il2CppTasks.Task<bool> __result)
     {
-        if (!BackendStabilizerRuntime.UsePersistentSelections || !BackendStabilizerSelections.ApplyAvatarModificationSelection(productType, characterType))
+        BackendStabilizerRuntime.LogSkillUiEvent("PlayerNewMetaInventory.OnAvatarModyficationChange:entered", $"characterType={characterType}");
+        if (!BackendStabilizerRuntime.UsePersistentSelections)
+        {
+            return true;
+        }
+
+        var handledLocally = BackendStabilizerSelections.ApplyAvatarModificationSelection(productType, characterType);
+        BackendStabilizerRuntime.LogAvatarModificationSelection("PlayerNewMetaInventory.OnAvatarModyficationChange:prefix", productType, characterType, handledLocally);
+        if (!handledLocally)
         {
             return true;
         }
@@ -1141,6 +1745,58 @@ internal static class CustomizeCharacterNewMetaViewOnEquipButtonLoggingPatch
     private static void Postfix()
     {
         BackendStabilizerRuntime.LogSkinRefreshEvent("CustomizeCharacterNewMetaView.OnEquipButton", 0);
+    }
+}
+
+[HarmonyPatch(typeof(MainBoostersViewModel), "ChangeEquippedSkill")]
+internal static class MainBoostersViewModelChangeEquippedSkillLoggingPatch
+{
+    private static void Prefix(SkillType nextSkill, int slotType)
+    {
+        BackendStabilizerRuntime.LogSkillUiEvent("MainBoostersViewModel.ChangeEquippedSkill", $"nextSkill={nextSkill}, slotType={slotType}");
+    }
+}
+
+[HarmonyPatch(typeof(MainBoostersViewModel), "TreeSkillEquipped")]
+internal static class MainBoostersViewModelTreeSkillEquippedLoggingPatch
+{
+    private static void Postfix(object sender, Il2CppSystem.EventArgs args)
+    {
+        BackendStabilizerRuntime.LogSkillUiEvent("MainBoostersViewModel.TreeSkillEquipped", $"senderType={sender?.GetType().Name ?? "null"}, argsType={args?.GetType().Name ?? "null"}");
+        PlayerNewMetaInventoryOnTreeSkillChangePatch.RefreshSkillViews();
+    }
+}
+
+[HarmonyPatch(typeof(MainBoostersView), "Open")]
+internal static class MainBoostersViewOpenSkillSyncPatch
+{
+    private static void Postfix(MainBoostersView __instance)
+    {
+        if (!BackendStabilizerRuntime.UsePersistentSelections || __instance is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var runtimeType = __instance.GetType();
+            var inventory =
+                AccessTools.Method(runtimeType, "get__playerNewMetaInventory")?.Invoke(__instance, Array.Empty<object>()) as PlayerNewMetaInventory
+                ?? AccessTools.Field(runtimeType, "_playerNewMetaInventory")?.GetValue(__instance) as PlayerNewMetaInventory;
+            if (inventory is null)
+            {
+                BackendStabilizerRuntime.LogSkillUiEvent("MainBoostersView.Open", "startupSkillSyncSkipped=noInventory");
+                return;
+            }
+
+            BackendStabilizerSelections.SyncInventoryRegistryCharactersSkills(inventory);
+            PlayerNewMetaInventoryOnTreeSkillChangePatch.RefreshSkillViews();
+            BackendStabilizerRuntime.LogSkillUiEvent("MainBoostersView.Open", "startupSkillSyncApplied=1");
+        }
+        catch (Exception exception)
+        {
+            BackendStabilizerRuntime.LogError("Backend stabilizer MainBoostersView.Open skill sync failed", exception);
+        }
     }
 }
 
@@ -1334,25 +1990,62 @@ internal static class PlayerCustomizationViewTryPreviewOutfitLoggingPatch
 [HarmonyPatch(typeof(PlayerNewMetaInventory), nameof(PlayerNewMetaInventory.OnTreeSkillChange))]
 internal static class PlayerNewMetaInventoryOnTreeSkillChangePatch
 {
-    private static bool Prefix(SkillType cardSkillType, int slotType, ClientCharacterType characterType, ref Il2CppTasks.Task<bool> __result)
+    private static bool Prefix(SkillType cardSkillType, int slotType, ClientCharacterType characterType)
     {
-        if (!BackendStabilizerRuntime.UsePersistentSelections)
-        {
-            return true;
-        }
-
-        if (!BackendStabilizerSelections.ApplyTreeSkillSelection(characterType, cardSkillType, slotType))
-        {
-            return true;
-        }
-
-        __result = Il2CppTasks.Task.FromResult(true);
-        return false;
+        BackendStabilizerRuntime.LogSkillUiEvent("PlayerNewMetaInventory.OnTreeSkillChange:prefix", $"skill={cardSkillType}, slotType={slotType}, characterType={characterType}");
+        return true;
     }
 
     private static void Postfix(ClientCharacterType characterType, Il2CppTasks.Task<bool> __result)
     {
         BackendStabilizerSelections.SaveAfterCompletion(__result, characterType);
+    }
+
+    internal static void RefreshSkillViews()
+    {
+        try
+        {
+            foreach (var view in UnityEngine.Resources.FindObjectsOfTypeAll<MainBoostersView>())
+            {
+                if (view is null)
+                {
+                    continue;
+                }
+
+                AccessTools.Method(typeof(MainBoostersView), "SetSkillTree")?.Invoke(view, Array.Empty<object>());
+                AccessTools.Method(typeof(MainBoostersView), "SetEquippedSkills")?.Invoke(view, Array.Empty<object>());
+                var equippedSkillsField = AccessTools.Field(typeof(MainBoostersView), "_equippedSkills");
+                if (equippedSkillsField?.GetValue(view) is System.Collections.IEnumerable equippedSkills)
+                {
+                    var count = 0;
+                    foreach (var _ in equippedSkills)
+                    {
+                        count++;
+                    }
+
+                    BackendStabilizerRuntime.LogSkillUiEvent("MainBoostersView.SetEquippedSkills", $"equippedSkillsCount={count}");
+                }
+            }
+        }
+        catch (Exception exception)
+        {
+            BackendStabilizerRuntime.LogError("Backend stabilizer skill view refresh failed", exception);
+        }
+    }
+}
+
+[HarmonyPatch]
+internal static class SpookedNetworkPlayerSpawnedReadyStartupSkinPatch
+{
+    private static System.Reflection.MethodBase? TargetMethod()
+    {
+        var type = AccessTools.TypeByName("Gameplay.Player.Components.SpookedNetworkPlayer");
+        return type is null ? null : AccessTools.Method(type, "RPC_SpawnedReady");
+    }
+
+    private static void Postfix()
+    {
+        BackendStabilizerSelections.ApplyStartupSkinSelectionsToLivePreview();
     }
 }
 
@@ -1379,11 +2072,14 @@ internal static class KinguinverseWebServicePutOnAvatarPatch
 {
     private static bool Prefix(int characterId, int avatarId, ref Il2CppTasks.Task<Result<bool>> __result)
     {
-        if (!BackendStabilizerRuntime.UsePersistentSelections || !BackendStabilizerSelections.ApplyAvatarSelection(characterId, avatarId))
+        var handledLocally = BackendStabilizerRuntime.UsePersistentSelections && BackendStabilizerSelections.ApplyAvatarSelection(characterId, avatarId);
+        if (!handledLocally)
         {
+            BackendStabilizerRuntime.LogSkillUiEvent("KinguinverseWebService.PutOnAvatar:prefix", $"characterId={characterId}, avatarId={avatarId}, handledLocally=False");
             return true;
         }
 
+        BackendStabilizerRuntime.LogSkillUiEvent("KinguinverseWebService.PutOnAvatar:prefix", $"characterId={characterId}, avatarId={avatarId}, handledLocally=True");
         __result = BackendStabilizerStub.SuccessBoolean();
         return false;
     }
@@ -1394,11 +2090,14 @@ internal static class KinguinverseWebServicePutOnAvatarFramePatch
 {
     private static bool Prefix(int characterId, int avatarFrameId, ref Il2CppTasks.Task<Result<bool>> __result)
     {
-        if (!BackendStabilizerRuntime.UsePersistentSelections || !BackendStabilizerSelections.ApplyAvatarFrameSelection(characterId, avatarFrameId))
+        var handledLocally = BackendStabilizerRuntime.UsePersistentSelections && BackendStabilizerSelections.ApplyAvatarFrameSelection(characterId, avatarFrameId);
+        if (!handledLocally)
         {
+            BackendStabilizerRuntime.LogSkillUiEvent("KinguinverseWebService.PutOnAvatarFrame:prefix", $"characterId={characterId}, avatarFrameId={avatarFrameId}, handledLocally=False");
             return true;
         }
 
+        BackendStabilizerRuntime.LogSkillUiEvent("KinguinverseWebService.PutOnAvatarFrame:prefix", $"characterId={characterId}, avatarFrameId={avatarFrameId}, handledLocally=True");
         __result = BackendStabilizerStub.SuccessBoolean();
         return false;
     }
@@ -1409,11 +2108,14 @@ internal static class KinguinverseWebServicePutOnCharacterDescriptionPatch
 {
     private static bool Prefix(int characterId, DescriptionType descriptionType, ref Il2CppTasks.Task<Result<bool>> __result)
     {
-        if (!BackendStabilizerRuntime.UsePersistentSelections || !BackendStabilizerSelections.ApplyTitleSelection(characterId, descriptionType))
+        var handledLocally = BackendStabilizerRuntime.UsePersistentSelections && BackendStabilizerSelections.ApplyTitleSelection(characterId, descriptionType);
+        if (!handledLocally)
         {
+            BackendStabilizerRuntime.LogSkillUiEvent("KinguinverseWebService.PutOnCharacterDescription:prefix", $"characterId={characterId}, descriptionType={descriptionType}, handledLocally=False");
             return true;
         }
 
+        BackendStabilizerRuntime.LogSkillUiEvent("KinguinverseWebService.PutOnCharacterDescription:prefix", $"characterId={characterId}, descriptionType={descriptionType}, handledLocally=True");
         __result = BackendStabilizerStub.SuccessBoolean();
         return false;
     }
@@ -1456,6 +2158,40 @@ internal static class KinguinverseWebServicePutOnSkinPartPatch
     {
         var handledLocally = BackendStabilizerRuntime.UsePersistentSelections && BackendStabilizerSelections.ApplySkinPartSelection(characterId, skinPartId);
         BackendStabilizerRuntime.LogSkinWebCall("KinguinverseWebService.PutOnSkinPart:prefix", characterId, skinPartId, handledLocally);
+        if (!handledLocally)
+        {
+            return true;
+        }
+
+        __result = BackendStabilizerStub.SuccessBoolean();
+        return false;
+    }
+}
+
+[HarmonyPatch(typeof(KinguinverseWebService), nameof(KinguinverseWebService.PutOnSkillCard))]
+internal static class KinguinverseWebServicePutOnSkillCardPatch
+{
+    private static bool Prefix(int characterId, int skillCardSlot, int skillCardId, ref Il2CppTasks.Task<Result<bool>> __result)
+    {
+        var handledLocally = BackendStabilizerRuntime.UsePersistentSelections && BackendStabilizerSelections.ApplySkillCardSelection(characterId, skillCardSlot, skillCardId);
+        BackendStabilizerRuntime.LogSkillUiEvent("KinguinverseWebService.PutOnSkillCard:prefix", $"characterId={characterId}, slot={skillCardSlot}, skillCardId={skillCardId}, handledLocally={handledLocally}");
+        if (!handledLocally)
+        {
+            return true;
+        }
+
+        __result = BackendStabilizerStub.SuccessBoolean();
+        return false;
+    }
+}
+
+[HarmonyPatch(typeof(KinguinverseWebService), nameof(KinguinverseWebService.PutOffSkillCard))]
+internal static class KinguinverseWebServicePutOffSkillCardPatch
+{
+    private static bool Prefix(int characterId, int skillCardSlot, ref Il2CppTasks.Task<Result<bool>> __result)
+    {
+        var handledLocally = BackendStabilizerRuntime.UsePersistentSelections && BackendStabilizerSelections.RemoveSkillCardSelection(characterId, skillCardSlot);
+        BackendStabilizerRuntime.LogSkillUiEvent("KinguinverseWebService.PutOffSkillCard:prefix", $"characterId={characterId}, slot={skillCardSlot}, handledLocally={handledLocally}");
         if (!handledLocally)
         {
             return true;

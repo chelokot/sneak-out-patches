@@ -30,7 +30,9 @@ internal static class LocalSelectionsStore
         lock (Sync)
         {
             BackendStabilizerRuntime.LogSkinSelectionSnapshot("LocalSelectionsStore.SaveCharacterSelection", character);
-            var profileSelections = GetOrCreateProfileSelections();
+            var profileKey = BackendStabilizerStub.GetProfileStorageKey();
+            BackendStabilizerRuntime.LogPersistentSelectionStore("LocalSelectionsStore.SaveCharacterSelection:key", profileKey, character.Type);
+            var profileSelections = GetOrCreateProfileSelections(profileKey);
             profileSelections.Characters[((int)character.Type).ToString()] = PersistedCharacterSelection.FromCharacter(character);
             Save();
         }
@@ -40,7 +42,9 @@ internal static class LocalSelectionsStore
     {
         lock (Sync)
         {
-            var profileSelections = GetOrCreateProfileSelections();
+            var profileKey = BackendStabilizerStub.GetProfileStorageKey();
+            BackendStabilizerRuntime.LogPersistentSelectionStore("LocalSelectionsStore.SaveCharacterSkin:key", profileKey, characterType);
+            var profileSelections = GetOrCreateProfileSelections(profileKey);
             if (!profileSelections.Characters.TryGetValue(((int)characterType).ToString(), out var selection))
             {
                 selection = new PersistedCharacterSelection();
@@ -56,7 +60,9 @@ internal static class LocalSelectionsStore
     {
         lock (Sync)
         {
-            var profileSelections = GetOrCreateProfileSelections();
+            var profileKey = BackendStabilizerStub.GetProfileStorageKey();
+            BackendStabilizerRuntime.LogPersistentSelectionStore("LocalSelectionsStore.SaveSkinPartSelection:key", profileKey, characterType, skinType, skinPartType);
+            var profileSelections = GetOrCreateProfileSelections(profileKey);
             if (!profileSelections.Characters.TryGetValue(((int)characterType).ToString(), out var selection))
             {
                 selection = new PersistedCharacterSelection();
@@ -95,8 +101,8 @@ internal static class LocalSelectionsStore
     {
         lock (Sync)
         {
-            var profileKey = BackendStabilizerStub.GetProfileStorageKey();
-            if (_root is null || !_root.Profiles.TryGetValue(profileKey, out var profileSelections))
+            var profileSelections = GetExistingProfileSelections();
+            if (profileSelections is null)
             {
                 return;
             }
@@ -425,10 +431,9 @@ internal static class LocalSelectionsStore
         player.CharacterSkins.Skins.Add(new PlayerCharacterSkin(BackendStabilizerStub.GetCharacterSkinId(characterSkin), characterSkin));
     }
 
-    private static PersistedProfileSelections GetOrCreateProfileSelections()
+    private static PersistedProfileSelections GetOrCreateProfileSelections(string profileKey)
     {
         _root ??= Load();
-        var profileKey = BackendStabilizerStub.GetProfileStorageKey();
         if (!_root.Profiles.TryGetValue(profileKey, out var profileSelections))
         {
             profileSelections = new PersistedProfileSelections();
@@ -436,6 +441,33 @@ internal static class LocalSelectionsStore
         }
 
         return profileSelections;
+    }
+
+    private static PersistedProfileSelections? GetExistingProfileSelections()
+    {
+        _root ??= Load();
+        if (_root.Profiles.Count == 0)
+        {
+            return null;
+        }
+
+        var primaryProfileKey = BackendStabilizerStub.GetProfileStorageKey();
+        if (_root.Profiles.TryGetValue(primaryProfileKey, out var primarySelections))
+        {
+            return primarySelections;
+        }
+
+        var legacyProfileKey = BackendStabilizerStub.GetLegacyProfileStorageKey();
+        if (!string.Equals(primaryProfileKey, legacyProfileKey, StringComparison.Ordinal)
+            && _root.Profiles.TryGetValue(legacyProfileKey, out var legacySelections))
+        {
+            _root.Profiles[primaryProfileKey] = legacySelections;
+            _root.Profiles.Remove(legacyProfileKey);
+            Save();
+            return legacySelections;
+        }
+
+        return null;
     }
 
     private static PersistedSelectionsRoot Load()
@@ -467,6 +499,7 @@ internal static class LocalSelectionsStore
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(StoragePath)!);
+            BackendStabilizerRuntime.LogPersistentSelectionFileWrite("LocalSelectionsStore.Save:file", StoragePath);
             File.WriteAllText(StoragePath, JsonSerializer.Serialize(_root ?? new PersistedSelectionsRoot(), JsonOptions));
         }
         catch (Exception exception)

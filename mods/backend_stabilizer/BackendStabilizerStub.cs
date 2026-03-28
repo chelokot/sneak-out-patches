@@ -407,7 +407,26 @@ internal static class BackendStabilizerStub
     {
         lock (Sync)
         {
-            return _steamId != 0 ? $"steam:{_steamId}" : $"user:{_userId}";
+            var currentClientCache = BackendStabilizerRuntime.CurrentClientCache;
+            var currentBaseData = currentClientCache?.UserWebPlayer?.BaseData;
+            if (currentBaseData is not null)
+            {
+                if (currentBaseData.PlayerId != 0)
+                {
+                    return $"user:{currentBaseData.PlayerId}";
+                }
+            }
+
+            return $"user:{_userId}";
+        }
+    }
+
+    public static string GetLegacyProfileStorageKey()
+    {
+        lock (Sync)
+        {
+            var currentUserId = BackendStabilizerRuntime.CurrentClientCache?.UserWebPlayer?.BaseData?.PlayerId;
+            return $"user:{(currentUserId.GetValueOrDefault() != 0 ? currentUserId.GetValueOrDefault() : _userId)}";
         }
     }
 
@@ -768,35 +787,30 @@ internal static class BackendStabilizerStub
     private static CharacterSkillCards EnsureCharacterSkillCards(CharacterType characterType, CharacterSkillCards? skillCards)
     {
         var normalizedSkillCards = skillCards ?? new CharacterSkillCards();
-        var matchingSkillTypes = System.Enum.GetValues<SkillType>()
-            .Where(skillType => skillType != SkillType.None)
-            .Where(skillType => MatchesCharacterSkill(characterType, skillType))
-            .Take(5)
-            .ToArray();
 
-        if (matchingSkillTypes.Length > 0)
+        if (normalizedSkillCards.ActiveSkillCard is not null)
         {
-            normalizedSkillCards.ActiveSkillCard = EnsureMaxSkillCard(normalizedSkillCards.ActiveSkillCard, matchingSkillTypes[0]);
+            normalizedSkillCards.ActiveSkillCard = EnsureMaxSkillCard(normalizedSkillCards.ActiveSkillCard, normalizedSkillCards.ActiveSkillCard.SkillType);
         }
 
-        if (matchingSkillTypes.Length > 1)
+        if (normalizedSkillCards.PassiveSkillCard1 is not null)
         {
-            normalizedSkillCards.PassiveSkillCard1 = EnsureMaxSkillCard(normalizedSkillCards.PassiveSkillCard1, matchingSkillTypes[1]);
+            normalizedSkillCards.PassiveSkillCard1 = EnsureMaxSkillCard(normalizedSkillCards.PassiveSkillCard1, normalizedSkillCards.PassiveSkillCard1.SkillType);
         }
 
-        if (matchingSkillTypes.Length > 2)
+        if (normalizedSkillCards.PassiveSkillCard2 is not null)
         {
-            normalizedSkillCards.PassiveSkillCard2 = EnsureMaxSkillCard(normalizedSkillCards.PassiveSkillCard2, matchingSkillTypes[2]);
+            normalizedSkillCards.PassiveSkillCard2 = EnsureMaxSkillCard(normalizedSkillCards.PassiveSkillCard2, normalizedSkillCards.PassiveSkillCard2.SkillType);
         }
 
-        if (matchingSkillTypes.Length > 3)
+        if (normalizedSkillCards.PassiveSkillCard3 is not null)
         {
-            normalizedSkillCards.PassiveSkillCard3 = EnsureMaxSkillCard(normalizedSkillCards.PassiveSkillCard3, matchingSkillTypes[3]);
+            normalizedSkillCards.PassiveSkillCard3 = EnsureMaxSkillCard(normalizedSkillCards.PassiveSkillCard3, normalizedSkillCards.PassiveSkillCard3.SkillType);
         }
 
-        if (matchingSkillTypes.Length > 4)
+        if (normalizedSkillCards.PassiveSkillCard4 is not null)
         {
-            normalizedSkillCards.PassiveSkillCard4 = EnsureMaxSkillCard(normalizedSkillCards.PassiveSkillCard4, matchingSkillTypes[4]);
+            normalizedSkillCards.PassiveSkillCard4 = EnsureMaxSkillCard(normalizedSkillCards.PassiveSkillCard4, normalizedSkillCards.PassiveSkillCard4.SkillType);
         }
 
         return normalizedSkillCards;

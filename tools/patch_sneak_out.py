@@ -135,7 +135,7 @@ RUNTIME_MOD_OPTIONS: tuple[RuntimeModOption, ...] = (
             "## Enable the runtime method profiler.\n"
             "# Setting type: Boolean\n"
             "# Default value: true\n"
-            "EnableMod = true\n\n"
+            "EnableMod = false\n\n"
             "## Write profiler setup details to the BepInEx log.\n"
             "# Setting type: Boolean\n"
             "# Default value: false\n"
@@ -148,11 +148,11 @@ RUNTIME_MOD_OPTIONS: tuple[RuntimeModOption, ...] = (
             "## Semicolon-separated full type-name prefixes to include.\n"
             "# Setting type: String\n"
             "# Default value: Gameplay.Match.;Networking.PGOS.;UI.Views.\n"
-            "IncludeNamespacePrefixes = Gameplay.Match.;Networking.PGOS.;UI.Views.\n\n"
+            "IncludeNamespacePrefixes = UI.Views.AvatarAndFrameView;UI.Views.MainBoostersView\n\n"
             "## Semicolon-separated full type-name prefixes to exclude.\n"
             "# Setting type: String\n"
             "# Default value: Gameplay.Match.MatchState.;UI.Views.BattlepassView;UI.Views.DailyQuestsView\n"
-            "ExcludeNamespacePrefixes = Gameplay.Match.MatchState.;UI.Views.BattlepassView;UI.Views.DailyQuestsView\n\n"
+            "ExcludeNamespacePrefixes = \n\n"
             "## Patch property/event accessor methods.\n"
             "# Setting type: Boolean\n"
             "# Default value: false\n"
@@ -168,7 +168,7 @@ RUNTIME_MOD_OPTIONS: tuple[RuntimeModOption, ...] = (
             "## Maximum number of methods to patch after filtering.\n"
             "# Setting type: Int32\n"
             "# Default value: 300\n"
-            "MaxPatchedMethods = 300\n\n"
+            "MaxPatchedMethods = 40\n\n"
             "[report]\n"
             "## Maximum number of methods to write into the report.\n"
             "# Setting type: Int32\n"
@@ -213,14 +213,14 @@ RUNTIME_MOD_OPTIONS: tuple[RuntimeModOption, ...] = (
             "## Log runtime replacements for the former GameAssembly byte patches.\n"
             "# Setting type: Boolean\n"
             "# Default value: false\n"
-            "EnableLogging = false\n"
+            "EnableLogging = true\n"
         ),
     ),
     RuntimeModOption(
         option_id="portal-mode-selector",
         label="Install Portal Mode Selector runtime mod",
         details="Builds and installs the BepInEx runtime mod that replaces fragile raw portal UI scene edits.",
-        default_enabled=False,
+        default_enabled=True,
         project_relative_path="mods/portal_mode_selector/PortalModeSelector.csproj",
         assembly_name="SneakOut.PortalModeSelector",
     ),
@@ -228,7 +228,7 @@ RUNTIME_MOD_OPTIONS: tuple[RuntimeModOption, ...] = (
         option_id="mummy-unlock",
         label="Install Mummy Unlock runtime mod",
         details="Builds and installs the BepInEx runtime mod used for restoring Mummy-related runtime hooks.",
-        default_enabled=False,
+        default_enabled=True,
         project_relative_path="mods/mummy_unlock/MummyUnlock.csproj",
         assembly_name="SneakOut.MummyUnlock",
     ),
@@ -236,7 +236,7 @@ RUNTIME_MOD_OPTIONS: tuple[RuntimeModOption, ...] = (
         option_id="backend-stabilizer",
         label="Install Backend Stabilizer runtime mod",
         details="Builds and installs the BepInEx runtime mod that applies a local max-profile overlay without touching stock Steam or matchmaking flows.",
-        default_enabled=False,
+        default_enabled=True,
         project_relative_path="mods/backend_stabilizer/BackendStabilizer.csproj",
         assembly_name="SneakOut.BackendStabilizer",
         config_relative_path="BepInEx/config/chelokot.sneakout.backend-stabilizer.cfg",
@@ -249,18 +249,26 @@ RUNTIME_MOD_OPTIONS: tuple[RuntimeModOption, ...] = (
             "## Enable backend stabilizer research logs.\n"
             "# Setting type: Boolean\n"
             "# Default value: false\n"
-            "EnableResearchLogging = false\n\n"
+            "EnableResearchLogging = true\n\n"
             "## Apply a local max-profile overlay after the stock backend bootstrap has completed.\n"
             "# Setting type: Boolean\n"
             "# Default value: true\n"
-            "EnableLocalStub = true\n"
+            "EnableProfileOverlay = true\n\n"
+            "## Replace selected profile webservice requests with a local stub. Leave disabled for the normal stabilizer flow.\n"
+            "# Setting type: Boolean\n"
+            "# Default value: false\n"
+            "EnableLocalStub = false\n\n"
+            "## Persist selected cosmetics and equipped cards locally and reapply them after profile refresh.\n"
+            "# Setting type: Boolean\n"
+            "# Default value: true\n"
+            "EnablePersistentSelections = true\n"
         ),
     ),
     RuntimeModOption(
         option_id="start-delay-reducer",
         label="Install Start Delay Reducer runtime mod",
         details="Builds and installs the BepInEx runtime mod that reduces host-side BeforeStart and CountingToStart delays.",
-        default_enabled=False,
+        default_enabled=True,
         project_relative_path="mods/start_delay_reducer/StartDelayReducer.csproj",
         assembly_name="SneakOut.StartDelayReducer",
         config_relative_path="BepInEx/config/chelokot.sneakout.start-delay-reducer.cfg",
@@ -293,7 +301,7 @@ RUNTIME_MOD_OPTIONS: tuple[RuntimeModOption, ...] = (
         option_id="friend-invite-unlock",
         label="Install Friend Invite Unlock runtime mod",
         details="Builds and installs the BepInEx runtime mod that keeps offline friends inviteable from the lobby list.",
-        default_enabled=False,
+        default_enabled=True,
         project_relative_path="mods/friend_invite_unlock/FriendInviteUnlock.csproj",
         assembly_name="SneakOut.FriendInviteUnlock",
         config_relative_path="BepInEx/config/chelokot.sneakout.friend-invite-unlock.cfg",
@@ -321,7 +329,7 @@ RUNTIME_MOD_OPTIONS: tuple[RuntimeModOption, ...] = (
         option_id="lobby-penguin-skills",
         label="Install Lobby Penguin Skills runtime mod",
         details="Builds and installs the BepInEx runtime mod that enables the local penguin skill panel and lobby-only use of slide and prop change.",
-        default_enabled=False,
+        default_enabled=True,
         project_relative_path="mods/lobby_penguin_skills/LobbyPenguinSkills.csproj",
         assembly_name="SneakOut.LobbyPenguinSkills",
         config_relative_path="BepInEx/config/chelokot.sneakout.lobby-penguin-skills.cfg",
@@ -346,7 +354,7 @@ RUNTIME_MOD_OPTIONS: tuple[RuntimeModOption, ...] = (
             "## Log lobby penguin skill decisions.\n"
             "# Setting type: Boolean\n"
             "# Default value: false\n"
-            "EnableLogging = false\n"
+            "EnableLogging = true\n"
         ),
     ),
     RuntimeModOption(
@@ -370,7 +378,7 @@ RUNTIME_MOD_OPTIONS: tuple[RuntimeModOption, ...] = (
             "## Log local free-fly movement.\n"
             "# Setting type: Boolean\n"
             "# Default value: false\n"
-            "EnableLogging = false\n\n"
+            "EnableLogging = true\n\n"
             "[movement]\n"
             "## Vertical movement speed in units per second.\n"
             "# Setting type: Single\n"
@@ -379,6 +387,7 @@ RUNTIME_MOD_OPTIONS: tuple[RuntimeModOption, ...] = (
             "## Axis to move on. Y is the normal Unity vertical axis.\n"
             "# Setting type: FreeFlyAxis\n"
             "# Default value: Y\n"
+            "# Acceptable values: Y, Z\n"
             "Axis = Y\n"
         ),
     ),

@@ -42,8 +42,10 @@ internal static class BackendStabilizerSelections
     private static AvatarType _pendingAvatarType = AvatarType.None;
     private static AvatarFrameType _pendingAvatarFrameType = AvatarFrameType.None;
     private static DescriptionType _pendingDescriptionType = DescriptionType.none;
+    private static PlayerNewMetaInventory? _currentInventory;
     private static readonly Type? GameType = AccessTools.TypeByName("Game");
     private static readonly Type? SpookedNetworkPlayerType = AccessTools.TypeByName("Gameplay.Player.Components.SpookedNetworkPlayer");
+    private static readonly Type? NetworkPlayerRegistryType = AccessTools.TypeByName("NetworkPlayerRegistry");
     private static readonly Type? CharactersSkillsType = AccessTools.TypeByName("CharactersSkills");
     private static readonly Type? TreeSkillSlotTypeType = AccessTools.TypeByName("TreeSkillSlotType");
     private static readonly Type? MyPlayerRegistryType = AccessTools.TypeByName("MyPlayerRegistry");
@@ -51,8 +53,12 @@ internal static class BackendStabilizerSelections
         GameType is null ? null : AccessTools.Property(GameType, "InternalId");
     private static readonly System.Reflection.MethodInfo? PlayerNewMetaInventoryGetMyPlayerRegistryMethod =
         AccessTools.Method(typeof(PlayerNewMetaInventory), "get__myPlayerRegistry");
+    private static readonly System.Reflection.FieldInfo? PlayerNewMetaInventoryNetworkPlayerRegistryField =
+        AccessTools.Field(typeof(PlayerNewMetaInventory), "_networkPlayerRegistry");
     private static readonly System.Reflection.MethodInfo? MyPlayerRegistrySetCharactersSkillsMethod =
         MyPlayerRegistryType is null ? null : AccessTools.Method(MyPlayerRegistryType, "set_CharactersSkills");
+    private static readonly System.Reflection.MethodInfo? NetworkPlayerRegistryGetItemMethod =
+        NetworkPlayerRegistryType is null ? null : AccessTools.Method(NetworkPlayerRegistryType, "get_Item", new[] { typeof(int) });
     private static readonly System.Reflection.MethodInfo? PlayerCustomizationViewGetSpookedPlayerCharacterDataMethod =
         AccessTools.Method(typeof(PlayerCustomizationView), "get__spookedPlayerCharacterData");
     private static readonly System.Reflection.MethodInfo? PlayerCustomizationViewSetCurrentCharacterDataMethod =
@@ -149,9 +155,57 @@ internal static class BackendStabilizerSelections
         LocalSelectionsStore.SaveCharacterSelection(character);
     }
 
+    internal static void RememberInventory(PlayerNewMetaInventory inventory)
+    {
+        _currentInventory = inventory;
+    }
+
+    private static object? GetNetworkPlayerRegistry()
+    {
+        if (PlayerNewMetaInventoryNetworkPlayerRegistryField is null)
+        {
+            return null;
+        }
+
+        if (_currentInventory is not null)
+        {
+            var currentRegistry = PlayerNewMetaInventoryNetworkPlayerRegistryField.GetValue(_currentInventory);
+            if (currentRegistry is not null)
+            {
+                return currentRegistry;
+            }
+        }
+
+        foreach (var view in UnityEngine.Resources.FindObjectsOfTypeAll<MainBoostersView>())
+        {
+            if (view is null)
+            {
+                continue;
+            }
+
+            var runtimeType = view.GetType();
+            var inventory =
+                AccessTools.Method(runtimeType, "get__playerNewMetaInventory")?.Invoke(view, Array.Empty<object>()) as PlayerNewMetaInventory
+                ?? AccessTools.Field(runtimeType, "_playerNewMetaInventory")?.GetValue(view) as PlayerNewMetaInventory;
+            if (inventory is null)
+            {
+                continue;
+            }
+
+            _currentInventory = inventory;
+            var registry = PlayerNewMetaInventoryNetworkPlayerRegistryField.GetValue(inventory);
+            if (registry is not null)
+            {
+                return registry;
+            }
+        }
+
+        return null;
+    }
+
     private static object? GetCurrentNetworkPlayer()
     {
-        if (SpookedNetworkPlayerType is null)
+        if (NetworkPlayerRegistryGetItemMethod is null)
         {
             return null;
         }
@@ -162,28 +216,15 @@ internal static class BackendStabilizerSelections
             return null;
         }
 
-        var il2CppType = Il2CppInterop.Runtime.Il2CppType.From(SpookedNetworkPlayerType);
-        foreach (var networkPlayer in UnityEngine.Resources.FindObjectsOfTypeAll(il2CppType))
-        {
-            if (networkPlayer is null)
-            {
-                continue;
-            }
-
-            var getInternalIdMethod = AccessTools.Method(networkPlayer.GetType(), "get_InternalId");
-            if (getInternalIdMethod?.Invoke(networkPlayer, Array.Empty<object>()) is int playerInternalId && playerInternalId == internalId)
-            {
-                return networkPlayer;
-            }
-        }
-
-        return null;
+        var registry = GetNetworkPlayerRegistry();
+        return registry is null ? null : NetworkPlayerRegistryGetItemMethod.Invoke(registry, new object[] { internalId });
     }
 
     internal static void SyncInventoryRegistryCharactersSkills(PlayerNewMetaInventory inventory)
     {
         try
         {
+            RememberInventory(inventory);
             var player = GetPlayer();
             if (player?.Characters is null || CharactersSkillsToCharacterSkillsMethod is null || PlayerNewMetaInventoryGetMyPlayerRegistryMethod is null || MyPlayerRegistrySetCharactersSkillsMethod is null)
             {
@@ -1719,8 +1760,9 @@ internal static class ClientCacheRefreshPlayerPatch
 [HarmonyPatch(typeof(PlayerNewMetaInventory), nameof(PlayerNewMetaInventory.OnAvatarModyficationChange))]
 internal static class PlayerNewMetaInventoryOnAvatarModyficationChangePatch
 {
-    private static bool Prefix(Il2CppSystem.Enum productType, ClientCharacterType characterType, ref Il2CppTasks.Task<bool> __result)
+    private static bool Prefix(PlayerNewMetaInventory __instance, Il2CppSystem.Enum productType, ClientCharacterType characterType, ref Il2CppTasks.Task<bool> __result)
     {
+        BackendStabilizerSelections.RememberInventory(__instance);
         BackendStabilizerRuntime.LogSkillUiEvent("PlayerNewMetaInventory.OnAvatarModyficationChange:entered", $"characterType={characterType}");
         if (!BackendStabilizerRuntime.UsePersistentSelections)
         {
@@ -1785,8 +1827,9 @@ internal static class PlayerNewMetaInventoryChangeSkinEquippedPatch
         return false;
     }
 
-    private static bool Prefix(SkinPartType partType, SkinType skinType, ClientCharacterType characterType, ref Il2CppTasks.Task __result)
+    private static bool Prefix(PlayerNewMetaInventory __instance, SkinPartType partType, SkinType skinType, ClientCharacterType characterType, ref Il2CppTasks.Task __result)
     {
+        BackendStabilizerSelections.RememberInventory(__instance);
         var handledLocally = BackendStabilizerRuntime.UsePersistentSelections
             && BackendStabilizerSelections.ApplySkinPartSelection(characterType, skinType, partType);
         BackendStabilizerRuntime.LogSkinPath("PlayerNewMetaInventory.ChangeSkinEquipped:prefix", characterType, skinType, partType, handledLocally);
@@ -2078,8 +2121,9 @@ internal static class PlayerCustomizationViewTryPreviewOutfitLoggingPatch
 [HarmonyPatch(typeof(PlayerNewMetaInventory), nameof(PlayerNewMetaInventory.OnTreeSkillChange))]
 internal static class PlayerNewMetaInventoryOnTreeSkillChangePatch
 {
-    private static bool Prefix(SkillType cardSkillType, int slotType, ClientCharacterType characterType)
+    private static bool Prefix(PlayerNewMetaInventory __instance, SkillType cardSkillType, int slotType, ClientCharacterType characterType)
     {
+        BackendStabilizerSelections.RememberInventory(__instance);
         BackendStabilizerRuntime.LogSkillUiEvent("PlayerNewMetaInventory.OnTreeSkillChange:prefix", $"skill={cardSkillType}, slotType={slotType}, characterType={characterType}");
         return true;
     }

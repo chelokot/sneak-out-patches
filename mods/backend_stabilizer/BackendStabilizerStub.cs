@@ -285,6 +285,15 @@ internal static class BackendStabilizerStub
         }
     }
 
+    public static void ApplyWebPlayerSimplifiedOverlay(WebPlayersSimplified player)
+    {
+        lock (Sync)
+        {
+            player.BaseData ??= CreateBaseData();
+            player.Characters = EnsureCharacters(player.Characters);
+        }
+    }
+
     private static RefreshLobbyPlayerResponse CreateRefreshPlayerResponse()
     {
         var response = new RefreshLobbyPlayerResponse();

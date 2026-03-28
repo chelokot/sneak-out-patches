@@ -45,6 +45,7 @@ internal static class BackendStabilizerSelections
     private static AvatarFrameType _pendingAvatarFrameType = AvatarFrameType.None;
     private static DescriptionType _pendingDescriptionType = DescriptionType.none;
     private static PlayerNewMetaInventory? _currentInventory;
+    private static UnityEngine.Component? _currentNetworkPlayer;
     private static readonly Type? GameType = AccessTools.TypeByName("Game");
     private static readonly Type? SpookedNetworkPlayerType = AccessTools.TypeByName("Gameplay.Player.Components.SpookedNetworkPlayer");
     private static readonly Type? NetworkPlayerRegistryType = AccessTools.TypeByName("NetworkPlayerRegistry");
@@ -353,6 +354,24 @@ internal static class BackendStabilizerSelections
         _currentInventory = inventory;
     }
 
+    internal static void RememberNetworkPlayer(object networkPlayer)
+    {
+        if (networkPlayer is not UnityEngine.Component component
+            || SpookedNetworkPlayerGetInternalIdMethod?.Invoke(networkPlayer, Array.Empty<object>()) is not int candidateInternalId
+            || candidateInternalId <= 0)
+        {
+            return;
+        }
+
+        var currentInternalId = GetCurrentInternalId();
+        if (currentInternalId > 0 && candidateInternalId != currentInternalId)
+        {
+            return;
+        }
+
+        _currentNetworkPlayer = component;
+    }
+
     private static object? GetMyPlayerRegistry(PlayerNewMetaInventory? preferredInventory = null)
     {
         if (PlayerNewMetaInventoryGetMyPlayerRegistryMethod is null)
@@ -463,10 +482,28 @@ internal static class BackendStabilizerSelections
             return null;
         }
 
+        if (_currentNetworkPlayer is not null)
+        {
+            if (_currentNetworkPlayer == null)
+            {
+                _currentNetworkPlayer = null;
+            }
+            else if (SpookedNetworkPlayerGetInternalIdMethod.Invoke(_currentNetworkPlayer, Array.Empty<object>()) is int cachedInternalId
+                     && cachedInternalId == internalId)
+            {
+                return _currentNetworkPlayer;
+            }
+            else
+            {
+                _currentNetworkPlayer = null;
+            }
+        }
+
         var registry = GetNetworkPlayerRegistry();
         var networkPlayer = registry is null ? null : NetworkPlayerRegistryGetItemMethod.Invoke(registry, new object[] { internalId });
         if (networkPlayer is not null)
         {
+            RememberNetworkPlayer(networkPlayer);
             return networkPlayer;
         }
 
@@ -480,6 +517,7 @@ internal static class BackendStabilizerSelections
             if (SpookedNetworkPlayerGetInternalIdMethod.Invoke(candidate, Array.Empty<object>()) is int candidateInternalId
                 && candidateInternalId == internalId)
             {
+                RememberNetworkPlayer(candidate);
                 return candidate;
             }
         }
@@ -1636,6 +1674,7 @@ internal static class BackendStabilizerSelections
         ApplyStartupSkinPart(character.SkinParts.Hands);
         ApplyStartupSkinPart(character.SkinParts.Back);
         ApplyStartupSkinPart(character.SkinParts.Whole);
+        SyncLivePlayerCharacterData(character);
     }
 
     private static void ApplyStartupSkinPart(SkinPart skinPart)
@@ -2547,6 +2586,21 @@ internal static class EntitySkillsComponentGetSkillPatch
 }
 
 [HarmonyPatch]
+internal static class SpookedNetworkPlayerSpawnedRememberPatch
+{
+    private static System.Reflection.MethodBase? TargetMethod()
+    {
+        var type = AccessTools.TypeByName("Gameplay.Player.Components.SpookedNetworkPlayer");
+        return type is null ? null : AccessTools.Method(type, "Spawned");
+    }
+
+    private static void Postfix(object __instance)
+    {
+        BackendStabilizerSelections.RememberNetworkPlayer(__instance);
+    }
+}
+
+[HarmonyPatch]
 internal static class SpookedNetworkPlayerSpawnedReadyStartupSkinPatch
 {
     private static System.Reflection.MethodBase? TargetMethod()
@@ -2555,8 +2609,9 @@ internal static class SpookedNetworkPlayerSpawnedReadyStartupSkinPatch
         return type is null ? null : AccessTools.Method(type, "RPC_SpawnedReady");
     }
 
-    private static void Postfix()
+    private static void Postfix(object __instance)
     {
+        BackendStabilizerSelections.RememberNetworkPlayer(__instance);
         BackendStabilizerSelections.ApplyStartupSkinSelectionsToLivePreview();
     }
 }
@@ -3120,6 +3175,66 @@ internal static class KinguinverseWebServiceGetPlayerResourcesPatch
         catch (Exception exception)
         {
             BackendStabilizerRuntime.LogError("Backend research GetPlayerResources postfix failed", exception);
+        }
+    }
+}
+
+[HarmonyPatch]
+internal static class KinguinverseWebServiceGetPlayerByUserIdPatch
+{
+    private static System.Reflection.MethodBase? TargetMethod()
+    {
+        return AccessTools.Method(typeof(KinguinverseWebService), nameof(KinguinverseWebService.GetPlayer), new[] { typeof(int) });
+    }
+
+    private static void Postfix(Il2CppTasks.Task<Result<WebPlayersSimplified>> __result)
+    {
+        if (__result is null || !BackendStabilizerRuntime.UseProfileOverlay)
+        {
+            return;
+        }
+
+        try
+        {
+            if (__result.IsCompletedSuccessfully)
+            {
+                if (__result.Result is { IsSuccessful: true, Value: not null } result)
+                {
+                    BackendStabilizerStub.ApplyWebPlayerSimplifiedOverlay(result.Value);
+                }
+
+                return;
+            }
+
+            _ = Tasks.Task.Run(
+                async () =>
+                {
+                    while (!__result.IsCompleted)
+                    {
+                        await Tasks.Task.Delay(50).ConfigureAwait(false);
+                    }
+
+                    if (!__result.IsCompletedSuccessfully)
+                    {
+                        return;
+                    }
+
+                    try
+                    {
+                        if (__result.Result is { IsSuccessful: true, Value: not null } result)
+                        {
+                            BackendStabilizerStub.ApplyWebPlayerSimplifiedOverlay(result.Value);
+                        }
+                    }
+                    catch (Exception exception)
+                    {
+                        BackendStabilizerRuntime.LogError("Backend stabilizer GetPlayer(int) completion overlay failed", exception);
+                    }
+                });
+        }
+        catch (Exception exception)
+        {
+            BackendStabilizerRuntime.LogError("Backend stabilizer GetPlayer(int) postfix failed", exception);
         }
     }
 }

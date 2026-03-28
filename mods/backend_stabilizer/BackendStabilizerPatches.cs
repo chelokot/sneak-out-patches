@@ -57,6 +57,19 @@ internal static class BackendStabilizerSelections
         AccessTools.Method(typeof(PlayerCustomizationView), "get__spookedPlayerCharacterData");
     private static readonly System.Reflection.MethodInfo? PlayerCustomizationViewSetCurrentCharacterDataMethod =
         AccessTools.Method(typeof(PlayerCustomizationView), "set__currentCharacterData");
+    private static readonly System.Reflection.MethodInfo? SpookedNetworkPlayerGetCharacterDataMethod =
+        SpookedNetworkPlayerType is null ? null : AccessTools.Method(SpookedNetworkPlayerType, "get_CharacterData");
+    private static readonly System.Reflection.MethodInfo? SpookedNetworkPlayerChangeCharacterDataMethod =
+        SpookedNetworkPlayerType is null ? null : AccessTools.Method(SpookedNetworkPlayerType, "ChangeCharacterData");
+    private static readonly System.Reflection.MethodInfo? SpookedNetworkPlayerGetCharacterTypeMethod =
+        SpookedNetworkPlayerType is null ? null : AccessTools.Method(SpookedNetworkPlayerType, "get_CharacterType");
+    private static readonly System.Reflection.MethodInfo? SpookedNetworkPlayerSetCharactersSkillsMethod =
+        SpookedNetworkPlayerType is null ? null : AccessTools.Method(SpookedNetworkPlayerType, "set_CharactersSkills");
+    private static readonly System.Reflection.FieldInfo? SpookedNetworkPlayerEntitySkillsComponentField =
+        SpookedNetworkPlayerType is null ? null : AccessTools.Field(SpookedNetworkPlayerType, "EntitySkillsComponent");
+    private static readonly Type? EntitySkillsComponentType = AccessTools.TypeByName("Gameplay.Player.Components.EntitySkillsComponent");
+    private static readonly System.Reflection.MethodInfo? EntitySkillsComponentRefreshPlayerSkillsMethod =
+        EntitySkillsComponentType is null ? null : AccessTools.Method(EntitySkillsComponentType, "RefreshPlayerSkills");
     private static readonly System.Reflection.MethodInfo? CharactersSkillsToCharacterSkillsMethod =
         CharactersSkillsType is null ? null : AccessTools.Method(CharactersSkillsType, "ToCharacterSkills");
     private static readonly System.Reflection.MethodInfo? CharactersSkillsAddOrReplaceSkillInSlotMethod =
@@ -199,6 +212,36 @@ internal static class BackendStabilizerSelections
         }
     }
 
+    private static void SyncLivePlayerCharactersSkills()
+    {
+        try
+        {
+            var player = GetPlayer();
+            var networkPlayer = GetCurrentNetworkPlayer();
+            if (player?.Characters is null || networkPlayer is null || CharactersSkillsToCharacterSkillsMethod is null || SpookedNetworkPlayerSetCharactersSkillsMethod is null)
+            {
+                BackendStabilizerRuntime.LogSkillUiEvent("BackendStabilizerSelections.SyncLivePlayerCharactersSkills", "missingSource");
+                return;
+            }
+
+            var charactersSkills = CharactersSkillsToCharacterSkillsMethod.Invoke(null, new object[] { player.Characters });
+            if (charactersSkills is null)
+            {
+                BackendStabilizerRuntime.LogSkillUiEvent("BackendStabilizerSelections.SyncLivePlayerCharactersSkills", "noCharactersSkills");
+                return;
+            }
+
+            SpookedNetworkPlayerSetCharactersSkillsMethod.Invoke(networkPlayer, new[] { charactersSkills });
+            var entitySkillsComponent = SpookedNetworkPlayerEntitySkillsComponentField?.GetValue(networkPlayer);
+            EntitySkillsComponentRefreshPlayerSkillsMethod?.Invoke(entitySkillsComponent, Array.Empty<object>());
+            BackendStabilizerRuntime.LogSkillUiEvent("BackendStabilizerSelections.SyncLivePlayerCharactersSkills", "applied");
+        }
+        catch (Exception exception)
+        {
+            BackendStabilizerRuntime.LogError("Backend stabilizer live characters skills sync failed", exception);
+        }
+    }
+
     internal static void SyncOpenBoosterViews()
     {
         try
@@ -272,6 +315,46 @@ internal static class BackendStabilizerSelections
         catch (Exception exception)
         {
             BackendStabilizerRuntime.LogError("Backend stabilizer live avatar sync failed", exception);
+        }
+    }
+
+    private static void SyncLivePlayerCharacterData(Character character)
+    {
+        try
+        {
+            var networkPlayer = GetCurrentNetworkPlayer();
+            if (networkPlayer is null)
+            {
+                BackendStabilizerRuntime.LogSkinSelectionSnapshot("BackendStabilizerSelections.SyncLivePlayerCharacterData:noNetworkPlayer", character);
+                return;
+            }
+
+            if (SpookedNetworkPlayerGetCharacterTypeMethod?.Invoke(networkPlayer, Array.Empty<object>()) is not CharacterType currentCharacterType
+                || currentCharacterType != character.Type)
+            {
+                BackendStabilizerRuntime.LogSkinSelectionSnapshot("BackendStabilizerSelections.SyncLivePlayerCharacterData:characterMismatch", character);
+                return;
+            }
+
+            if (SpookedNetworkPlayerGetCharacterDataMethod?.Invoke(networkPlayer, Array.Empty<object>()) is not Types.Structs.CharacterData characterData)
+            {
+                BackendStabilizerRuntime.LogSkinSelectionSnapshot("BackendStabilizerSelections.SyncLivePlayerCharacterData:noCharacterData", character);
+                return;
+            }
+
+            var skinParts = character.SkinParts;
+            characterData.HeadType = skinParts?.Head?.SkinPartType ?? SkinPartType.None;
+            characterData.TorsoType = skinParts?.Chest?.SkinPartType ?? SkinPartType.None;
+            characterData.ArmsType = skinParts?.Hands?.SkinPartType ?? SkinPartType.None;
+            characterData.LegsType = skinParts?.Legs?.SkinPartType ?? SkinPartType.None;
+            characterData.BackType = skinParts?.Back?.SkinPartType ?? SkinPartType.None;
+            characterData.WholeType = skinParts?.Whole?.SkinPartType ?? SkinPartType.None;
+            SpookedNetworkPlayerChangeCharacterDataMethod?.Invoke(networkPlayer, new object[] { characterData });
+            BackendStabilizerRuntime.LogSkinSelectionSnapshot("BackendStabilizerSelections.SyncLivePlayerCharacterData:applied", character);
+        }
+        catch (Exception exception)
+        {
+            BackendStabilizerRuntime.LogError("Backend stabilizer live character data sync failed", exception);
         }
     }
 
@@ -779,6 +862,7 @@ internal static class BackendStabilizerSelections
             }
 
             SaveSelection(character);
+            SyncLivePlayerCharacterData(character);
             return true;
         }
 
@@ -860,6 +944,7 @@ internal static class BackendStabilizerSelections
         }
 
         SaveSelection(character);
+        SyncLivePlayerCharacterData(character);
         BackendStabilizerRuntime.LogSkinSelectionSnapshot("BackendStabilizerSelections.ApplySkinPartSelection:applied", character);
         SyncPreviewCharacterData(skinType, skinPartType);
         PublishSkinRefresh(skinPartType, skinType);
@@ -1068,6 +1153,7 @@ internal static class BackendStabilizerSelections
         RebuildCharacterSkillCardsFromRegistry(charactersSkills, clientCharacterType, character, cards);
         BackendStabilizerRuntime.LogSkillSelectionSnapshot("BackendStabilizerSelections.ApplyTreeSkillSelection:applied", character);
         SaveSelection(character);
+        SyncLivePlayerCharactersSkills();
         return true;
     }
 
@@ -1125,6 +1211,7 @@ internal static class BackendStabilizerSelections
 
         BackendStabilizerRuntime.LogSkillSelectionSnapshot("BackendStabilizerSelections.ApplySkillCardSelection:applied", character);
         SaveSelection(character);
+        SyncLivePlayerCharactersSkills();
         SyncOpenBoosterViews();
         return true;
     }
@@ -1165,6 +1252,7 @@ internal static class BackendStabilizerSelections
 
         BackendStabilizerRuntime.LogSkillSelectionSnapshot("BackendStabilizerSelections.RemoveSkillCardSelection:applied", character);
         SaveSelection(character);
+        SyncLivePlayerCharactersSkills();
         SyncOpenBoosterViews();
         return true;
     }

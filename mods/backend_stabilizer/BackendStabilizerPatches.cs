@@ -49,6 +49,7 @@ internal static class BackendStabilizerSelections
     private static readonly Type? CharactersSkillsType = AccessTools.TypeByName("CharactersSkills");
     private static readonly Type? TreeSkillSlotTypeType = AccessTools.TypeByName("TreeSkillSlotType");
     private static readonly Type? MyPlayerRegistryType = AccessTools.TypeByName("MyPlayerRegistry");
+    private static readonly Type? PlayersActiveSkillsType = AccessTools.TypeByName("Collections.Skills.PlayersActiveSkills");
     private static readonly System.Reflection.PropertyInfo? GameInternalIdProperty =
         GameType is null ? null : AccessTools.Property(GameType, "InternalId");
     private static readonly System.Reflection.MethodInfo? PlayerNewMetaInventoryGetMyPlayerRegistryMethod =
@@ -82,14 +83,12 @@ internal static class BackendStabilizerSelections
         CharactersSkillsType is null ? null : AccessTools.Method(CharactersSkillsType, "AddOrReplaceSkillInSlot");
     private static readonly System.Reflection.MethodInfo? CharactersSkillsGetSkillFromSlotMethod =
         CharactersSkillsType is null ? null : AccessTools.Method(CharactersSkillsType, "GetSkillFromSlot");
+    private static readonly System.Reflection.MethodInfo? PlayersActiveSkillsGetModifierDirectlyMethod =
+        PlayersActiveSkillsType is null ? null : AccessTools.Method(PlayersActiveSkillsType, "GetModifierDirectly");
     private static readonly System.Reflection.MethodInfo? AvatarAndFrameViewGetCurrentCategorySelectedMethod =
         AccessTools.Method(typeof(AvatarAndFrameView), "get__currentCategorySelected");
     private static readonly System.Reflection.MethodInfo? AvatarAndFrameViewGetCurrentSelectedProductMethod =
         AccessTools.Method(typeof(AvatarAndFrameView), "get__currentSelectedProduct");
-    private static readonly System.Reflection.FieldInfo? MyPlayerRegistryCharactersSkillsField =
-        MyPlayerRegistryType is null ? null : AccessTools.Field(MyPlayerRegistryType, "CharactersSkills");
-    private static readonly System.Reflection.FieldInfo? MainBoostersViewEquippedSkillsField =
-        AccessTools.Field(typeof(MainBoostersView), "_equippedSkills");
 
     internal static bool TryGetSkinPartType(Il2CppSystem.Enum itemType, out SkinPartType skinPartType)
     {
@@ -148,6 +147,132 @@ internal static class BackendStabilizerSelections
         }
 
         return null;
+    }
+
+    private static bool TryGetLocalCharacterForInternalId(int internalId, out Character character, out CharacterType characterType)
+    {
+        character = null!;
+        characterType = CharacterType.None;
+
+        if (internalId <= 0 || internalId != GetCurrentInternalId())
+        {
+            return false;
+        }
+
+        var networkPlayer = GetCurrentNetworkPlayer();
+        if (networkPlayer is null)
+        {
+            return false;
+        }
+
+        if (SpookedNetworkPlayerGetCharacterTypeMethod?.Invoke(networkPlayer, Array.Empty<object>()) is not CharacterType currentCharacterType
+            || currentCharacterType == CharacterType.None)
+        {
+            return false;
+        }
+
+        var currentCharacter = GetCharacterByType(currentCharacterType);
+        if (currentCharacter is null)
+        {
+            return false;
+        }
+
+        character = currentCharacter;
+        characterType = currentCharacterType;
+        return true;
+    }
+
+    private static bool TryGetSkillTier(CharacterSkillCards? skillCards, SkillType skillType, out int tier)
+    {
+        tier = 0;
+
+        var activeSkill = skillCards?.ActiveSkillCard;
+        if (activeSkill is not null && activeSkill.SkillType == skillType)
+        {
+            tier = activeSkill.Tier;
+            return tier > 0;
+        }
+
+        var passiveSkill1 = skillCards?.PassiveSkillCard1;
+        if (passiveSkill1 is not null && passiveSkill1.SkillType == skillType)
+        {
+            tier = passiveSkill1.Tier;
+            return tier > 0;
+        }
+
+        var passiveSkill2 = skillCards?.PassiveSkillCard2;
+        if (passiveSkill2 is not null && passiveSkill2.SkillType == skillType)
+        {
+            tier = passiveSkill2.Tier;
+            return tier > 0;
+        }
+
+        var passiveSkill3 = skillCards?.PassiveSkillCard3;
+        if (passiveSkill3 is not null && passiveSkill3.SkillType == skillType)
+        {
+            tier = passiveSkill3.Tier;
+            return tier > 0;
+        }
+
+        var passiveSkill4 = skillCards?.PassiveSkillCard4;
+        if (passiveSkill4 is not null && passiveSkill4.SkillType == skillType)
+        {
+            tier = passiveSkill4.Tier;
+            return tier > 0;
+        }
+
+        return false;
+    }
+
+    internal static bool TryGetLocalSkillTier(int internalId, SkillType skillType, out CharacterType characterType, out int tier)
+    {
+        characterType = CharacterType.None;
+        tier = 0;
+
+        if (!BackendStabilizerRuntime.UsePersistentSelections
+            || !TryGetLocalCharacterForInternalId(internalId, out var character, out characterType))
+        {
+            return false;
+        }
+
+        return TryGetSkillTier(character.SkillCards, skillType, out tier);
+    }
+
+    internal static bool TryGetLocalSkillEquipped(int internalId, SkillType skillType, CharacterType characterType, out bool equipped)
+    {
+        equipped = false;
+
+        if (!TryGetLocalCharacterForInternalId(internalId, out var character, out var currentCharacterType)
+            || currentCharacterType != characterType)
+        {
+            return false;
+        }
+
+        equipped = TryGetSkillTier(character.SkillCards, skillType, out _);
+        return true;
+    }
+
+    internal static System.Reflection.MethodBase? GetPlayersActiveSkillsHaveSkillEquippedTargetMethod()
+    {
+        return PlayersActiveSkillsType is null ? null : AccessTools.Method(PlayersActiveSkillsType, "HaveSkillEquipped");
+    }
+
+    internal static System.Reflection.MethodBase? GetPlayersActiveSkillsGetPlayerSkillModifierTargetMethod()
+    {
+        return PlayersActiveSkillsType is null ? null : AccessTools.Method(PlayersActiveSkillsType, "GetPlayerSkillModifier");
+    }
+
+    internal static bool TryGetDirectSkillModifier(object playersActiveSkills, SkillType skillType, object skillModifierType, CharacterType characterType, int tier, out float modifier)
+    {
+        modifier = 0;
+
+        if (PlayersActiveSkillsGetModifierDirectlyMethod?.Invoke(playersActiveSkills, new object[] { skillType, skillModifierType, tier, characterType }) is not float directModifier)
+        {
+            return false;
+        }
+
+        modifier = directModifier;
+        return true;
     }
 
     private static void SaveSelection(Character character)
@@ -1305,6 +1430,11 @@ internal static class BackendStabilizerSelections
             return;
         }
 
+        if (GetCurrentInternalId() <= 0 || !LocalSelectionsStore.HasPersistedSkinSelection(CharacterType.Penguin))
+        {
+            return;
+        }
+
         var character = GetCharacterByType(CharacterType.Penguin);
         if (character?.SkinParts is null)
         {
@@ -2162,6 +2292,45 @@ internal static class PlayerNewMetaInventoryOnTreeSkillChangePatch
         catch (Exception exception)
         {
             BackendStabilizerRuntime.LogError("Backend stabilizer skill view refresh failed", exception);
+        }
+    }
+}
+
+[HarmonyPatch]
+internal static class PlayersActiveSkillsHaveSkillEquippedPatch
+{
+    private static System.Reflection.MethodBase? TargetMethod()
+    {
+        return BackendStabilizerSelections.GetPlayersActiveSkillsHaveSkillEquippedTargetMethod();
+    }
+
+    private static void Postfix(int internalId, SkillType cardSkillType, CharacterType characterType, ref bool __result)
+    {
+        if (BackendStabilizerSelections.TryGetLocalSkillEquipped(internalId, cardSkillType, characterType, out var equipped))
+        {
+            __result = equipped;
+        }
+    }
+}
+
+[HarmonyPatch]
+internal static class PlayersActiveSkillsGetPlayerSkillModifierPatch
+{
+    private static System.Reflection.MethodBase? TargetMethod()
+    {
+        return BackendStabilizerSelections.GetPlayersActiveSkillsGetPlayerSkillModifierTargetMethod();
+    }
+
+    private static void Postfix(object __instance, int internalId, SkillType cardSkillType, object skillModifierType, ref float __result)
+    {
+        if (!BackendStabilizerSelections.TryGetLocalSkillTier(internalId, cardSkillType, out var characterType, out var tier))
+        {
+            return;
+        }
+
+        if (BackendStabilizerSelections.TryGetDirectSkillModifier(__instance, cardSkillType, skillModifierType, characterType, tier, out var modifier))
+        {
+            __result = modifier;
         }
     }
 }

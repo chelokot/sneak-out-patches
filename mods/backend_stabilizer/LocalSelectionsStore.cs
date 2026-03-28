@@ -126,6 +126,30 @@ internal static class LocalSelectionsStore
         }
     }
 
+    public static bool HasPersistedSkinSelection(CharacterType characterType)
+    {
+        lock (Sync)
+        {
+            var profileSelections = GetExistingProfileSelections();
+            if (profileSelections is null)
+            {
+                return false;
+            }
+
+            if (!profileSelections.Characters.TryGetValue(((int)characterType).ToString(), out var selection))
+            {
+                return false;
+            }
+
+            return selection.HeadSkinPartType.HasValue
+                || selection.ChestSkinPartType.HasValue
+                || selection.LegsSkinPartType.HasValue
+                || selection.HandsSkinPartType.HasValue
+                || selection.BackSkinPartType.HasValue
+                || selection.WholeSkinPartType.HasValue;
+        }
+    }
+
     private static void ApplySelection(WebPlayer player, Character character, PersistedCharacterSelection selection)
     {
         if (selection.AvatarType.HasValue)

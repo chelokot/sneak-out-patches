@@ -35,6 +35,8 @@ External prerequisites:
 - the repo-managed `.NET SDK` in `.tmp/runtime-mod/dotnet`
 - the repo-managed `BepInEx IL2CPP x64` bundle in `.tmp/runtime-mod/bepinex`
 
+The BepInEx bootstrap intentionally uses the `Unity.IL2CPP` bundle from the official BepInEx builds site, not the old stable `BepInEx_win_x64_5.4.x` archive, because the stable archive does not contain `BepInEx.Unity.IL2CPP.dll`.
+
 When you install runtime mods through the patcher, it will automatically lay down `BepInEx`, `winhttp.dll`, `doorstop_config.ini`, and the bundled runtime files into the target game directory if they are missing.
 
 ## Repository layout

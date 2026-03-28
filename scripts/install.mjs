@@ -15,9 +15,8 @@ import {
 } from "./lib/workspace-tools.mjs";
 
 const dotnetVersion = process.env.SNEAKOUT_DOTNET_VERSION ?? "8.0.408";
-const bepinexVersion = process.env.SNEAKOUT_BEPINEX_VERSION ?? "5.4.23.5";
 const bepinexWindowsAssetUrl = process.env.SNEAKOUT_BEPINEX_WINDOWS_ASSET_URL
-  ?? `https://github.com/BepInEx/BepInEx/releases/download/v${bepinexVersion}/BepInEx_win_x64_${bepinexVersion}.zip`;
+  ?? "https://builds.bepinex.dev/projects/bepinex_be/755/BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.755%2B3fab71a.zip";
 
 async function ensureDotnet() {
   const dotnetExecutablePath = localDotnetExecutablePath();
@@ -94,12 +93,13 @@ async function ensureBepInEx() {
   const bepinexCorePath = join(localBepInExDirectory, "BepInEx", "core", "BepInEx.Unity.IL2CPP.dll");
   const bepinexBootstrapPath = join(localBepInExDirectory, "winhttp.dll");
   if (await fileExists(bepinexCorePath) && await fileExists(bepinexBootstrapPath)) {
-    console.log(`BepInEx ${bepinexVersion} already installed`);
+    console.log("BepInEx IL2CPP bundle already installed");
     return;
   }
 
   await ensureDirectory(localDownloadsDirectory);
-  const archivePath = join(localDownloadsDirectory, `BepInEx_win_x64_${bepinexVersion}.zip`);
+  const assetFileName = decodeURIComponent(new URL(bepinexWindowsAssetUrl).pathname.split("/").at(-1) ?? "bepinex-il2cpp-win-x64.zip");
+  const archivePath = join(localDownloadsDirectory, assetFileName);
   await fetchToFile(bepinexWindowsAssetUrl, archivePath);
   await extractZipArchive(archivePath, localBepInExDirectory);
 
@@ -107,7 +107,7 @@ async function ensureBepInEx() {
     throw new Error(`BepInEx install did not produce ${bepinexCorePath}`);
   }
 
-  console.log(`installed BepInEx ${bepinexVersion} -> ${localBepInExDirectory}`);
+  console.log(`installed BepInEx IL2CPP bundle -> ${localBepInExDirectory}`);
 }
 
 async function main() {

@@ -57,8 +57,6 @@ internal static class BackendStabilizerSelections
         GameType is null ? null : AccessTools.Property(GameType, "InternalId");
     private static readonly System.Reflection.MethodInfo? PlayerNewMetaInventoryGetMyPlayerRegistryMethod =
         AccessTools.Method(typeof(PlayerNewMetaInventory), "get__myPlayerRegistry");
-    private static readonly System.Reflection.MethodInfo? MyPlayerRegistrySetCharactersSkillsMethod =
-        MyPlayerRegistryType is null ? null : AccessTools.Method(MyPlayerRegistryType, "set_CharactersSkills");
     private static readonly System.Reflection.MethodInfo? NetworkPlayerRegistryGetItemMethod =
         NetworkPlayerRegistryType is null ? null : AccessTools.Method(NetworkPlayerRegistryType, "get_Item", new[] { typeof(int) });
     private static readonly System.Reflection.MethodInfo? PlayerCustomizationViewGetSpookedPlayerCharacterDataMethod =
@@ -355,6 +353,61 @@ internal static class BackendStabilizerSelections
         _currentInventory = inventory;
     }
 
+    private static object? GetMyPlayerRegistry(PlayerNewMetaInventory? preferredInventory = null)
+    {
+        if (PlayerNewMetaInventoryGetMyPlayerRegistryMethod is null)
+        {
+            return null;
+        }
+
+        if (preferredInventory is not null)
+        {
+            var preferredRegistry = PlayerNewMetaInventoryGetMyPlayerRegistryMethod.Invoke(preferredInventory, Array.Empty<object>());
+            if (preferredRegistry is not null)
+            {
+                _currentInventory = preferredInventory;
+                return preferredRegistry;
+            }
+        }
+
+        if (_currentInventory is not null)
+        {
+            var currentRegistry = PlayerNewMetaInventoryGetMyPlayerRegistryMethod.Invoke(_currentInventory, Array.Empty<object>());
+            if (currentRegistry is not null)
+            {
+                return currentRegistry;
+            }
+        }
+
+        foreach (var view in UnityEngine.Resources.FindObjectsOfTypeAll<MainBoostersView>())
+        {
+            if (view is null)
+            {
+                continue;
+            }
+
+            var runtimeType = view.GetType();
+            var inventory =
+                AccessTools.Method(runtimeType, "get__playerNewMetaInventory")?.Invoke(view, Array.Empty<object>()) as PlayerNewMetaInventory
+                ?? AccessTools.Field(runtimeType, "_playerNewMetaInventory")?.GetValue(view) as PlayerNewMetaInventory;
+            if (inventory is null)
+            {
+                continue;
+            }
+
+            var registry = PlayerNewMetaInventoryGetMyPlayerRegistryMethod.Invoke(inventory, Array.Empty<object>());
+            if (registry is null)
+            {
+                continue;
+            }
+
+            _currentInventory = inventory;
+            return registry;
+        }
+
+        return null;
+    }
+
     private static object? GetNetworkPlayerRegistry()
     {
         if (_currentInventory is not null)
@@ -434,32 +487,76 @@ internal static class BackendStabilizerSelections
         return null;
     }
 
+    private static bool SyncMyPlayerRegistryCharactersSkills(PlayerNewMetaInventory? preferredInventory = null)
+    {
+        var player = GetPlayer();
+        if (player?.Characters is null || CharactersSkillsToCharacterSkillsMethod is null)
+        {
+            return false;
+        }
+
+        var myPlayerRegistry = GetMyPlayerRegistry(preferredInventory);
+        if (myPlayerRegistry is null)
+        {
+            BackendStabilizerRuntime.LogSkillUiEvent("BackendStabilizerSelections.SyncMyPlayerRegistryCharactersSkills", "noRegistry");
+            return false;
+        }
+
+        var charactersSkills = CharactersSkillsToCharacterSkillsMethod.Invoke(null, new object[] { player.Characters });
+        if (charactersSkills is null)
+        {
+            BackendStabilizerRuntime.LogSkillUiEvent("BackendStabilizerSelections.SyncMyPlayerRegistryCharactersSkills", "noCharactersSkills");
+            return false;
+        }
+
+        var charactersSkillsField = myPlayerRegistry.GetType().GetField("CharactersSkills", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+        if (charactersSkillsField is null)
+        {
+            BackendStabilizerRuntime.LogSkillUiEvent("BackendStabilizerSelections.SyncMyPlayerRegistryCharactersSkills", "noCharactersSkillsField");
+            return false;
+        }
+
+        charactersSkillsField.SetValue(myPlayerRegistry, charactersSkills);
+        BackendStabilizerRuntime.LogSkillUiEvent("BackendStabilizerSelections.SyncMyPlayerRegistryCharactersSkills", "applied");
+        return true;
+    }
+
+    private static void SyncMyPlayerRegistryCharacterData(Character character)
+    {
+        var myPlayerRegistry = GetMyPlayerRegistry();
+        if (myPlayerRegistry is null)
+        {
+            BackendStabilizerRuntime.LogSkinSelectionSnapshot("BackendStabilizerSelections.SyncMyPlayerRegistryCharacterData:noRegistry", character);
+            return;
+        }
+
+        var characterDataField = myPlayerRegistry.GetType().GetField("CharacterData", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+        if (characterDataField is null || characterDataField.GetValue(myPlayerRegistry) is not Types.Structs.CharacterData characterData)
+        {
+            BackendStabilizerRuntime.LogSkinSelectionSnapshot("BackendStabilizerSelections.SyncMyPlayerRegistryCharacterData:noCharacterData", character);
+            return;
+        }
+
+        var skinParts = character.SkinParts;
+        characterData.HeadType = skinParts?.Head?.SkinPartType ?? SkinPartType.None;
+        characterData.TorsoType = skinParts?.Chest?.SkinPartType ?? SkinPartType.None;
+        characterData.ArmsType = skinParts?.Hands?.SkinPartType ?? SkinPartType.None;
+        characterData.LegsType = skinParts?.Legs?.SkinPartType ?? SkinPartType.None;
+        characterData.BackType = skinParts?.Back?.SkinPartType ?? SkinPartType.None;
+        characterData.WholeType = skinParts?.Whole?.SkinPartType ?? SkinPartType.None;
+        characterDataField.SetValue(myPlayerRegistry, characterData);
+        BackendStabilizerRuntime.LogSkinSelectionSnapshot("BackendStabilizerSelections.SyncMyPlayerRegistryCharacterData:applied", character);
+    }
+
     internal static void SyncInventoryRegistryCharactersSkills(PlayerNewMetaInventory inventory)
     {
         try
         {
             RememberInventory(inventory);
-            var player = GetPlayer();
-            if (player?.Characters is null || CharactersSkillsToCharacterSkillsMethod is null || PlayerNewMetaInventoryGetMyPlayerRegistryMethod is null || MyPlayerRegistrySetCharactersSkillsMethod is null)
+            if (SyncMyPlayerRegistryCharactersSkills(inventory))
             {
-                return;
+                BackendStabilizerRuntime.LogSkillUiEvent("BackendStabilizerSelections.SyncInventoryRegistryCharactersSkills", "applied");
             }
-
-            var myPlayerRegistry = PlayerNewMetaInventoryGetMyPlayerRegistryMethod.Invoke(inventory, Array.Empty<object>());
-            if (myPlayerRegistry is null)
-            {
-                BackendStabilizerRuntime.LogSkillUiEvent("BackendStabilizerSelections.SyncInventoryRegistryCharactersSkills", "noRegistry");
-                return;
-            }
-
-            var charactersSkills = CharactersSkillsToCharacterSkillsMethod.Invoke(null, new object[] { player.Characters });
-            if (charactersSkills is null)
-            {
-                return;
-            }
-
-            MyPlayerRegistrySetCharactersSkillsMethod.Invoke(myPlayerRegistry, new[] { charactersSkills });
-            BackendStabilizerRuntime.LogSkillUiEvent("BackendStabilizerSelections.SyncInventoryRegistryCharactersSkills", "applied");
         }
         catch (Exception exception)
         {
@@ -471,6 +568,7 @@ internal static class BackendStabilizerSelections
     {
         try
         {
+            SyncMyPlayerRegistryCharactersSkills();
             var player = GetPlayer();
             var networkPlayer = GetCurrentNetworkPlayer();
             if (player?.Characters is null || networkPlayer is null || CharactersSkillsToCharacterSkillsMethod is null || SpookedNetworkPlayerSetCharactersSkillsMethod is null)
@@ -577,6 +675,7 @@ internal static class BackendStabilizerSelections
     {
         try
         {
+            SyncMyPlayerRegistryCharacterData(character);
             var networkPlayer = GetCurrentNetworkPlayer();
             if (networkPlayer is null)
             {
@@ -584,8 +683,9 @@ internal static class BackendStabilizerSelections
                 return;
             }
 
-            if (SpookedNetworkPlayerGetCharacterTypeMethod?.Invoke(networkPlayer, Array.Empty<object>()) is not CharacterType currentCharacterType
-                || currentCharacterType != character.Type)
+            if (!TryMapWebCharacterTypeToRuntimeCharacterType(character.Type, out var runtimeCharacterType)
+                || SpookedNetworkPlayerGetCharacterTypeMethod?.Invoke(networkPlayer, Array.Empty<object>()) is not RuntimeCharacterType currentCharacterType
+                || currentCharacterType != runtimeCharacterType)
             {
                 BackendStabilizerRuntime.LogSkinSelectionSnapshot("BackendStabilizerSelections.SyncLivePlayerCharacterData:characterMismatch", character);
                 return;

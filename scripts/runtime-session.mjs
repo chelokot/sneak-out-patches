@@ -4,6 +4,7 @@ import { repositoryRoot, runAndCapture, runCommand } from "./lib/workspace-tools
 
 const steamAppUri = "steam://rungameid/2410490";
 const defaultGameDirectory = "/run/media/chelokot/second/SteamLibrary/steamapps/common/Sneak Out";
+const defaultSteamLogPath = "/var/home/chelokot/.var/app/com.valvesoftware.Steam/steam-2410490.log";
 const defaultWindowName = "Sneak Out";
 const defaultWaitSeconds = 25;
 const defaultHostTarget = "chelokot@localhost";
@@ -248,12 +249,29 @@ async function getFileMetadata(path) {
   }
 }
 
-async function waitForSessionActivity(logPath, windowName, initialLogMetadata, waitSeconds, options) {
+function haveWatchedLogsChanged(initialMetadataByPath, currentMetadataByPath) {
+  return Object.entries(currentMetadataByPath).some(([path, metadata]) => {
+    const initialMetadata = initialMetadataByPath[path];
+    return metadata.exists && (
+      metadata.mtimeMs > initialMetadata.mtimeMs
+      || metadata.size > initialMetadata.size
+    );
+  });
+}
+
+async function getWatchedLogMetadata(paths) {
+  const metadataEntries = await Promise.all(
+    paths.map(async (path) => [path, await getFileMetadata(path)])
+  );
+  return Object.fromEntries(metadataEntries);
+}
+
+async function waitForSessionActivity(watchedLogPaths, windowName, initialLogMetadataByPath, waitSeconds, options) {
   const deadline = Date.now() + waitSeconds * 1000;
 
   while (Date.now() < deadline) {
-    const [logMetadata, windowIds, processes] = await Promise.all([
-      getFileMetadata(logPath),
+    const [logMetadataByPath, windowIds, processes] = await Promise.all([
+      getWatchedLogMetadata(watchedLogPaths),
       getWindowIds(windowName, options),
       getSneakOutProcesses(options)
     ]);
@@ -261,13 +279,10 @@ async function waitForSessionActivity(logPath, windowName, initialLogMetadata, w
     if (
       windowIds.length > 0
       || processes.length > 0
-      || (logMetadata.exists && (
-        logMetadata.mtimeMs > initialLogMetadata.mtimeMs
-        || logMetadata.size > initialLogMetadata.size
-      ))
+      || haveWatchedLogsChanged(initialLogMetadataByPath, logMetadataByPath)
     ) {
       return {
-        logMetadata,
+        logMetadataByPath,
         windowIds,
         processes
       };
@@ -277,7 +292,7 @@ async function waitForSessionActivity(logPath, windowName, initialLogMetadata, w
   }
 
   return {
-    logMetadata: await getFileMetadata(logPath),
+    logMetadataByPath: await getWatchedLogMetadata(watchedLogPaths),
     windowIds: await getWindowIds(windowName, options),
     processes: await getSneakOutProcesses(options)
   };
@@ -291,12 +306,21 @@ async function main() {
   const bepinexDirectory = join(gameDirectory, "BepInEx");
   const logOutputPath = join(bepinexDirectory, "LogOutput.log");
   const errorLogPath = join(bepinexDirectory, "ErrorLog.log");
+  const unityOutputLogPath = join(gameDirectory, "output_log.txt");
+  const steamLogPath = defaultSteamLogPath;
+  const watchedLogPaths = [
+    logOutputPath,
+    errorLogPath,
+    unityOutputLogPath,
+    steamLogPath
+  ];
 
   await ensureDirectory(sessionDirectory);
-  await snapshotFile(logOutputPath, join(sessionDirectory, "before"));
-  await snapshotFile(errorLogPath, join(sessionDirectory, "before"));
+  await Promise.all(
+    watchedLogPaths.map((path) => snapshotFile(path, join(sessionDirectory, "before")))
+  );
 
-  const initialLogMetadata = await getFileMetadata(logOutputPath);
+  const initialLogMetadataByPath = await getWatchedLogMetadata(watchedLogPaths);
   if (options.clearLogs) {
     await truncateFile(logOutputPath);
     await truncateFile(errorLogPath);
@@ -311,10 +335,11 @@ async function main() {
     await launchGame(options);
   }
 
-  const activity = await waitForSessionActivity(logOutputPath, options.windowName, initialLogMetadata, options.waitSeconds, options);
+  const activity = await waitForSessionActivity(watchedLogPaths, options.windowName, initialLogMetadataByPath, options.waitSeconds, options);
   const finalWindowNames = await getWindowNames(activity.windowIds, options);
-  await snapshotFile(logOutputPath, join(sessionDirectory, "after"));
-  await snapshotFile(errorLogPath, join(sessionDirectory, "after"));
+  await Promise.all(
+    watchedLogPaths.map((path) => snapshotFile(path, join(sessionDirectory, "after")))
+  );
 
   const summary = {
     sessionLabel,
@@ -328,8 +353,9 @@ async function main() {
     initialProcesses,
     finalWindowNames,
     finalProcesses: activity.processes,
-    initialLogMetadata,
-    finalLogMetadata: activity.logMetadata
+    watchedLogPaths,
+    initialLogMetadataByPath,
+    finalLogMetadataByPath: activity.logMetadataByPath
   };
 
   await writeFile(join(sessionDirectory, "summary.json"), `${JSON.stringify(summary, null, 2)}\n`);

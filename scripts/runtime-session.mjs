@@ -6,22 +6,46 @@ const steamAppUri = "steam://rungameid/2410490";
 const defaultGameDirectory = "/run/media/chelokot/second/SteamLibrary/steamapps/common/Sneak Out";
 const defaultWindowName = "Sneak Out";
 const defaultWaitSeconds = 25;
+const defaultHostTarget = "chelokot@localhost";
+const defaultHostDisplay = ":0";
+const defaultHostWaylandDisplay = "wayland-0";
+const defaultHostDbusSessionBusAddress = "unix:path=/run/user/1000/bus";
+const defaultHostXdgRuntimeDirectory = "/run/user/1000";
+const defaultHostSteamLaunchCommand = "flatpak run --command=/app/bin/steam com.valvesoftware.Steam steam://rungameid/2410490";
 
 function parseArguments(argv) {
   const options = {
     launch: false,
+    hostLaunch: false,
+    stopExisting: false,
     sessionName: "",
     waitSeconds: defaultWaitSeconds,
     gameDirectory: process.env.SNEAKOUT_GAME_DIR ?? defaultGameDirectory,
     windowName: defaultWindowName,
-    clearLogs: true
+    clearLogs: true,
+    hostTarget: process.env.SNEAKOUT_HOST_TARGET ?? defaultHostTarget,
+    hostDisplay: process.env.SNEAKOUT_HOST_DISPLAY ?? defaultHostDisplay,
+    hostWaylandDisplay: process.env.SNEAKOUT_HOST_WAYLAND_DISPLAY ?? defaultHostWaylandDisplay,
+    hostDbusSessionBusAddress: process.env.SNEAKOUT_HOST_DBUS_SESSION_BUS_ADDRESS ?? defaultHostDbusSessionBusAddress,
+    hostXdgRuntimeDirectory: process.env.SNEAKOUT_HOST_XDG_RUNTIME_DIR ?? defaultHostXdgRuntimeDirectory,
+    hostSteamLaunchCommand: process.env.SNEAKOUT_HOST_STEAM_COMMAND ?? defaultHostSteamLaunchCommand
   };
 
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     switch (argument) {
+      case "--help":
+        printHelpAndExit();
+        break;
       case "--launch":
         options.launch = true;
+        break;
+      case "--host-launch":
+        options.launch = true;
+        options.hostLaunch = true;
+        break;
+      case "--stop-existing":
+        options.stopExisting = true;
         break;
       case "--session":
         options.sessionName = argv[++index] ?? "";
@@ -38,12 +62,53 @@ function parseArguments(argv) {
       case "--no-log-clear":
         options.clearLogs = false;
         break;
+      case "--host":
+        options.hostTarget = argv[++index] ?? options.hostTarget;
+        break;
+      case "--host-display":
+        options.hostDisplay = argv[++index] ?? options.hostDisplay;
+        break;
+      case "--host-wayland-display":
+        options.hostWaylandDisplay = argv[++index] ?? options.hostWaylandDisplay;
+        break;
+      case "--host-dbus-session-bus-address":
+        options.hostDbusSessionBusAddress = argv[++index] ?? options.hostDbusSessionBusAddress;
+        break;
+      case "--host-xdg-runtime-dir":
+        options.hostXdgRuntimeDirectory = argv[++index] ?? options.hostXdgRuntimeDirectory;
+        break;
+      case "--host-steam-command":
+        options.hostSteamLaunchCommand = argv[++index] ?? options.hostSteamLaunchCommand;
+        break;
       default:
         throw new Error(`Unknown argument: ${argument}`);
     }
   }
 
   return options;
+}
+
+function printHelpAndExit() {
+  console.log([
+    "Usage: node scripts/runtime-session.mjs [options]",
+    "",
+    "Options:",
+    "  --launch                             Launch the game before collecting artifacts.",
+    "  --host-launch                        Launch through host Steam via ssh + flatpak.",
+    "  --stop-existing                      Stop existing Sneak Out.exe host processes first.",
+    "  --session <label>                    Append a label to the session directory name.",
+    "  --wait-seconds <n>                   Wait for activity for up to n seconds.",
+    "  --game-dir <path>                    Override the game directory.",
+    "  --window-name <name>                 Window name to search for.",
+    "  --no-log-clear                       Preserve existing BepInEx logs instead of truncating them.",
+    "  --host <ssh-target>                  Host target for ssh launch.",
+    "  --host-display <display>             Host DISPLAY value.",
+    "  --host-wayland-display <display>     Host WAYLAND_DISPLAY value.",
+    "  --host-dbus-session-bus-address <address>",
+    "  --host-xdg-runtime-dir <path>",
+    "  --host-steam-command <command>       Host command that launches Sneak Out through Steam."
+  ].join("\n"));
+  process.exit(0);
 }
 
 function getTimestampLabel() {
@@ -75,13 +140,38 @@ async function truncateFile(path) {
   await writeFile(path, "");
 }
 
-async function getWindowIds(windowName) {
-  const { stdout } = await runAndCapture("bash", [
-    "--noprofile",
-    "--norc",
-    "-lc",
-    `xdotool search --name ${JSON.stringify(windowName)} 2>/dev/null || true`
-  ]);
+function getHostEnvironmentPrefix(options) {
+  return [
+    `export DISPLAY=${JSON.stringify(options.hostDisplay)}`,
+    `export WAYLAND_DISPLAY=${JSON.stringify(options.hostWaylandDisplay)}`,
+    `export DBUS_SESSION_BUS_ADDRESS=${JSON.stringify(options.hostDbusSessionBusAddress)}`,
+    `export XDG_RUNTIME_DIR=${JSON.stringify(options.hostXdgRuntimeDirectory)}`
+  ].join("; ");
+}
+
+async function runHostShell(options, command) {
+  const remoteCommand = `${getHostEnvironmentPrefix(options)}; bash --noprofile --norc -lc ${JSON.stringify(command)}`;
+  return runAndCapture("ssh", [options.hostTarget, remoteCommand]);
+}
+
+async function runHostShellDetached(options, command) {
+  const remoteCommand = `${getHostEnvironmentPrefix(options)}; bash --noprofile --norc -lc ${JSON.stringify(`(${command}) >/tmp/sneakout-runtime-session.log 2>&1 & disown`)}`;
+  await runCommand("ssh", [options.hostTarget, remoteCommand], {
+    cwd: repositoryRoot,
+    stdio: "ignore"
+  });
+}
+
+async function getWindowIds(windowName, options) {
+  const command = `xdotool search --name ${JSON.stringify(windowName)} 2>/dev/null || true`;
+  const { stdout } = options.hostLaunch
+    ? await runHostShell(options, command)
+    : await runAndCapture("bash", [
+        "--noprofile",
+        "--norc",
+        "-lc",
+        command
+      ]);
 
   return stdout
     .split(/\s+/)
@@ -89,22 +179,52 @@ async function getWindowIds(windowName) {
     .filter((value) => value.length > 0);
 }
 
-async function getWindowNames(windowIds) {
+async function getWindowNames(windowIds, options) {
   const names = [];
   for (const windowId of windowIds) {
-    const { stdout } = await runAndCapture("bash", [
-      "--noprofile",
-      "--norc",
-      "-lc",
-      `xdotool getwindowname ${windowId} 2>/dev/null || true`
-    ]);
+    const command = `xdotool getwindowname ${windowId} 2>/dev/null || true`;
+    const { stdout } = options.hostLaunch
+      ? await runHostShell(options, command)
+      : await runAndCapture("bash", [
+          "--noprofile",
+          "--norc",
+          "-lc",
+          command
+        ]);
     names.push({ windowId, name: stdout.trim() });
   }
 
   return names;
 }
 
-async function launchGame() {
+async function getSneakOutProcesses(options) {
+  if (!options.hostLaunch) {
+    return [];
+  }
+
+  const command = "ps -ef | awk 'BEGIN { IGNORECASE = 1 } /Sneak Out\\.exe|UnityCrashHandler64\\.exe|proton waitforexitandrun/ { print }' || true";
+  const { stdout } = await runHostShell(options, command);
+  return stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
+async function stopExistingGameProcesses(options) {
+  if (!options.hostLaunch) {
+    return;
+  }
+
+  const command = "ps -eo pid,args | awk '/[S]neak Out\\.exe/ { print \\$1 }' | xargs -r kill";
+  await runHostShell(options, command);
+}
+
+async function launchGame(options) {
+  if (options.hostLaunch) {
+    await runHostShellDetached(options, options.hostSteamLaunchCommand);
+    return;
+  }
+
   await runCommand("xdg-open", [steamAppUri], {
     cwd: repositoryRoot,
     stdio: "ignore"
@@ -128,17 +248,19 @@ async function getFileMetadata(path) {
   }
 }
 
-async function waitForSessionActivity(logPath, windowName, initialLogMetadata, waitSeconds) {
+async function waitForSessionActivity(logPath, windowName, initialLogMetadata, waitSeconds, options) {
   const deadline = Date.now() + waitSeconds * 1000;
 
   while (Date.now() < deadline) {
-    const [logMetadata, windowIds] = await Promise.all([
+    const [logMetadata, windowIds, processes] = await Promise.all([
       getFileMetadata(logPath),
-      getWindowIds(windowName)
+      getWindowIds(windowName, options),
+      getSneakOutProcesses(options)
     ]);
 
     if (
       windowIds.length > 0
+      || processes.length > 0
       || (logMetadata.exists && (
         logMetadata.mtimeMs > initialLogMetadata.mtimeMs
         || logMetadata.size > initialLogMetadata.size
@@ -146,7 +268,8 @@ async function waitForSessionActivity(logPath, windowName, initialLogMetadata, w
     ) {
       return {
         logMetadata,
-        windowIds
+        windowIds,
+        processes
       };
     }
 
@@ -155,7 +278,8 @@ async function waitForSessionActivity(logPath, windowName, initialLogMetadata, w
 
   return {
     logMetadata: await getFileMetadata(logPath),
-    windowIds: await getWindowIds(windowName)
+    windowIds: await getWindowIds(windowName, options),
+    processes: await getSneakOutProcesses(options)
   };
 }
 
@@ -178,13 +302,17 @@ async function main() {
     await truncateFile(errorLogPath);
   }
 
-  const initialWindowIds = await getWindowIds(options.windowName);
+  const initialWindowIds = await getWindowIds(options.windowName, options);
+  const initialProcesses = await getSneakOutProcesses(options);
+  if (options.stopExisting) {
+    await stopExistingGameProcesses(options);
+  }
   if (options.launch) {
-    await launchGame();
+    await launchGame(options);
   }
 
-  const activity = await waitForSessionActivity(logOutputPath, options.windowName, initialLogMetadata, options.waitSeconds);
-  const finalWindowNames = await getWindowNames(activity.windowIds);
+  const activity = await waitForSessionActivity(logOutputPath, options.windowName, initialLogMetadata, options.waitSeconds, options);
+  const finalWindowNames = await getWindowNames(activity.windowIds, options);
   await snapshotFile(logOutputPath, join(sessionDirectory, "after"));
   await snapshotFile(errorLogPath, join(sessionDirectory, "after"));
 
@@ -194,8 +322,12 @@ async function main() {
     gameDirectory,
     windowName: options.windowName,
     waitSeconds: options.waitSeconds,
+    hostLaunch: options.hostLaunch,
+    hostTarget: options.hostTarget,
     initialWindowIds,
+    initialProcesses,
     finalWindowNames,
+    finalProcesses: activity.processes,
     initialLogMetadata,
     finalLogMetadata: activity.logMetadata
   };

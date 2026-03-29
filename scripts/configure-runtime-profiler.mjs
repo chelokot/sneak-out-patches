@@ -6,8 +6,19 @@ const defaultConfigPath = process.env.SNEAKOUT_RUNTIME_PROFILER_CONFIG
 
 const presets = new Map([
   [
+    "off",
+    {
+      enableMod: false,
+      enableLogging: false,
+      includeNamespacePrefixes: [],
+      targetMethodPatterns: [],
+      maxPatchedMethods: 0
+    }
+  ],
+  [
     "skills-host",
     {
+      enableMod: true,
       enableLogging: true,
       includeNamespacePrefixes: [
         "Collections.Skills.",
@@ -27,6 +38,7 @@ const presets = new Map([
   [
     "skins-sync",
     {
+      enableMod: true,
       enableLogging: true,
       includeNamespacePrefixes: [
         "Gameplay.Player.Components.",
@@ -74,7 +86,7 @@ async function main() {
   await ensureConfig(configPath);
   let content = await readFile(configPath, "utf8");
 
-  content = replaceOrAppendSetting(content, "EnableMod", "true");
+  content = replaceOrAppendSetting(content, "EnableMod", preset.enableMod ? "true" : "false");
   content = replaceOrAppendSetting(content, "EnableLogging", preset.enableLogging ? "true" : "false");
   content = replaceOrAppendSetting(content, "IncludeNamespacePrefixes", preset.includeNamespacePrefixes.join(";"));
   content = replaceOrAppendSetting(content, "TargetMethodPatterns", preset.targetMethodPatterns.join(";"));

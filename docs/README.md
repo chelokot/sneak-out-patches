@@ -1,5 +1,12 @@
 # Documentation Index
 
+## runtime mods
+
+- `reverse-engineering/runtime-mod-catalog.md`
+  Current runtime mod responsibilities, stability categories, and why some broad mods are intentionally not split yet.
+- `reverse-engineering/unlock-everything-layering.md`
+  Rules for keeping `Unlock Everything` on stable apply, persistence, and live-sync layers instead of UI wrappers.
+
 ## gameplay
 
 - `gameplay/tasks-and-task-steps.md`
@@ -17,12 +24,12 @@
 - `gameplay/mummy-unlock-research.md`
   Runtime facts and entry points for restoring Mummy as a selectable hunter.
 
-## patching
+## patching history
 
 - `patching/working-berek-patch.md`
-  The currently documented working patch set and its constraints.
+  Historical working patch sets and their constraints.
 - `patching/patch-history.md`
-  What worked, what failed, and why.
+  What worked, what failed, and why during the binary-patch era.
 
 ## reverse-engineering
 

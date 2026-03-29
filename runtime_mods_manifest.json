@@ -1,0 +1,119 @@
+[
+  {
+    "option_id": "double-party-invite-fix",
+    "label": "Double Party Invite Fix",
+    "details": "Builds and installs the BepInEx runtime mod that fixes the first accepted private-party invite flow.",
+    "category": "core",
+    "default_enabled": true,
+    "project_relative_path": "mods/double_party_invite_fix/DoublePartyInviteFix.csproj",
+    "assembly_name": "SneakOut.DoublePartyInviteFix",
+    "config_relative_path": "BepInEx/config/chelokot.sneakout.double-party-invite-fix.cfg",
+    "default_config_template_path": "config_templates/runtime_mods/double-party-invite-fix.cfg"
+  },
+  {
+    "option_id": "uniform-seeker-random",
+    "label": "Uniform Seeker Random",
+    "details": "Builds and installs the BepInEx runtime mod that replaces the default seeker selection with a uniform random choice.",
+    "category": "core",
+    "default_enabled": true,
+    "project_relative_path": "mods/uniform_seeker_random/UniformSeekerRandom.csproj",
+    "assembly_name": "SneakOut.UniformSeekerRandom",
+    "config_relative_path": "BepInEx/config/chelokot.sneakout.uniform-seeker-random.cfg",
+    "default_config_template_path": "config_templates/runtime_mods/uniform-seeker-random.cfg"
+  },
+  {
+    "option_id": "ui-crash-guards",
+    "label": "UI Crash Guards",
+    "details": "Builds and installs the BepInEx runtime mod that suppresses known crash-prone battlepass and daily-quest refresh handlers.",
+    "category": "core",
+    "default_enabled": true,
+    "project_relative_path": "mods/ui_crash_guards/UICrashGuards.csproj",
+    "assembly_name": "SneakOut.UICrashGuards",
+    "config_relative_path": "BepInEx/config/chelokot.sneakout.ui-crash-guards.cfg",
+    "default_config_template_path": "config_templates/runtime_mods/ui-crash-guards.cfg"
+  },
+  {
+    "option_id": "portal-mode-selector",
+    "label": "Portal Mode Selector",
+    "details": "Builds and installs the BepInEx runtime mod that replaces fragile portal UI scene edits with runtime hooks.",
+    "category": "gameplay",
+    "default_enabled": true,
+    "project_relative_path": "mods/portal_mode_selector/PortalModeSelector.csproj",
+    "assembly_name": "SneakOut.PortalModeSelector"
+  },
+  {
+    "option_id": "mummy-unlock",
+    "label": "Mummy Unlock",
+    "details": "Builds and installs the BepInEx runtime mod used for restoring Mummy as a selectable hunter.",
+    "category": "gameplay",
+    "default_enabled": true,
+    "project_relative_path": "mods/mummy_unlock/MummyUnlock.csproj",
+    "assembly_name": "SneakOut.MummyUnlock"
+  },
+  {
+    "option_id": "unlock-everything",
+    "label": "Unlock Everything",
+    "details": "Builds and installs the BepInEx runtime mod that stabilizes profile-backed unlocks, local apply flows, and persisted selections.",
+    "category": "progression",
+    "default_enabled": true,
+    "project_relative_path": "mods/unlock_everything/UnlockEverything.csproj",
+    "assembly_name": "SneakOut.UnlockEverything",
+    "config_relative_path": "BepInEx/config/chelokot.sneakout.unlock-everything.cfg",
+    "default_config_template_path": "config_templates/runtime_mods/unlock-everything.cfg"
+  },
+  {
+    "option_id": "start-delay-reducer",
+    "label": "Start Delay Reducer",
+    "details": "Builds and installs the BepInEx runtime mod that reduces host-side pre-match startup delays.",
+    "category": "quality-of-life",
+    "default_enabled": true,
+    "project_relative_path": "mods/start_delay_reducer/StartDelayReducer.csproj",
+    "assembly_name": "SneakOut.StartDelayReducer",
+    "config_relative_path": "BepInEx/config/chelokot.sneakout.start-delay-reducer.cfg",
+    "default_config_template_path": "config_templates/runtime_mods/start-delay-reducer.cfg"
+  },
+  {
+    "option_id": "friend-invite-unlock",
+    "label": "Friend Invite Unlock",
+    "details": "Builds and installs the BepInEx runtime mod that keeps offline friends inviteable from the lobby list.",
+    "category": "quality-of-life",
+    "default_enabled": true,
+    "project_relative_path": "mods/friend_invite_unlock/FriendInviteUnlock.csproj",
+    "assembly_name": "SneakOut.FriendInviteUnlock",
+    "config_relative_path": "BepInEx/config/chelokot.sneakout.friend-invite-unlock.cfg",
+    "default_config_template_path": "config_templates/runtime_mods/friend-invite-unlock.cfg"
+  },
+  {
+    "option_id": "lobby-skill-sandbox",
+    "label": "Lobby Skill Sandbox",
+    "details": "Builds and installs the BepInEx runtime mod that exposes penguin skill UI and lobby-only skill use for local testing.",
+    "category": "experimental",
+    "default_enabled": true,
+    "project_relative_path": "mods/lobby_skill_sandbox/LobbySkillSandbox.csproj",
+    "assembly_name": "SneakOut.LobbySkillSandbox",
+    "config_relative_path": "BepInEx/config/chelokot.sneakout.lobby-skill-sandbox.cfg",
+    "default_config_template_path": "config_templates/runtime_mods/lobby-skill-sandbox.cfg"
+  },
+  {
+    "option_id": "free-fly",
+    "label": "Free Fly (Debug)",
+    "details": "Builds and installs the BepInEx runtime mod that moves the local player vertically with PageUp and PageDown for debugging.",
+    "category": "debug",
+    "default_enabled": false,
+    "project_relative_path": "mods/free_fly/FreeFly.csproj",
+    "assembly_name": "SneakOut.FreeFly",
+    "config_relative_path": "BepInEx/config/chelokot.sneakout.free-fly.cfg",
+    "default_config_template_path": "config_templates/runtime_mods/free-fly.cfg"
+  },
+  {
+    "option_id": "runtime-profiler",
+    "label": "Runtime Profiler (Debug)",
+    "details": "Builds and installs the BepInEx runtime mod that profiles configured managed methods and writes a report on exit.",
+    "category": "debug",
+    "default_enabled": false,
+    "project_relative_path": "mods/runtime_profiler/RuntimeProfiler.csproj",
+    "assembly_name": "SneakOut.RuntimeProfiler",
+    "config_relative_path": "BepInEx/config/chelokot.sneakout.runtime-profiler.cfg",
+    "default_config_template_path": "config_templates/runtime_mods/runtime-profiler.cfg"
+  }
+]

@@ -1,10 +1,14 @@
-# Sneak Out Patches
+# Sneak Out Runtime Mods
 
-Reverse-engineering notes, patching tools, and runtime mod work for `Sneak Out`.
+Reverse-engineering notes, runtime mod code, and installation tooling for `Sneak Out`.
+
+The repository is runtime-mod first:
+
+- no `GameAssembly.dll` byte patches are currently shipped
+- the patcher installs `BepInEx IL2CPP` and selected runtime mods
+- committed DLL artifacts in `artifacts/runtime_mods/` let other people install with `--nobuild`
 
 ## Tooling bootstrap
-
-The repo now bootstraps its local toolchain with a single command:
 
 ```bash
 npm install
@@ -16,265 +20,166 @@ On Linux you can use:
 make install
 ```
 
-That installs the repo-managed `.NET SDK` and `BepInEx` runtime bundle into `.tmp/`, so the build and install commands do not depend on a global `dotnet` install or a separately managed BepInEx archive.
-The local SDK is used by the repo scripts directly and is not added to your global `PATH`, so `dotnet --version` in a separate shell may still fail even when the bootstrap succeeded.
+That bootstraps into `.tmp/`:
 
-Committed runtime mod DLLs live in:
-
-- `artifacts/runtime_mods/`
-
-That lets people install runtime mods with `--nobuild` even if they do not have `dotnet` locally.
+- a repo-managed `.NET SDK`
+- a repo-managed `BepInEx Unity.IL2CPP x64` bundle
 
 External prerequisites:
 
 - `Node.js 20+`
 - `Python 3`
 
-`npm install` now bootstraps both:
-
-- the repo-managed `.NET SDK` in `.tmp/runtime-mod/dotnet`
-- the repo-managed `BepInEx IL2CPP x64` bundle in `.tmp/runtime-mod/bepinex`
-
-The BepInEx bootstrap intentionally uses the `Unity.IL2CPP` bundle from the official BepInEx builds site, not the old stable `BepInEx_win_x64_5.4.x` archive, because the stable archive does not contain `BepInEx.Unity.IL2CPP.dll`.
-
-When you install runtime mods through the patcher, it will automatically lay down `BepInEx`, `winhttp.dll`, `doorstop_config.ini`, and the bundled runtime files into the target game directory if they are missing.
-
 ## Repository layout
 
-- `docs/`
-  Reverse-engineering notes, patch history, gameplay findings, and UI investigations.
+- `mods/`
+  Runtime BepInEx IL2CPP plugins.
+- `runtime_mods_manifest.json`
+  The single source of truth for runtime mod ids, labels, categories, build paths, and default install settings.
+- `config_templates/runtime_mods/`
+  Default config templates consumed by the patcher.
+- `artifacts/runtime_mods/`
+  Committed runtime mod DLLs for `--nobuild` installs.
+- `scripts/`
+  Repo bootstrap, build helpers, runtime automation, and profiler configuration.
 - `tools/patch_sneak_out.py`
-  The main patcher CLI for retail file patches.
-- `tools/inspect_level0.py`
-  Small helper for inspecting `level0` scene data.
+  Interactive installer, rollback tool, and validator for the game directory.
 - `tools/interop_inspector/`
-  A .NET inspection utility for BepInEx-generated interop assemblies.
-- `mods/portal_mode_selector/`
-  The runtime BepInEx IL2CPP mod that is replacing fragile raw UI scene surgery.
-- `mods/mummy_unlock/`
-  A dedicated runtime research mod for restoring Mummy as a selectable hunter.
-- `mods/backend_stabilizer/`
-  The runtime BepInEx IL2CPP mod that applies a local max-profile overlay without touching stock Steam, PGOS, or matchmaking flows.
+  Helper for inspecting BepInEx-generated interop assemblies.
+- `docs/`
+  Reverse-engineering notes, gameplay findings, and historical experiments.
 
-## What currently exists
+## Runtime mod catalog
 
-The patcher is now runtime-mod only. The old `GameAssembly.dll` byte patches were removed after game updates invalidated their offsets.
+Core and gameplay mods:
 
-Runtime fixes that used to live as binary patches now ship through:
+- `double-party-invite-fix`
+  Fixes the first accepted private-party invite flow.
+- `uniform-seeker-random`
+  Replaces the default seeker selection with a uniform random choice.
+- `ui-crash-guards`
+  Suppresses known crash-prone battlepass and daily-quest refresh handlers.
+- `portal-mode-selector`
+  Runtime portal mode and map selector hooks.
+- `mummy-unlock`
+  Restores Mummy-related selection hooks.
+- `unlock-everything`
+  Profile overlay, local apply hooks, persistence, and live sync work.
+- `start-delay-reducer`
+  Reduces host-side pre-match delays.
+- `friend-invite-unlock`
+  Keeps offline friends inviteable from the lobby list.
 
-- `core-fixes`
-  Replaces the old private-party invite join fix, uniform hunter random fix, and crashy battlepass refresh no-op with Harmony patches.
+Experimental and debug mods:
 
-## Clone the repository
+- `lobby-skill-sandbox`
+  Lobby-only penguin skill sandbox.
+- `free-fly`
+  Vertical free-fly debugging controls.
+- `runtime-profiler`
+  Managed method profiler for narrow runtime investigations.
+
+The patcher enables all mods except `runtime-profiler` and `free-fly` by default.
+
+## Common commands
+
+List runtime mods:
 
 ```bash
-git clone https://github.com/chelokot/sneak-out-patches.git
-cd sneak-out-patches
-npm install
+npm run mod:list
 ```
 
-## Run the patcher
+Build one runtime mod:
 
-Interactive mode:
+```bash
+npm run mod:build -- unlock-everything
+```
+
+Build all runtime mods:
+
+```bash
+npm run mods:build
+```
+
+Start the interactive installer:
 
 ```bash
 npm run patcher
 ```
 
-Explicit game path:
-
-```bash
-npm run patcher -- --game-dir "/path/to/Sneak Out"
-```
-
-List runtime mod ids:
-
-```bash
-npm run patcher -- --list-mods
-```
-
-Install runtime mods through the same script:
+Install specific runtime mods into an explicit game directory:
 
 ```bash
 npm run patcher -- \
   --game-dir "/path/to/Sneak Out" \
-  --mods core-fixes,start-delay-reducer
+  --mods double-party-invite-fix,unlock-everything,start-delay-reducer
 ```
 
-Install runtime mods from committed DLL artifacts without building:
+Install from committed artifacts without local builds:
 
 ```bash
 npm run patcher -- \
   --game-dir "/path/to/Sneak Out" \
-  --mods core-fixes,backend-stabilizer \
+  --mods double-party-invite-fix,unlock-everything \
   --nobuild
 ```
 
-Rollback:
+Rollback script-managed changes:
 
 ```bash
 npm run patcher -- --rollback --game-dir "/path/to/Sneak Out"
 ```
 
-Validation only:
+Validate the current install:
 
 ```bash
 npm run patcher -- --validate --game-dir "/path/to/Sneak Out"
 ```
 
-## How the interactive CLI behaves
+## Patcher behavior
 
 When started without `--game-dir`, the patcher:
 
 1. detects the current operating system
 2. looks for Steam library folders
 3. tries to locate the `Sneak Out` install automatically
-4. asks for confirmation before patching the detected directory
+4. asks for confirmation before installing into that directory
 
-If the detected directory is wrong, you can reject it and enter the path manually.
+The interactive selector is runtime-mod oriented and keyboard driven:
 
-The patch selection screen is keyboard-driven:
-
-- `Up` / `Down`
-  Move between patch options.
+- `Up` and `Down`
+  Move between runtime mod options.
 - `Space`
-  Toggle the currently highlighted option.
+  Toggle the highlighted runtime mod.
 - `Enter`
-  Apply the selected patch set.
+  Apply the selected install set.
 
-After the patch screen, the same interactive flow opens a second screen for runtime mods.
+`--list-mods` prints ids, labels, and categories directly from `runtime_mods_manifest.json`.
 
-The UI prints usage hints in green at the bottom of the selector.
+## Linux and Proton
 
-The patcher always restores its clean managed backup first and then reapplies the chosen patch set on top of that baseline. This keeps repeated runs deterministic.
-
-## Runtime mod development
-
-The runtime selector mod lives in:
-
-- `mods/portal_mode_selector/PortalModeSelector.csproj`
-
-Build it with the local portable SDK:
-
-```bash
-npm run mod:build:portal-mode-selector
-```
-
-Copy the built plugin into the game:
-
-```bash
-cp -f \
-  mods/portal_mode_selector/bin/Release/net6.0/SneakOut.PortalModeSelector.dll \
-  "/path/to/Sneak Out/BepInEx/plugins/SneakOut.PortalModeSelector.dll"
-```
-
-When running the game through Proton, `BepInEx` also needs the Steam launch option:
+When the target install is the Proton Windows build, BepInEx also needs:
 
 ```text
 WINEDLLOVERRIDES="winhttp=n,b" %command%
 ```
 
-Without that override, `winhttp.dll` is usually not picked up and the runtime plugin will not load.
+The patcher configures that launch option automatically on Linux Steam installs by updating Steam `localconfig.vdf` for app `2410490`.
 
-The patcher now configures that launch option automatically on Linux Steam installs by updating Steam `localconfig.vdf` for app `2410490`.
+## Runtime automation
 
-The core fixes mod lives in:
-
-- `mods/core_fixes/CoreFixes.csproj`
-
-Build it with:
+Useful commands:
 
 ```bash
-npm run mod:build:core-fixes
+npm run runtime:session
+npm run runtime:session:host
+npm run runtime:profiler:configure -- ui-hotspots
+npm run runtime:profiler:off
 ```
 
-Copy it into the game:
+The runtime session tooling snapshots multiple real log channels because `BepInEx/LogOutput.log` is not always populated during automated launches.
 
-```bash
-cp -f \
-  mods/core_fixes/bin/Release/net6.0/SneakOut.CoreFixes.dll \
-  "/path/to/Sneak Out/BepInEx/plugins/SneakOut.CoreFixes.dll"
-```
-
-The backend stabilizer mod lives in:
-
-- `mods/backend_stabilizer/BackendStabilizer.csproj`
-
-Build it with:
-
-```bash
-npm run mod:build:backend-stabilizer
-```
-
-Runtime mod builds automatically refresh the matching DLL in `artifacts/runtime_mods/`.
-
-The offline-friend invite unlock mod lives in:
-
-- `mods/friend_invite_unlock/FriendInviteUnlock.csproj`
-
-Build it with:
-
-```bash
-npm run mod:build:friend-invite-unlock
-```
-
-Copy it into the game:
-
-```bash
-cp -f \
-  mods/backend_stabilizer/bin/Release/net6.0/SneakOut.BackendStabilizer.dll \
-  "/path/to/Sneak Out/BepInEx/plugins/SneakOut.BackendStabilizer.dll"
-```
-
-Its generated config file is:
-
-```text
-/path/to/Sneak Out/BepInEx/config/chelokot.sneakout.backend-stabilizer.cfg
-```
-
-The generated config keeps research logging disabled and the max-profile overlay enabled by default:
-
-- `EnableResearchLogging=false`
-- `EnableLocalStub=true`
-
-Enable it explicitly in:
-
-```text
-/path/to/Sneak Out/BepInEx/config/chelokot.sneakout.backend-stabilizer.cfg
-```
-
-The start delay reducer mod lives in:
-
-- `mods/start_delay_reducer/StartDelayReducer.csproj`
-
-Build it with:
-
-```bash
-npm run mod:build:start-delay-reducer
-```
-
-Copy it into the game:
-
-```bash
-cp -f \
-  mods/start_delay_reducer/bin/Release/net6.0/SneakOut.StartDelayReducer.dll \
-  "/path/to/Sneak Out/BepInEx/plugins/SneakOut.StartDelayReducer.dll"
-```
-
-Its generated config file is:
-
-```text
-/path/to/Sneak Out/BepInEx/config/chelokot.sneakout.start-delay-reducer.cfg
-```
-
-Default timings are:
-
-- `BeforeStartSeconds=10`
-- `CountingToStartSeconds=3`
-
-The helper inspector project lives in:
-
-- `tools/interop_inspector/InteropInspector.csproj`
+## Interop inspection
 
 Example:
 
@@ -284,14 +189,8 @@ npm run interop:inspect -- \
   "PortalPlayView"
 ```
 
-## Important notes
+## Documentation
 
-- The repo intentionally contains research tooling and work-in-progress experiments.
-- Raw `level0` UI surgery proved fragile; the runtime plugin path is now the safer route for portal UI work.
-- The visible crown visual is still not fully solved.
+See [docs/README.md](/var/home/chelokot/Documents/Projects/Sneakout/docs/README.md).
 
-## Documentation index
-
-See:
-
-- `docs/README.md`
+Historical patching notes are still kept under `docs/patching/`, but they describe previous binary-patch eras and should not be treated as the current install architecture.

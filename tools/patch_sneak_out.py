@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import platform
 import re
@@ -80,11 +81,12 @@ class RuntimeModOption:
     option_id: str
     label: str
     details: str
+    category: str
     default_enabled: bool
     project_relative_path: str
     assembly_name: str
     config_relative_path: str | None = None
-    default_config_text: str | None = None
+    default_config_template_path: str | None = None
 
     @property
     def project_path(self) -> Path:
@@ -97,6 +99,12 @@ class RuntimeModOption:
     @property
     def artifact_dll_path(self) -> Path:
         return RUNTIME_MOD_ARTIFACTS_DIR / f"{self.assembly_name}.dll"
+
+    @property
+    def default_config_text(self) -> str | None:
+        if self.default_config_template_path is None:
+            return None
+        return (REPO_ROOT / self.default_config_template_path).read_text(encoding="utf-8")
 
 
 @dataclass
@@ -118,285 +126,13 @@ PATCH_OPTIONS: tuple[PatchOption, ...] = ()
 
 PATCH_OPTION_BY_ID = {option.option_id: option for option in PATCH_OPTIONS}
 
-RUNTIME_MOD_OPTIONS: tuple[RuntimeModOption, ...] = (
-    RuntimeModOption(
-        option_id="runtime-profiler",
-        label="Install Runtime Profiler runtime mod",
-        details="Builds and installs the BepInEx runtime mod that profiles configured game methods and writes a human-readable report on exit.",
-        default_enabled=False,
-        project_relative_path="mods/runtime_profiler/RuntimeProfiler.csproj",
-        assembly_name="SneakOut.RuntimeProfiler",
-        config_relative_path="BepInEx/config/chelokot.sneakout.runtime-profiler.cfg",
-        default_config_text=(
-            "[general]\n"
-            "## Settings file was created by version 0.1.0 of Runtime Profiler\n"
-            "## Plugin GUID: chelokot.sneakout.runtime-profiler\n"
-            "## Plugin Name: Runtime Profiler\n"
-            "## Plugin Version: 0.1.0\n\n"
-            "## Enable the runtime method profiler.\n"
-            "# Setting type: Boolean\n"
-            "# Default value: true\n"
-            "EnableMod = false\n\n"
-            "## Write profiler setup details to the BepInEx log.\n"
-            "# Setting type: Boolean\n"
-            "# Default value: false\n"
-            "EnableLogging = false\n\n"
-            "[targeting]\n"
-            "## Semicolon-separated assembly names to scan for methods.\n"
-            "# Setting type: String\n"
-            "# Default value: Assembly-CSharp;Kinguinverse\n"
-            "TargetAssemblies = Assembly-CSharp;Kinguinverse\n\n"
-            "## Semicolon-separated full type-name prefixes to include.\n"
-            "# Setting type: String\n"
-            "# Default value: Gameplay.Match.;Networking.PGOS.;UI.Views.\n"
-            "IncludeNamespacePrefixes = UI.Views.AvatarAndFrameView;UI.Views.MainBoostersView\n\n"
-            "## Semicolon-separated method signature substrings to include after namespace filtering.\n"
-            "# Setting type: String\n"
-            "# Default value: \n"
-            "TargetMethodPatterns = \n\n"
-            "## Semicolon-separated full type-name prefixes to exclude.\n"
-            "# Setting type: String\n"
-            "# Default value: Gameplay.Match.MatchState.;UI.Views.BattlepassView;UI.Views.DailyQuestsView\n"
-            "ExcludeNamespacePrefixes = \n\n"
-            "## Patch property/event accessor methods.\n"
-            "# Setting type: Boolean\n"
-            "# Default value: false\n"
-            "IncludePropertyAccessors = false\n\n"
-            "## Patch constructors.\n"
-            "# Setting type: Boolean\n"
-            "# Default value: false\n"
-            "IncludeConstructors = false\n\n"
-            "## Patch compiler-generated methods and closure/state-machine types.\n"
-            "# Setting type: Boolean\n"
-            "# Default value: false\n"
-            "IncludeCompilerGenerated = false\n\n"
-            "## Maximum number of methods to patch after filtering.\n"
-            "# Setting type: Int32\n"
-            "# Default value: 300\n"
-            "MaxPatchedMethods = 40\n\n"
-            "[report]\n"
-            "## Maximum number of methods to write into the report.\n"
-            "# Setting type: Int32\n"
-            "# Default value: 200\n"
-            "TopMethodCount = 200\n\n"
-            "## Maximum number of caller->callee edges to write into the report.\n"
-            "# Setting type: Int32\n"
-            "# Default value: 100\n"
-            "TopEdgeCount = 100\n"
-        ),
-    ),
-    RuntimeModOption(
-        option_id="core-fixes",
-        label="Install Core Fixes runtime mod",
-        details="Builds and installs the BepInEx runtime mod that replaces the former GameAssembly byte patches with Harmony fixes.",
-        default_enabled=True,
-        project_relative_path="mods/core_fixes/CoreFixes.csproj",
-        assembly_name="SneakOut.CoreFixes",
-        config_relative_path="BepInEx/config/chelokot.sneakout.core-fixes.cfg",
-        default_config_text=(
-            "[general]\n"
-            "## Settings file was created by version 0.1.0 of Core Fixes\n"
-            "## Plugin GUID: chelokot.sneakout.core-fixes\n"
-            "## Plugin Name: Core Fixes\n"
-            "## Plugin Version: 0.1.0\n\n"
-            "## Enable runtime replacements for the former GameAssembly byte patches.\n"
-            "# Setting type: Boolean\n"
-            "# Default value: true\n"
-            "EnableMod = true\n\n"
-            "## Use JoinLobbyEvent lobby id and region directly when joining from the first accepted invite.\n"
-            "# Setting type: Boolean\n"
-            "# Default value: true\n"
-            "FixPrivatePartyJoinOnFirstInvite = true\n\n"
-            "## Use uniform hunter random selection in default mode.\n"
-            "# Setting type: Boolean\n"
-            "# Default value: true\n"
-            "MakeHunterRandomSelectionUniform = true\n\n"
-            "## Turn BattlepassView.OnOnWebplayerRefreshEvent into a no-op.\n"
-            "# Setting type: Boolean\n"
-            "# Default value: true\n"
-            "DisableCrashyBattlepassRefreshHandler = true\n\n"
-            "## Log runtime replacements for the former GameAssembly byte patches.\n"
-            "# Setting type: Boolean\n"
-            "# Default value: false\n"
-            "EnableLogging = true\n"
-        ),
-    ),
-    RuntimeModOption(
-        option_id="portal-mode-selector",
-        label="Install Portal Mode Selector runtime mod",
-        details="Builds and installs the BepInEx runtime mod that replaces fragile raw portal UI scene edits.",
-        default_enabled=True,
-        project_relative_path="mods/portal_mode_selector/PortalModeSelector.csproj",
-        assembly_name="SneakOut.PortalModeSelector",
-    ),
-    RuntimeModOption(
-        option_id="mummy-unlock",
-        label="Install Mummy Unlock runtime mod",
-        details="Builds and installs the BepInEx runtime mod used for restoring Mummy-related runtime hooks.",
-        default_enabled=True,
-        project_relative_path="mods/mummy_unlock/MummyUnlock.csproj",
-        assembly_name="SneakOut.MummyUnlock",
-    ),
-    RuntimeModOption(
-        option_id="backend-stabilizer",
-        label="Install Backend Stabilizer runtime mod",
-        details="Builds and installs the BepInEx runtime mod that applies a local max-profile overlay without touching stock Steam or matchmaking flows.",
-        default_enabled=True,
-        project_relative_path="mods/backend_stabilizer/BackendStabilizer.csproj",
-        assembly_name="SneakOut.BackendStabilizer",
-        config_relative_path="BepInEx/config/chelokot.sneakout.backend-stabilizer.cfg",
-        default_config_text=(
-            "[general]\n"
-            "## Settings file was created by version 0.1.0 of Backend Stabilizer\n"
-            "## Plugin GUID: chelokot.sneakout.backend-stabilizer\n"
-            "## Plugin Name: Backend Stabilizer\n"
-            "## Plugin Version: 0.1.0\n\n"
-            "## Enable backend stabilizer research logs.\n"
-            "# Setting type: Boolean\n"
-            "# Default value: false\n"
-            "EnableResearchLogging = true\n\n"
-            "## Apply a local max-profile overlay after the stock backend bootstrap has completed.\n"
-            "# Setting type: Boolean\n"
-            "# Default value: true\n"
-            "EnableProfileOverlay = true\n\n"
-            "## Replace selected profile webservice requests with a local stub. Leave disabled for the normal stabilizer flow.\n"
-            "# Setting type: Boolean\n"
-            "# Default value: false\n"
-            "EnableLocalStub = false\n\n"
-            "## Persist selected cosmetics and equipped cards locally and reapply them after profile refresh.\n"
-            "# Setting type: Boolean\n"
-            "# Default value: true\n"
-            "EnablePersistentSelections = true\n"
-        ),
-    ),
-    RuntimeModOption(
-        option_id="start-delay-reducer",
-        label="Install Start Delay Reducer runtime mod",
-        details="Builds and installs the BepInEx runtime mod that reduces host-side BeforeStart and CountingToStart delays.",
-        default_enabled=True,
-        project_relative_path="mods/start_delay_reducer/StartDelayReducer.csproj",
-        assembly_name="SneakOut.StartDelayReducer",
-        config_relative_path="BepInEx/config/chelokot.sneakout.start-delay-reducer.cfg",
-        default_config_text=(
-            "[general]\n"
-            "## Settings file was created by version 0.1.0 of Start Delay Reducer\n"
-            "## Plugin GUID: chelokot.sneakout.start-delay-reducer\n"
-            "## Plugin Name: Start Delay Reducer\n"
-            "## Plugin Version: 0.1.0\n\n"
-            "## Reduce host-side start delays during match startup.\n"
-            "# Setting type: Boolean\n"
-            "# Default value: true\n"
-            "EnableMod = true\n\n"
-            "## Log tick adjustments for matchmaking startup phases.\n"
-            "# Setting type: Boolean\n"
-            "# Default value: false\n"
-            "EnableLogging = false\n\n"
-            "[timings]\n"
-            "## Target duration in seconds for the BeforeStart phase.\n"
-            "# Setting type: Single\n"
-            "# Default value: 10\n"
-            "BeforeStartSeconds = 10\n\n"
-            "## Target duration in seconds for the CountingToStart phase.\n"
-            "# Setting type: Single\n"
-            "# Default value: 3\n"
-            "CountingToStartSeconds = 3\n"
-        ),
-    ),
-    RuntimeModOption(
-        option_id="friend-invite-unlock",
-        label="Install Friend Invite Unlock runtime mod",
-        details="Builds and installs the BepInEx runtime mod that keeps offline friends inviteable from the lobby list.",
-        default_enabled=True,
-        project_relative_path="mods/friend_invite_unlock/FriendInviteUnlock.csproj",
-        assembly_name="SneakOut.FriendInviteUnlock",
-        config_relative_path="BepInEx/config/chelokot.sneakout.friend-invite-unlock.cfg",
-        default_config_text=(
-            "[general]\n"
-            "## Settings file was created by version 0.1.0 of Friend Invite Unlock\n"
-            "## Plugin GUID: chelokot.sneakout.friend-invite-unlock\n"
-            "## Plugin Name: Friend Invite Unlock\n"
-            "## Plugin Version: 0.1.0\n\n"
-            "## Allow party invites to stay active for offline friends.\n"
-            "# Setting type: Boolean\n"
-            "# Default value: true\n"
-            "EnableMod = true\n\n"
-            "## Only force invite buttons when the local player is the current team leader.\n"
-            "# Setting type: Boolean\n"
-            "# Default value: true\n"
-            "RequireTeamLeader = true\n\n"
-            "## Log forced friend invite state transitions.\n"
-            "# Setting type: Boolean\n"
-            "# Default value: false\n"
-            "EnableLogging = false\n"
-        ),
-    ),
-    RuntimeModOption(
-        option_id="lobby-penguin-skills",
-        label="Install Lobby Penguin Skills runtime mod",
-        details="Builds and installs the BepInEx runtime mod that enables the local penguin skill panel and lobby-only use of slide and prop change.",
-        default_enabled=True,
-        project_relative_path="mods/lobby_penguin_skills/LobbyPenguinSkills.csproj",
-        assembly_name="SneakOut.LobbyPenguinSkills",
-        config_relative_path="BepInEx/config/chelokot.sneakout.lobby-penguin-skills.cfg",
-        default_config_text=(
-            "[general]\n"
-            "## Settings file was created by version 0.1.0 of Lobby Penguin Skills\n"
-            "## Plugin GUID: chelokot.sneakout.lobby-penguin-skills\n"
-            "## Plugin Name: Lobby Penguin Skills\n"
-            "## Plugin Version: 0.1.0\n\n"
-            "## Enable lobby-only penguin skill UI and use hooks.\n"
-            "# Setting type: Boolean\n"
-            "# Default value: true\n"
-            "EnableMod = true\n\n"
-            "## Show the in-game penguin skill panel while in the lobby.\n"
-            "# Setting type: Boolean\n"
-            "# Default value: true\n"
-            "EnableLobbySkillUi = true\n\n"
-            "## Allow the local penguin to use slide and prop-change while in the lobby.\n"
-            "# Setting type: Boolean\n"
-            "# Default value: true\n"
-            "EnableLobbySkillUse = true\n\n"
-            "## Log lobby penguin skill decisions.\n"
-            "# Setting type: Boolean\n"
-            "# Default value: false\n"
-            "EnableLogging = true\n"
-        ),
-    ),
-    RuntimeModOption(
-        option_id="free-fly",
-        label="Install Free Fly runtime mod",
-        details="Builds and installs the BepInEx runtime mod that moves the local player vertically with UpArrow and DownArrow.",
-        default_enabled=False,
-        project_relative_path="mods/free_fly/FreeFly.csproj",
-        assembly_name="SneakOut.FreeFly",
-        config_relative_path="BepInEx/config/chelokot.sneakout.free-fly.cfg",
-        default_config_text=(
-            "[general]\n"
-            "## Settings file was created by version 0.1.0 of Free Fly\n"
-            "## Plugin GUID: chelokot.sneakout.free-fly\n"
-            "## Plugin Name: Free Fly\n"
-            "## Plugin Version: 0.1.0\n\n"
-            "## Enable local free-fly controls on PageUp and PageDown.\n"
-            "# Setting type: Boolean\n"
-            "# Default value: true\n"
-            "EnableMod = true\n\n"
-            "## Log local free-fly movement.\n"
-            "# Setting type: Boolean\n"
-            "# Default value: false\n"
-            "EnableLogging = true\n\n"
-            "[movement]\n"
-            "## Vertical movement speed in units per second.\n"
-            "# Setting type: Single\n"
-            "# Default value: 8\n"
-            "MovementSpeed = 8\n\n"
-            "## Axis to move on. Y is the normal Unity vertical axis.\n"
-            "# Setting type: FreeFlyAxis\n"
-            "# Default value: Y\n"
-            "# Acceptable values: Y, Z\n"
-            "Axis = Y\n"
-        ),
-    ),
-)
+def load_runtime_mod_options() -> tuple[RuntimeModOption, ...]:
+    manifest_path = REPO_ROOT / "runtime_mods_manifest.json"
+    manifest_entries = json.loads(manifest_path.read_text(encoding="utf-8"))
+    return tuple(RuntimeModOption(**entry) for entry in manifest_entries)
+
+
+RUNTIME_MOD_OPTIONS = load_runtime_mod_options()
 
 RUNTIME_MOD_OPTION_BY_ID = {option.option_id: option for option in RUNTIME_MOD_OPTIONS}
 
@@ -1004,6 +740,42 @@ def resolve_runtime_mod_config_path(game_dir: Path, runtime_mod: RuntimeModOptio
     return game_dir / runtime_mod.config_relative_path
 
 
+def remove_unknown_runtime_plugin_dlls(game_dir: Path) -> None:
+    plugins_dir = game_dir / "BepInEx" / "plugins"
+    if not plugins_dir.is_dir():
+        return
+
+    known_install_paths = {
+        resolve_runtime_mod_install_path(game_dir, runtime_mod).resolve()
+        for runtime_mod in RUNTIME_MOD_OPTIONS
+    }
+
+    for plugin_dll_path in sorted(plugins_dir.rglob("*.dll")):
+        resolved_plugin_dll_path = plugin_dll_path.resolve()
+        if resolved_plugin_dll_path in known_install_paths:
+            continue
+        plugin_dll_path.unlink()
+        print(f"removed:  {plugin_dll_path}")
+
+
+def remove_unknown_runtime_config_files(game_dir: Path) -> None:
+    config_dir = game_dir / "BepInEx" / "config"
+    if not config_dir.is_dir():
+        return
+
+    known_config_names = {
+        Path(runtime_mod.config_relative_path).name
+        for runtime_mod in RUNTIME_MOD_OPTIONS
+        if runtime_mod.config_relative_path is not None
+    }
+
+    for config_path in sorted(config_dir.glob("chelokot.sneakout.*.cfg")):
+        if config_path.name in known_config_names:
+            continue
+        config_path.unlink()
+        print(f"removed:  {config_path}")
+
+
 def update_runtime_mod_artifact(runtime_mod: RuntimeModOption, built_dll_path: Path) -> None:
     RUNTIME_MOD_ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
     artifact_bytes = built_dll_path.read_bytes()
@@ -1195,6 +967,9 @@ def rollback(game_dir: Path) -> None:
             else:
                 print(f"already absent: {config_path}")
 
+    remove_unknown_runtime_plugin_dlls(game_dir)
+    remove_unknown_runtime_config_files(game_dir)
+
     for entry_name in reversed(RUNTIME_LOADER_ENTRY_NAMES):
         target_path = game_dir / entry_name
         absent_marker_path = target_path.with_name(target_path.name + ABSENT_MARKER_SUFFIX)
@@ -1247,7 +1022,7 @@ def print_patch_list() -> None:
 
 def print_runtime_mod_list() -> None:
     for option in RUNTIME_MOD_OPTIONS:
-        print(f"{option.option_id}: {option.label}")
+        print(f"{option.option_id}: {option.label} [{option.category}]")
         print(f"  {option.details}")
 
 
@@ -1312,6 +1087,7 @@ def main() -> int:
         validate_installed_files(game_dir, selected_patch_option_ids)
 
     if selected_runtime_mod_option_ids:
+        rollback(game_dir)
         install_selected_runtime_mods(
             game_dir,
             selected_runtime_mod_option_ids,

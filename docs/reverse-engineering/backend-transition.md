@@ -103,7 +103,7 @@ Practical meaning:
 
 The repo now contains a new research-only mod scaffold at:
 
-- `mods/backend_stabilizer/`
+- `mods/unlock_everything/`
 
 Current behavior:
 

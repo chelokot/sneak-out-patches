@@ -16,16 +16,9 @@
     "runtime:profiler:configure": "node scripts/configure-runtime-profiler.mjs",
     "runtime:profiler:off": "node scripts/configure-runtime-profiler.mjs off",
     "interop:inspect": "node scripts/run-dotnet.mjs run --project tools/interop_inspector/InteropInspector.csproj --",
-    "mod:build:runtime-profiler": "node scripts/build-runtime-mod.mjs runtime-profiler",
-    "mod:build:core-fixes": "node scripts/build-runtime-mod.mjs core-fixes",
-    "mod:build:portal-mode-selector": "node scripts/build-runtime-mod.mjs portal-mode-selector",
-    "mod:build:mummy-unlock": "node scripts/build-runtime-mod.mjs mummy-unlock",
-    "mod:build:backend-stabilizer": "node scripts/build-runtime-mod.mjs backend-stabilizer",
-    "mod:build:start-delay-reducer": "node scripts/build-runtime-mod.mjs start-delay-reducer",
-    "mod:build:friend-invite-unlock": "node scripts/build-runtime-mod.mjs friend-invite-unlock",
-    "mod:build:lobby-penguin-skills": "node scripts/build-runtime-mod.mjs lobby-penguin-skills",
-    "mod:build:free-fly": "node scripts/build-runtime-mod.mjs free-fly",
-    "mods:build": "npm run mod:build:runtime-profiler && npm run mod:build:core-fixes && npm run mod:build:portal-mode-selector && npm run mod:build:mummy-unlock && npm run mod:build:backend-stabilizer && npm run mod:build:start-delay-reducer && npm run mod:build:friend-invite-unlock && npm run mod:build:lobby-penguin-skills && npm run mod:build:free-fly",
+    "mod:list": "node scripts/build-runtime-mod.mjs --list",
+    "mod:build": "node scripts/build-runtime-mod.mjs",
+    "mods:build": "node scripts/build-runtime-mod.mjs --all",
     "check": "npm run mods:build"
   }
 }

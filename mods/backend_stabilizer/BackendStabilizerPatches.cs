@@ -56,6 +56,7 @@ internal static class BackendStabilizerSelections
     private static readonly Type? PlayersActiveSkillsType = AccessTools.TypeByName("Collections.Skills.PlayersActiveSkills");
     private static readonly Type? EntitySkillsComponentType = AccessTools.TypeByName("Gameplay.Player.Components.EntitySkillsComponent");
     private static readonly Type? SceneSpawnerType = AccessTools.TypeByName("Gameplay.Spawn.SceneSpawner");
+    private static readonly Type? ScopeCleanerType = AccessTools.TypeByName("ScopeCleaner");
     private static readonly System.Reflection.PropertyInfo? GameInternalIdProperty =
         GameType is null ? null : AccessTools.Property(GameType, "InternalId");
     private static readonly System.Reflection.MethodInfo? PlayerNewMetaInventoryGetMyPlayerRegistryMethod =
@@ -358,6 +359,11 @@ internal static class BackendStabilizerSelections
         LoadedCharactersSkillsByInternalId[internalId] = charactersSkillsPayload;
     }
 
+    internal static void ClearLoadedCharactersSkills()
+    {
+        LoadedCharactersSkillsByInternalId.Clear();
+    }
+
     internal static bool TryGetLocalSkillTier(int internalId, SkillType skillType, out RuntimeCharacterType characterType, out int tier)
     {
         characterType = RuntimeCharacterType.spectator;
@@ -470,6 +476,16 @@ internal static class BackendStabilizerSelections
     internal static System.Reflection.MethodBase? GetSceneSpawnerOnPlayerLoadedTargetMethod()
     {
         return SceneSpawnerType is null ? null : AccessTools.Method(SceneSpawnerType, "OnPlayerLoaded");
+    }
+
+    internal static System.Reflection.MethodBase? GetScopeCleanerCleanTargetMethod()
+    {
+        return ScopeCleanerType is null ? null : AccessTools.Method(ScopeCleanerType, "Clean");
+    }
+
+    internal static System.Reflection.MethodBase? GetScopeCleanerGameplayCleanTargetMethod()
+    {
+        return ScopeCleanerType is null ? null : AccessTools.Method(ScopeCleanerType, "GameplayClean");
     }
 
     internal static string DescribeCharactersSkillsPayload(object? charactersSkillsPayload)
@@ -3550,6 +3566,34 @@ internal static class SceneSpawnerOnPlayerLoadedSkillPayloadPatch
         {
             BackendStabilizerRuntime.LogError("Backend stabilizer SceneSpawner.OnPlayerLoaded skills payload fix failed", exception);
         }
+    }
+}
+
+[HarmonyPatch]
+internal static class ScopeCleanerCleanPatch
+{
+    private static System.Reflection.MethodBase? TargetMethod()
+    {
+        return BackendStabilizerSelections.GetScopeCleanerCleanTargetMethod();
+    }
+
+    private static void Postfix()
+    {
+        BackendStabilizerSelections.ClearLoadedCharactersSkills();
+    }
+}
+
+[HarmonyPatch]
+internal static class ScopeCleanerGameplayCleanPatch
+{
+    private static System.Reflection.MethodBase? TargetMethod()
+    {
+        return BackendStabilizerSelections.GetScopeCleanerGameplayCleanTargetMethod();
+    }
+
+    private static void Postfix()
+    {
+        BackendStabilizerSelections.ClearLoadedCharactersSkills();
     }
 }
 

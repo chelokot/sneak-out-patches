@@ -11,6 +11,8 @@
     "install": "node scripts/install.mjs",
     "doctor": "node scripts/doctor.mjs",
     "patcher": "node scripts/run-python.mjs tools/patch_sneak_out.py",
+    "runtime:session": "node scripts/runtime-session.mjs",
+    "runtime:profiler:configure": "node scripts/configure-runtime-profiler.mjs",
     "interop:inspect": "node scripts/run-dotnet.mjs run --project tools/interop_inspector/InteropInspector.csproj --",
     "mod:build:runtime-profiler": "node scripts/build-runtime-mod.mjs runtime-profiler",
     "mod:build:core-fixes": "node scripts/build-runtime-mod.mjs core-fixes",

@@ -9,6 +9,7 @@ internal sealed class RuntimeProfilerConfig
         ConfigEntry<bool> enableLogging,
         ConfigEntry<string> targetAssemblies,
         ConfigEntry<string> includeNamespacePrefixes,
+        ConfigEntry<string> targetMethodPatterns,
         ConfigEntry<string> excludeNamespacePrefixes,
         ConfigEntry<bool> includePropertyAccessors,
         ConfigEntry<bool> includeConstructors,
@@ -21,6 +22,7 @@ internal sealed class RuntimeProfilerConfig
         EnableLogging = enableLogging;
         TargetAssemblies = targetAssemblies;
         IncludeNamespacePrefixes = includeNamespacePrefixes;
+        TargetMethodPatterns = targetMethodPatterns;
         ExcludeNamespacePrefixes = excludeNamespacePrefixes;
         IncludePropertyAccessors = includePropertyAccessors;
         IncludeConstructors = includeConstructors;
@@ -37,6 +39,8 @@ internal sealed class RuntimeProfilerConfig
     public ConfigEntry<string> TargetAssemblies { get; }
 
     public ConfigEntry<string> IncludeNamespacePrefixes { get; }
+
+    public ConfigEntry<string> TargetMethodPatterns { get; }
 
     public ConfigEntry<string> ExcludeNamespacePrefixes { get; }
 
@@ -74,6 +78,11 @@ internal sealed class RuntimeProfilerConfig
             "IncludeNamespacePrefixes",
             "Gameplay.Match.;Networking.PGOS.;UI.Views.",
             "Semicolon-separated full type-name prefixes to include.");
+        var targetMethodPatterns = configFile.Bind(
+            "targeting",
+            "TargetMethodPatterns",
+            string.Empty,
+            "Semicolon-separated method signature substrings to include after namespace filtering.");
         var excludeNamespacePrefixes = configFile.Bind(
             "targeting",
             "ExcludeNamespacePrefixes",
@@ -115,6 +124,7 @@ internal sealed class RuntimeProfilerConfig
             enableLogging,
             targetAssemblies,
             includeNamespacePrefixes,
+            targetMethodPatterns,
             excludeNamespacePrefixes,
             includePropertyAccessors,
             includeConstructors,

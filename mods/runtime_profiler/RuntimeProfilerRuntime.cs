@@ -59,6 +59,7 @@ internal static class RuntimeProfilerRuntime
             SplitConfigList(_configuration!.TargetAssemblies.Value),
             StringComparer.Ordinal);
         var includeNamespacePrefixes = SplitConfigList(_configuration.IncludeNamespacePrefixes.Value);
+        var targetMethodPatterns = SplitConfigList(_configuration.TargetMethodPatterns.Value);
         var excludeNamespacePrefixes = SplitConfigList(_configuration.ExcludeNamespacePrefixes.Value);
         var candidateMethods = new List<MethodBase>();
 
@@ -79,6 +80,11 @@ internal static class RuntimeProfilerRuntime
                 foreach (var method in type.GetMethods(BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
                 {
                     if (!ShouldIncludeMethod(method))
+                    {
+                        continue;
+                    }
+
+                    if (!ShouldIncludeMethodByPattern(method, targetMethodPatterns))
                     {
                         continue;
                     }
@@ -156,6 +162,17 @@ internal static class RuntimeProfilerRuntime
         }
 
         return true;
+    }
+
+    private static bool ShouldIncludeMethodByPattern(MethodInfo method, IReadOnlyList<string> targetMethodPatterns)
+    {
+        if (targetMethodPatterns.Count == 0)
+        {
+            return true;
+        }
+
+        var signature = GetSignature(method);
+        return targetMethodPatterns.Any(pattern => signature.Contains(pattern, StringComparison.Ordinal));
     }
 
     private static IReadOnlyList<string> SplitConfigList(string value)

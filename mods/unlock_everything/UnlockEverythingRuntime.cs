@@ -8,6 +8,7 @@ using Kinguinverse.WebServiceProvider.Types.Games;
 using Kinguinverse.WebServiceProvider.Types.Users;
 using Kinguinverse.WebServiceProvider.Types_v2;
 using Kinguinverse.WebServiceProvider.Types_v2.Products;
+using Il2CppTasks = Il2CppSystem.Threading.Tasks;
 using System.IO;
 using UI.Views;
 using System.Collections;
@@ -42,6 +43,55 @@ internal static class UnlockEverythingRuntime
     public static bool UseLocalStub => _configuration is not null && _configuration.EnableLocalStub.Value;
     public static bool UsePersistentSelections => _configuration is not null && _configuration.EnablePersistentSelections.Value;
     public static ClientCache? CurrentClientCache => _currentClientCache;
+
+    public static void ContinueOnMainThread(Il2CppTasks.Task task, Action continuation, string errorSource)
+    {
+        try
+        {
+            var awaiter = task.ConfigureAwait(true).GetAwaiter();
+            awaiter.OnCompleted(
+                () =>
+                {
+                    try
+                    {
+                        awaiter.GetResult();
+                        continuation();
+                    }
+                    catch (Exception exception)
+                    {
+                        LogError(errorSource, exception);
+                    }
+                });
+        }
+        catch (Exception exception)
+        {
+            LogError(errorSource, exception);
+        }
+    }
+
+    public static void ContinueOnMainThread<TResult>(Il2CppTasks.Task<TResult> task, Action<TResult> continuation, string errorSource)
+    {
+        try
+        {
+            var awaiter = task.ConfigureAwait(true).GetAwaiter();
+            awaiter.OnCompleted(
+                () =>
+                {
+                    try
+                    {
+                        continuation(awaiter.GetResult());
+                    }
+                    catch (Exception exception)
+                    {
+                        LogError(errorSource, exception);
+                    }
+                });
+        }
+        catch (Exception exception)
+        {
+            LogError(errorSource, exception);
+        }
+    }
 
     public static void TrackClientCache(ClientCache clientCache)
     {

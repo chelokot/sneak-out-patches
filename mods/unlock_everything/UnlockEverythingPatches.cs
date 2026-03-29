@@ -18,7 +18,6 @@ using Il2CppCollections = Il2CppSystem.Collections.Generic;
 using Il2CppTasks = Il2CppSystem.Threading.Tasks;
 using RuntimeCharacterType = Types.CharacterType;
 using SpookedSkillType = Types.SpookedSkillType;
-using Tasks = System.Threading.Tasks;
 
 namespace SneakOut.UnlockEverything;
 
@@ -2130,25 +2129,14 @@ internal static class UnlockEverythingSelections
                 return;
             }
 
-            _ = Tasks.Task.Run(
-                async () =>
-                {
-                    while (!task.IsCompleted)
-                    {
-                        await Tasks.Task.Delay(50).ConfigureAwait(false);
-                    }
-
-                    if (!task.IsCompletedSuccessfully)
-                    {
-                        return;
-                    }
-
-                    SaveCurrentCharacterSelection(characterType);
-                });
+            UnlockEverythingRuntime.ContinueOnMainThread(
+                task,
+                () => SaveCurrentCharacterSelection(characterType),
+                "Unlock Everything selection persistence failed");
         }
         catch (Exception exception)
         {
-            UnlockEverythingRuntime.LogError("Backend stabilizer selection persistence failed", exception);
+            UnlockEverythingRuntime.LogError("Unlock Everything selection persistence failed", exception);
         }
     }
 
@@ -2182,25 +2170,14 @@ internal static class UnlockEverythingSelections
                 return;
             }
 
-            _ = Tasks.Task.Run(
-                async () =>
-                {
-                    while (!task.IsCompleted)
-                    {
-                        await Tasks.Task.Delay(50).ConfigureAwait(false);
-                    }
-
-                    if (!task.IsCompletedSuccessfully)
-                    {
-                        return;
-                    }
-
-                    LocalSelectionsStore.SaveSkinPartSelection(characterType, skinType, skinPartType);
-                });
+            UnlockEverythingRuntime.ContinueOnMainThread(
+                task,
+                () => LocalSelectionsStore.SaveSkinPartSelection(characterType, skinType, skinPartType),
+                "Unlock Everything skin persistence failed");
         }
         catch (Exception exception)
         {
-            UnlockEverythingRuntime.LogError("Backend stabilizer skin persistence failed", exception);
+            UnlockEverythingRuntime.LogError("Unlock Everything skin persistence failed", exception);
         }
     }
 
@@ -2223,25 +2200,20 @@ internal static class UnlockEverythingSelections
                 return;
             }
 
-            _ = Tasks.Task.Run(
-                async () =>
+            UnlockEverythingRuntime.ContinueOnMainThread(
+                task,
+                result =>
                 {
-                    while (!task.IsCompleted)
+                    if (result)
                     {
-                        await Tasks.Task.Delay(50).ConfigureAwait(false);
+                        SaveCurrentCharacterSelection(characterType);
                     }
-
-                    if (!task.IsCompletedSuccessfully || !task.Result)
-                    {
-                        return;
-                    }
-
-                    SaveCurrentCharacterSelection(characterType);
-                });
+                },
+                "Unlock Everything selection persistence failed");
         }
         catch (Exception exception)
         {
-            UnlockEverythingRuntime.LogError("Backend stabilizer selection persistence failed", exception);
+            UnlockEverythingRuntime.LogError("Unlock Everything selection persistence failed", exception);
         }
     }
 
@@ -2409,33 +2381,18 @@ internal static class ClientCacheRefreshPlayerPatch
                 return;
             }
 
-            _ = Tasks.Task.Run(
-                async () =>
+            UnlockEverythingRuntime.ContinueOnMainThread(
+                __result,
+                () =>
                 {
-                    while (!__result.IsCompleted)
-                    {
-                        await Tasks.Task.Delay(50).ConfigureAwait(false);
-                    }
-
-                    if (!__result.IsCompletedSuccessfully)
-                    {
-                        return;
-                    }
-
-                    try
-                    {
-                        UnlockEverythingStub.ApplyProfileOverlay(__instance);
-                        UnlockEverythingRuntime.LogClientCacheState("ClientCache.RefreshPlayer:completed", __instance);
-                    }
-                    catch (Exception exception)
-                    {
-                        UnlockEverythingRuntime.LogError("Backend stabilizer ClientCache.RefreshPlayer completion overlay failed", exception);
-                    }
-                });
+                    UnlockEverythingStub.ApplyProfileOverlay(__instance);
+                    UnlockEverythingRuntime.LogClientCacheState("ClientCache.RefreshPlayer:completed", __instance);
+                },
+                "Unlock Everything ClientCache.RefreshPlayer completion overlay failed");
         }
         catch (Exception exception)
         {
-            UnlockEverythingRuntime.LogError("Backend stabilizer ClientCache.RefreshPlayer completion overlay failed", exception);
+            UnlockEverythingRuntime.LogError("Unlock Everything ClientCache.RefreshPlayer completion overlay failed", exception);
         }
     }
 }
@@ -2632,25 +2589,14 @@ internal static class CustomizeCharacterNewMetaViewCostumeChangePatch
                 return;
             }
 
-            _ = Tasks.Task.Run(
-                async () =>
-                {
-                    while (!__result.IsCompleted)
-                    {
-                        await Tasks.Task.Delay(50).ConfigureAwait(false);
-                    }
-
-                    if (!__result.IsCompletedSuccessfully)
-                    {
-                        return;
-                    }
-
-                    RefreshCostumeView(__instance);
-                });
+            UnlockEverythingRuntime.ContinueOnMainThread(
+                __result,
+                () => RefreshCostumeView(__instance),
+                "Unlock Everything CustomizeCharacterNewMetaView.CostumeChange postfix failed");
         }
         catch (Exception exception)
         {
-            UnlockEverythingRuntime.LogError("Backend stabilizer CustomizeCharacterNewMetaView.CostumeChange postfix failed", exception);
+            UnlockEverythingRuntime.LogError("Unlock Everything CustomizeCharacterNewMetaView.CostumeChange postfix failed", exception);
         }
     }
 
@@ -3246,28 +3192,10 @@ internal static class KinguinverseWebServiceRefreshPlayerPatch
                 return;
             }
 
-            _ = Tasks.Task.Run(
-                async () =>
-                {
-                    while (!__result.IsCompleted)
-                    {
-                        await Tasks.Task.Delay(50).ConfigureAwait(false);
-                    }
-
-                    if (!__result.IsCompletedSuccessfully)
-                    {
-                        return;
-                    }
-
-                    try
-                    {
-                        ApplyRefreshPlayerOverlay(__result);
-                    }
-                    catch (Exception exception)
-                    {
-                        UnlockEverythingRuntime.LogError("Backend research RefreshPlayer completion overlay failed", exception);
-                    }
-                });
+            UnlockEverythingRuntime.ContinueOnMainThread(
+                __result,
+                _ => ApplyRefreshPlayerOverlay(__result),
+                "Unlock Everything RefreshPlayer completion overlay failed");
         }
         catch (Exception exception)
         {

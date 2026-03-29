@@ -17,6 +17,8 @@ internal static class FreeFlyRuntime
     private static InputAction? _pageUpAction;
     private static InputAction? _pageDownAction;
     private static SpookedNetworkPlayer? _localNetworkPlayer;
+    private static bool _freeFlyActive;
+    private static float _targetAxisCoordinate;
 
     public static void Initialize(ManualLogSource logger, FreeFlyConfig configuration)
     {
@@ -36,6 +38,8 @@ internal static class FreeFlyRuntime
 
         _localNetworkPlayer = networkPlayer;
         _loggedMissingPlayer = false;
+        _freeFlyActive = false;
+        _targetAxisCoordinate = GetAxisCoordinate(networkPlayer.transform.position);
 
         if (_configuration.EnableLogging.Value && !_loggedRememberedPlayer)
         {
@@ -51,12 +55,6 @@ internal static class FreeFlyRuntime
             return;
         }
 
-        var direction = GetInputDirection();
-        if (direction == 0f)
-        {
-            return;
-        }
-
         var networkPlayer = _localNetworkPlayer;
         if (networkPlayer is null)
         {
@@ -68,23 +66,37 @@ internal static class FreeFlyRuntime
             return;
         }
 
+        var direction = GetInputDirection();
+        if (!_freeFlyActive && direction == 0f)
+        {
+            return;
+        }
+
         var entityTransformComponent = networkPlayer.EntityTransformComponent;
         if (entityTransformComponent is null)
         {
             return;
         }
 
-        var delta = _configuration.MovementSpeed.Value * Time.deltaTime * direction;
         var currentPosition = networkPlayer.transform.position;
-        var nextPosition = _configuration.Axis.Value == FreeFlyAxis.Z
-            ? new Vector3(currentPosition.x, currentPosition.y, currentPosition.z + delta)
-            : new Vector3(currentPosition.x, currentPosition.y + delta, currentPosition.z);
+        if (!_freeFlyActive)
+        {
+            _freeFlyActive = true;
+            _targetAxisCoordinate = GetAxisCoordinate(currentPosition);
+        }
+
+        if (direction != 0f)
+        {
+            _targetAxisCoordinate += _configuration.MovementSpeed.Value * Time.deltaTime * direction;
+        }
+
+        var nextPosition = WithAxisCoordinate(currentPosition, _targetAxisCoordinate);
 
         entityTransformComponent.ForceSetPosition(nextPosition, true);
 
         if (_configuration.EnableLogging.Value)
         {
-            _logger?.LogInfo($"FreeFly: direction={direction}, axis={_configuration.Axis.Value}, from={currentPosition}, to={nextPosition}");
+            _logger?.LogInfo($"FreeFly: direction={direction}, axis={_configuration.Axis.Value}, target={_targetAxisCoordinate}, from={currentPosition}, to={nextPosition}");
         }
     }
 
@@ -120,5 +132,17 @@ internal static class FreeFlyRuntime
             _pageDownAction = new InputAction("FreeFlyPageDown", binding: "<Keyboard>/pageDown");
             _pageDownAction.Enable();
         }
+    }
+
+    private static float GetAxisCoordinate(Vector3 position)
+    {
+        return _configuration?.Axis.Value == FreeFlyAxis.Z ? position.z : position.y;
+    }
+
+    private static Vector3 WithAxisCoordinate(Vector3 position, float axisCoordinate)
+    {
+        return _configuration?.Axis.Value == FreeFlyAxis.Z
+            ? new Vector3(position.x, position.y, axisCoordinate)
+            : new Vector3(position.x, axisCoordinate, position.z);
     }
 }

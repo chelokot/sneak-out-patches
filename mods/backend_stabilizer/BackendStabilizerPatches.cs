@@ -3383,43 +3383,16 @@ internal static class KinguinverseWebServiceGetPlayerByUserIdPatch
 
         try
         {
-            if (__result.IsCompletedSuccessfully)
+            if (!__result.IsCompletedSuccessfully)
             {
-                if (__result.Result is { IsSuccessful: true, Value: not null } result)
-                {
-                    BackendStabilizerStub.ApplyWebPlayerSimplifiedOverlay(result.Value);
-                    BackendStabilizerRuntime.LogSkillUiEvent("KinguinverseWebService.GetPlayer:overlayApplied", $"userId={userId}, characters={result.Value.Characters?.Count ?? 0}");
-                }
-
                 return;
             }
 
-            _ = Tasks.Task.Run(
-                async () =>
-                {
-                    while (!__result.IsCompleted)
-                    {
-                        await Tasks.Task.Delay(50).ConfigureAwait(false);
-                    }
-
-                    if (!__result.IsCompletedSuccessfully)
-                    {
-                        return;
-                    }
-
-                    try
-                    {
-                        if (__result.Result is { IsSuccessful: true, Value: not null } result)
-                        {
-                            BackendStabilizerStub.ApplyWebPlayerSimplifiedOverlay(result.Value);
-                            BackendStabilizerRuntime.LogSkillUiEvent("KinguinverseWebService.GetPlayer:completionOverlayApplied", $"userId={userId}, characters={result.Value.Characters?.Count ?? 0}");
-                        }
-                    }
-                    catch (Exception exception)
-                    {
-                        BackendStabilizerRuntime.LogError("Backend stabilizer GetPlayer(int) completion overlay failed", exception);
-                    }
-                });
+            if (__result.Result is { IsSuccessful: true, Value: not null } result)
+            {
+                BackendStabilizerStub.ApplyWebPlayerSimplifiedOverlay(result.Value);
+                BackendStabilizerRuntime.LogSkillUiEvent("KinguinverseWebService.GetPlayer:overlayApplied", $"userId={userId}, characters={result.Value.Characters?.Count ?? 0}");
+            }
         }
         catch (Exception exception)
         {

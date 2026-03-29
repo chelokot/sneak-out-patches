@@ -46,6 +46,7 @@ internal static class BackendStabilizerSelections
     private static DescriptionType _pendingDescriptionType = DescriptionType.none;
     private static PlayerNewMetaInventory? _currentInventory;
     private static UnityEngine.Component? _currentNetworkPlayer;
+    private static readonly Dictionary<int, object> LoadedCharactersSkillsByInternalId = new();
     private static readonly Type? GameType = AccessTools.TypeByName("Game");
     private static readonly Type? SpookedNetworkPlayerType = AccessTools.TypeByName("Gameplay.Player.Components.SpookedNetworkPlayer");
     private static readonly Type? NetworkPlayerRegistryType = AccessTools.TypeByName("NetworkPlayerRegistry");
@@ -187,6 +188,11 @@ internal static class BackendStabilizerSelections
         return internalId > 0 && internalId == GetCurrentInternalId();
     }
 
+    internal static bool IsCurrentInternalIdForLogging(int internalId)
+    {
+        return IsCurrentInternalId(internalId);
+    }
+
     private static bool TryGetLocalCharacterForType(int internalId, CharacterType characterType, out Character character)
     {
         character = null!;
@@ -266,10 +272,101 @@ internal static class BackendStabilizerSelections
         return runtimeCharacterType != RuntimeCharacterType.spectator;
     }
 
+    private static bool TryMapCharactersSkillsFieldToRuntimeCharacterType(string characterSkillsFieldName, out RuntimeCharacterType runtimeCharacterType)
+    {
+        runtimeCharacterType = characterSkillsFieldName switch
+        {
+            "PenguinSkills" => RuntimeCharacterType.victim_penguin,
+            "ScarecrowSkills" => RuntimeCharacterType.murderer_scarecrow,
+            "RipperSkills" => RuntimeCharacterType.murderer_ripper,
+            "DraculaSkills" => RuntimeCharacterType.murderer_dracula,
+            "ButcherSkills" => RuntimeCharacterType.murderer_butcher,
+            "ClownSkills" => RuntimeCharacterType.murderer_clown,
+            _ => RuntimeCharacterType.spectator
+        };
+
+        return runtimeCharacterType != RuntimeCharacterType.spectator;
+    }
+
+    private static bool TryGetSkillTierFromCharactersSkillsPayload(object charactersSkillsPayload, SkillType skillType, out RuntimeCharacterType characterType, out int tier)
+    {
+        characterType = RuntimeCharacterType.spectator;
+        tier = 0;
+
+        var charactersSkillsType = charactersSkillsPayload.GetType();
+        foreach (var characterSkillsFieldName in CharacterSkillsFieldNames)
+        {
+            var characterSkillsField = charactersSkillsType.GetField(characterSkillsFieldName, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+            if (characterSkillsField is null)
+            {
+                continue;
+            }
+
+            var simplifiedSkillsPayload = characterSkillsField.GetValue(charactersSkillsPayload);
+            if (simplifiedSkillsPayload is null || !TryMapCharactersSkillsFieldToRuntimeCharacterType(characterSkillsFieldName, out var payloadCharacterType))
+            {
+                continue;
+            }
+
+            var simplifiedSkillsType = simplifiedSkillsPayload.GetType();
+            foreach (var simplifiedSkillFieldName in SimplifiedSkillFieldNames)
+            {
+                var simplifiedSkillField = simplifiedSkillsType.GetField(simplifiedSkillFieldName, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+                if (simplifiedSkillField?.GetValue(simplifiedSkillsPayload) is not { } playerSkillPayload)
+                {
+                    continue;
+                }
+
+                var playerSkillType = playerSkillPayload.GetType();
+                var skillTypeField = playerSkillType.GetField("SkillType", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+                var tierField = playerSkillType.GetField("Tier", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+                if (skillTypeField?.GetValue(playerSkillPayload) is not SkillType payloadSkillType || tierField?.GetValue(playerSkillPayload) is not int payloadTier)
+                {
+                    continue;
+                }
+
+                if (payloadSkillType != skillType || payloadTier <= 0)
+                {
+                    continue;
+                }
+
+                characterType = payloadCharacterType;
+                tier = payloadTier;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryGetLoadedSkillTier(int internalId, SkillType skillType, out RuntimeCharacterType characterType, out int tier)
+    {
+        characterType = RuntimeCharacterType.spectator;
+        tier = 0;
+
+        return LoadedCharactersSkillsByInternalId.TryGetValue(internalId, out var charactersSkillsPayload)
+            && TryGetSkillTierFromCharactersSkillsPayload(charactersSkillsPayload, skillType, out characterType, out tier);
+    }
+
+    internal static void RememberLoadedCharactersSkills(int internalId, object? charactersSkillsPayload)
+    {
+        if (internalId <= 0 || charactersSkillsPayload is null)
+        {
+            return;
+        }
+
+        LoadedCharactersSkillsByInternalId[internalId] = charactersSkillsPayload;
+    }
+
     internal static bool TryGetLocalSkillTier(int internalId, SkillType skillType, out RuntimeCharacterType characterType, out int tier)
     {
         characterType = RuntimeCharacterType.spectator;
         tier = 0;
+
+        if (TryGetLoadedSkillTier(internalId, skillType, out characterType, out tier))
+        {
+            return true;
+        }
 
         if (!BackendStabilizerRuntime.UsePersistentSelections || !IsCurrentInternalId(internalId))
         {
@@ -325,6 +422,12 @@ internal static class BackendStabilizerSelections
     internal static bool TryGetLocalSkillEquipped(int internalId, SkillType skillType, RuntimeCharacterType characterType, out bool equipped)
     {
         equipped = false;
+
+        if (TryGetLoadedSkillTier(internalId, skillType, out var loadedCharacterType, out _))
+        {
+            equipped = loadedCharacterType == characterType;
+            return true;
+        }
 
         if (!TryMapClientCharacterType(characterType, out var webCharacterType)
             || !TryGetLocalCharacterForType(internalId, webCharacterType, out var character))
@@ -2721,9 +2824,16 @@ internal static class PlayersActiveSkillsHaveSkillEquippedPatch
 
     private static void Postfix(int internalId, SkillType cardSkillType, RuntimeCharacterType characterType, ref bool __result)
     {
+        var originalResult = __result;
         if (BackendStabilizerSelections.TryGetLocalSkillEquipped(internalId, cardSkillType, characterType, out var equipped))
         {
             __result = equipped;
+            if (!BackendStabilizerSelections.IsCurrentInternalIdForLogging(internalId))
+            {
+                BackendStabilizerRuntime.LogSkillUiEvent(
+                    "PlayersActiveSkills.HaveSkillEquipped:remote",
+                    $"internalId={internalId}, skill={cardSkillType}, characterType={characterType}, before={originalResult}, after={__result}");
+            }
         }
     }
 }
@@ -2738,6 +2848,7 @@ internal static class PlayersActiveSkillsGetPlayerSkillModifierPatch
 
     private static void Postfix(object __instance, int internalId, SkillType cardSkillType, object skillModifierType, ref float __result)
     {
+        var originalResult = __result;
         if (!BackendStabilizerSelections.TryGetLocalSkillTier(internalId, cardSkillType, out var characterType, out var tier))
         {
             return;
@@ -2746,6 +2857,12 @@ internal static class PlayersActiveSkillsGetPlayerSkillModifierPatch
         if (BackendStabilizerSelections.TryGetDirectSkillModifier(__instance, cardSkillType, skillModifierType, characterType, tier, out var modifier))
         {
             __result = modifier;
+            if (!BackendStabilizerSelections.IsCurrentInternalIdForLogging(internalId))
+            {
+                BackendStabilizerRuntime.LogSkillUiEvent(
+                    "PlayersActiveSkills.GetPlayerSkillModifier:remote",
+                    $"internalId={internalId}, skill={cardSkillType}, modifierType={skillModifierType}, tier={tier}, characterType={characterType}, before={originalResult}, after={__result}");
+            }
         }
     }
 }
@@ -3423,7 +3540,8 @@ internal static class SceneSpawnerOnPlayerLoadedSkillPayloadPatch
             var applied = BackendStabilizerSelections.TryMaxCharactersSkillsPayload(ref payload);
             __args[18] = payload!;
             var nickname = __args.Length > 16 ? __args[16]?.ToString() ?? string.Empty : string.Empty;
-            var internalId = __args.Length > 0 ? __args[0] : null;
+            var internalId = __args.Length > 0 && __args[0] is int value ? value : 0;
+            BackendStabilizerSelections.RememberLoadedCharactersSkills(internalId, __args[18]);
             BackendStabilizerRuntime.LogSkillUiEvent(
                 "SceneSpawner.OnPlayerLoaded:skillsPayload",
                 $"internalId={internalId}, nickname={nickname}, applied={applied}, before={before}, after={BackendStabilizerSelections.DescribeCharactersSkillsPayload(__args[18])}");

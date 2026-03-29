@@ -54,6 +54,7 @@ internal static class BackendStabilizerSelections
     private static readonly Type? MyPlayerRegistryType = AccessTools.TypeByName("MyPlayerRegistry");
     private static readonly Type? PlayersActiveSkillsType = AccessTools.TypeByName("Collections.Skills.PlayersActiveSkills");
     private static readonly Type? EntitySkillsComponentType = AccessTools.TypeByName("Gameplay.Player.Components.EntitySkillsComponent");
+    private static readonly Type? SceneSpawnerType = AccessTools.TypeByName("Gameplay.Spawn.SceneSpawner");
     private static readonly System.Reflection.PropertyInfo? GameInternalIdProperty =
         GameType is null ? null : AccessTools.Property(GameType, "InternalId");
     private static readonly System.Reflection.MethodInfo? PlayerNewMetaInventoryGetMyPlayerRegistryMethod =
@@ -92,6 +93,23 @@ internal static class BackendStabilizerSelections
         AccessTools.Method(typeof(AvatarAndFrameView), "get__currentSelectedProduct");
     private static readonly System.Reflection.FieldInfo? MyPlayerRegistryCharactersSkillsField =
         typeof(MyPlayerRegistry).GetField("CharactersSkills", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+    private static readonly string[] CharacterSkillsFieldNames =
+    {
+        "PenguinSkills",
+        "ScarecrowSkills",
+        "RipperSkills",
+        "DraculaSkills",
+        "ButcherSkills",
+        "ClownSkills"
+    };
+    private static readonly string[] SimplifiedSkillFieldNames =
+    {
+        "ActiveSkill",
+        "PassiveSkill1",
+        "PassiveSkill2",
+        "PassiveSkill3",
+        "PassiveSkill4"
+    };
 
     internal static bool TryGetSkinPartType(Il2CppSystem.Enum itemType, out SkinPartType skinPartType)
     {
@@ -343,6 +361,174 @@ internal static class BackendStabilizerSelections
         }
 
         modifier = directModifier;
+        return true;
+    }
+
+    internal static System.Reflection.MethodBase? GetSceneSpawnerOnPlayerLoadedTargetMethod()
+    {
+        return SceneSpawnerType is null ? null : AccessTools.Method(SceneSpawnerType, "OnPlayerLoaded");
+    }
+
+    internal static string DescribeCharactersSkillsPayload(object? charactersSkillsPayload)
+    {
+        if (charactersSkillsPayload is null)
+        {
+            return "null";
+        }
+
+        var charactersSkillsType = charactersSkillsPayload.GetType();
+        var segments = new List<string>();
+        foreach (var characterSkillsFieldName in CharacterSkillsFieldNames)
+        {
+            var characterSkillsField = charactersSkillsType.GetField(characterSkillsFieldName, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+            if (characterSkillsField is null)
+            {
+                continue;
+            }
+
+            var simplifiedSkills = characterSkillsField.GetValue(charactersSkillsPayload);
+            if (simplifiedSkills is null)
+            {
+                segments.Add($"{characterSkillsFieldName}=null");
+                continue;
+            }
+
+            segments.Add($"{characterSkillsFieldName}={DescribeSimplifiedSkillsPayload(simplifiedSkills)}");
+        }
+
+        return string.Join("; ", segments);
+    }
+
+    internal static bool TryMaxCharactersSkillsPayload(ref object? charactersSkillsPayload)
+    {
+        if (charactersSkillsPayload is null)
+        {
+            return false;
+        }
+
+        var charactersSkillsType = charactersSkillsPayload.GetType();
+        var changed = false;
+        var updatedPayload = charactersSkillsPayload;
+
+        foreach (var characterSkillsFieldName in CharacterSkillsFieldNames)
+        {
+            var characterSkillsField = charactersSkillsType.GetField(characterSkillsFieldName, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+            if (characterSkillsField is null)
+            {
+                continue;
+            }
+
+            var simplifiedSkills = characterSkillsField.GetValue(updatedPayload);
+            if (simplifiedSkills is null)
+            {
+                continue;
+            }
+
+            var updatedSimplifiedSkills = simplifiedSkills;
+            if (!TryMaxSimplifiedSkillsPayload(ref updatedSimplifiedSkills))
+            {
+                continue;
+            }
+
+            characterSkillsField.SetValue(updatedPayload, updatedSimplifiedSkills);
+            changed = true;
+        }
+
+        charactersSkillsPayload = updatedPayload;
+        return changed;
+    }
+
+    private static string DescribeSimplifiedSkillsPayload(object simplifiedSkillsPayload)
+    {
+        var simplifiedSkillsType = simplifiedSkillsPayload.GetType();
+        var segments = new List<string>();
+        foreach (var simplifiedSkillFieldName in SimplifiedSkillFieldNames)
+        {
+            var simplifiedSkillField = simplifiedSkillsType.GetField(simplifiedSkillFieldName, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+            if (simplifiedSkillField is null)
+            {
+                continue;
+            }
+
+            segments.Add($"{simplifiedSkillFieldName}={DescribePlayerSkillPayload(simplifiedSkillField.GetValue(simplifiedSkillsPayload))}");
+        }
+
+        return string.Join(",", segments);
+    }
+
+    private static string DescribePlayerSkillPayload(object? playerSkillPayload)
+    {
+        if (playerSkillPayload is null)
+        {
+            return "null";
+        }
+
+        var playerSkillType = playerSkillPayload.GetType();
+        var skillTypeField = playerSkillType.GetField("SkillType", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+        var tierField = playerSkillType.GetField("Tier", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+        if (skillTypeField is null || tierField is null)
+        {
+            return "unknown";
+        }
+
+        var skillTypeValue = System.Convert.ToInt32(skillTypeField.GetValue(playerSkillPayload));
+        var tierValue = System.Convert.ToInt32(tierField.GetValue(playerSkillPayload));
+        return $"{skillTypeValue}/{tierValue}";
+    }
+
+    private static bool TryMaxSimplifiedSkillsPayload(ref object simplifiedSkillsPayload)
+    {
+        var simplifiedSkillsType = simplifiedSkillsPayload.GetType();
+        var changed = false;
+
+        foreach (var simplifiedSkillFieldName in SimplifiedSkillFieldNames)
+        {
+            var simplifiedSkillField = simplifiedSkillsType.GetField(simplifiedSkillFieldName, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+            if (simplifiedSkillField is null)
+            {
+                continue;
+            }
+
+            var playerSkillPayload = simplifiedSkillField.GetValue(simplifiedSkillsPayload);
+            if (playerSkillPayload is null)
+            {
+                continue;
+            }
+
+            var updatedPlayerSkillPayload = playerSkillPayload;
+            if (!TryMaxPlayerSkillPayload(ref updatedPlayerSkillPayload))
+            {
+                continue;
+            }
+
+            simplifiedSkillField.SetValue(simplifiedSkillsPayload, updatedPlayerSkillPayload);
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    private static bool TryMaxPlayerSkillPayload(ref object playerSkillPayload)
+    {
+        var playerSkillType = playerSkillPayload.GetType();
+        var skillTypeField = playerSkillType.GetField("SkillType", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+        var tierField = playerSkillType.GetField("Tier", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+        if (skillTypeField is null || tierField is null)
+        {
+            return false;
+        }
+
+        if (System.Convert.ToInt32(skillTypeField.GetValue(playerSkillPayload)) == 0)
+        {
+            return false;
+        }
+
+        if (System.Convert.ToInt32(tierField.GetValue(playerSkillPayload)) == 5)
+        {
+            return false;
+        }
+
+        tierField.SetValue(playerSkillPayload, (byte)5);
         return true;
     }
 
@@ -3188,7 +3374,7 @@ internal static class KinguinverseWebServiceGetPlayerByUserIdPatch
         return AccessTools.Method(typeof(KinguinverseWebService), nameof(KinguinverseWebService.GetPlayer), new[] { typeof(int) });
     }
 
-    private static void Postfix(Il2CppTasks.Task<Result<WebPlayersSimplified>> __result)
+    private static void Postfix(int userId, Il2CppTasks.Task<Result<WebPlayersSimplified>> __result)
     {
         if (__result is null || !BackendStabilizerRuntime.UseProfileOverlay)
         {
@@ -3202,6 +3388,7 @@ internal static class KinguinverseWebServiceGetPlayerByUserIdPatch
                 if (__result.Result is { IsSuccessful: true, Value: not null } result)
                 {
                     BackendStabilizerStub.ApplyWebPlayerSimplifiedOverlay(result.Value);
+                    BackendStabilizerRuntime.LogSkillUiEvent("KinguinverseWebService.GetPlayer:overlayApplied", $"userId={userId}, characters={result.Value.Characters?.Count ?? 0}");
                 }
 
                 return;
@@ -3225,6 +3412,7 @@ internal static class KinguinverseWebServiceGetPlayerByUserIdPatch
                         if (__result.Result is { IsSuccessful: true, Value: not null } result)
                         {
                             BackendStabilizerStub.ApplyWebPlayerSimplifiedOverlay(result.Value);
+                            BackendStabilizerRuntime.LogSkillUiEvent("KinguinverseWebService.GetPlayer:completionOverlayApplied", $"userId={userId}, characters={result.Value.Characters?.Count ?? 0}");
                         }
                     }
                     catch (Exception exception)
@@ -3236,6 +3424,40 @@ internal static class KinguinverseWebServiceGetPlayerByUserIdPatch
         catch (Exception exception)
         {
             BackendStabilizerRuntime.LogError("Backend stabilizer GetPlayer(int) postfix failed", exception);
+        }
+    }
+}
+
+[HarmonyPatch]
+internal static class SceneSpawnerOnPlayerLoadedSkillPayloadPatch
+{
+    private static System.Reflection.MethodBase? TargetMethod()
+    {
+        return BackendStabilizerSelections.GetSceneSpawnerOnPlayerLoadedTargetMethod();
+    }
+
+    private static void Prefix(object[] __args)
+    {
+        if (!BackendStabilizerRuntime.UseProfileOverlay || __args.Length <= 18)
+        {
+            return;
+        }
+
+        try
+        {
+            var before = BackendStabilizerSelections.DescribeCharactersSkillsPayload(__args[18]);
+            var payload = __args[18];
+            var applied = BackendStabilizerSelections.TryMaxCharactersSkillsPayload(ref payload);
+            __args[18] = payload!;
+            var nickname = __args.Length > 16 ? __args[16]?.ToString() ?? string.Empty : string.Empty;
+            var internalId = __args.Length > 0 ? __args[0] : null;
+            BackendStabilizerRuntime.LogSkillUiEvent(
+                "SceneSpawner.OnPlayerLoaded:skillsPayload",
+                $"internalId={internalId}, nickname={nickname}, applied={applied}, before={before}, after={BackendStabilizerSelections.DescribeCharactersSkillsPayload(__args[18])}");
+        }
+        catch (Exception exception)
+        {
+            BackendStabilizerRuntime.LogError("Backend stabilizer SceneSpawner.OnPlayerLoaded skills payload fix failed", exception);
         }
     }
 }

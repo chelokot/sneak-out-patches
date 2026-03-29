@@ -203,7 +203,7 @@ async function getSneakOutProcesses(options) {
     return [];
   }
 
-  const command = "ps -ef | awk 'BEGIN { IGNORECASE = 1 } /Sneak Out\\.exe|UnityCrashHandler64\\.exe|proton waitforexitandrun/ { print }' || true";
+  const command = "ps -eo pid=,args= | grep -Ei 'Sneak Out\\.exe|UnityCrashHandler64\\.exe|proton waitforexitandrun' | grep -Ev 'ssh .*ps -eo pid=,args=|grep -Ei|grep -Ev' || true";
   const { stdout } = await runHostShell(options, command);
   return stdout
     .split("\n")
@@ -216,7 +216,11 @@ async function stopExistingGameProcesses(options) {
     return;
   }
 
-  const command = "ps -eo pid,args | awk '/[S]neak Out\\.exe/ { print \\$1 }' | xargs -r kill";
+  const command = [
+    "ps -eo pid=,args= | grep -Ei 'Sneak Out\\.exe|UnityCrashHandler64\\.exe|proton waitforexitandrun' | grep -Ev 'ssh .*ps -eo pid=,args=|grep -Ei|grep -Ev' | awk '{ print $1 }' | xargs -r kill -TERM 2>/dev/null || true",
+    "sleep 3",
+    "ps -eo pid=,args= | grep -Ei 'Sneak Out\\.exe|UnityCrashHandler64\\.exe|proton waitforexitandrun' | grep -Ev 'ssh .*ps -eo pid=,args=|grep -Ei|grep -Ev' | awk '{ print $1 }' | xargs -r kill -KILL 2>/dev/null || true"
+  ].join("; ");
   await runHostShell(options, command);
 }
 

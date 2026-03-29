@@ -1,4 +1,5 @@
 using Base;
+using BepInEx;
 using BepInEx.Logging;
 using HarmonyLib;
 using Kinguinverse.WebServiceProvider.Responses;
@@ -7,6 +8,7 @@ using Kinguinverse.WebServiceProvider.Types.Games;
 using Kinguinverse.WebServiceProvider.Types.Users;
 using Kinguinverse.WebServiceProvider.Types_v2;
 using Kinguinverse.WebServiceProvider.Types_v2.Products;
+using System.IO;
 using UI.Views;
 using System.Collections;
 using System.Collections.Generic;
@@ -21,11 +23,14 @@ internal static class BackendStabilizerRuntime
     private static BackendStabilizerConfig? _configuration;
     private static readonly HashSet<string> SuppressedLoopSources = new();
     private static ClientCache? _currentClientCache;
+    private static readonly object ResearchLogLock = new();
+    private static string? _researchLogPath;
 
     public static void Initialize(ManualLogSource logger, BackendStabilizerConfig configuration)
     {
         _logger = logger;
         _configuration = configuration;
+        _researchLogPath = Path.Combine(Paths.BepInExRootPath, "profile-reports", "backend-stabilizer-research.log");
         _harmony ??= new Harmony(BackendStabilizerPlugin.PluginGuid);
         _harmony.PatchAll();
         BackendStabilizerStub.Initialize();
@@ -328,7 +333,9 @@ internal static class BackendStabilizerRuntime
 
     public static void LogError(string message, Exception exception)
     {
-        _logger?.LogError($"{message}: {exception}");
+        var formattedMessage = $"{message}: {exception}";
+        _logger?.LogError(formattedMessage);
+        WriteResearchLog("ERROR", formattedMessage, force: true);
     }
 
     public static void LogSuppressedLoop(string source)
@@ -338,7 +345,9 @@ internal static class BackendStabilizerRuntime
             return;
         }
 
-        _logger?.LogWarning($"Suppressed unstable lobby view path: {source}");
+        var message = $"Suppressed unstable lobby view path: {source}";
+        _logger?.LogWarning(message);
+        WriteResearchLog("WARN", message, force: true);
     }
 
     private static int GetLength(string? value)
@@ -354,5 +363,31 @@ internal static class BackendStabilizerRuntime
     private static void LogInfo(string message)
     {
         _logger?.LogInfo(message);
+        WriteResearchLog("INFO", message, force: false);
+    }
+
+    private static void WriteResearchLog(string level, string message, bool force)
+    {
+        if (!force && !ShouldLog())
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_researchLogPath))
+        {
+            return;
+        }
+
+        try
+        {
+            lock (ResearchLogLock)
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(_researchLogPath)!);
+                File.AppendAllText(_researchLogPath, $"[{DateTime.Now:O}] {level} {message}{Environment.NewLine}");
+            }
+        }
+        catch
+        {
+        }
     }
 }

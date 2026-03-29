@@ -39,6 +39,10 @@
       <HintPath>$(InteropDir)/Assembly-CSharp.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="Fusion.Runtime">
+      <HintPath>$(InteropDir)/Fusion.Runtime.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="Il2Cppmscorlib">
       <HintPath>$(InteropDir)/Il2Cppmscorlib.dll</HintPath>
       <Private>false</Private>

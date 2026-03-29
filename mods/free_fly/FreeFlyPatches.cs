@@ -1,5 +1,5 @@
 using HarmonyLib;
-using UnityEngine;
+using Gameplay.Player.Components;
 
 namespace SneakOut.FreeFly;
 
@@ -12,8 +12,31 @@ internal static class PlayerInputControllerUpdatePatch
         return type is null ? null : AccessTools.Method(type, "Update");
     }
 
-    private static void Postfix(Component __instance)
+    private static void Postfix()
     {
-        FreeFlyRuntime.TryApplyFreeFly(__instance);
+        FreeFlyRuntime.TryApplyFreeFly();
+    }
+}
+
+[HarmonyPatch(typeof(SpookedNetworkPlayer), nameof(SpookedNetworkPlayer.Spawned))]
+internal static class SpookedNetworkPlayerSpawnedPatch
+{
+    private static void Postfix(SpookedNetworkPlayer __instance)
+    {
+        FreeFlyRuntime.RememberLocalNetworkPlayer(__instance);
+    }
+}
+
+[HarmonyPatch]
+internal static class SpookedNetworkPlayerSpawnedReadyPatch
+{
+    private static System.Reflection.MethodBase? TargetMethod()
+    {
+        return AccessTools.Method(typeof(SpookedNetworkPlayer), "RPC_SpawnedReady");
+    }
+
+    private static void Postfix(SpookedNetworkPlayer __instance)
+    {
+        FreeFlyRuntime.RememberLocalNetworkPlayer(__instance);
     }
 }

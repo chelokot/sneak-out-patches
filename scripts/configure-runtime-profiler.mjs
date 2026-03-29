@@ -12,7 +12,8 @@ const presets = new Map([
       enableLogging: false,
       includeNamespacePrefixes: [],
       targetMethodPatterns: [],
-      maxPatchedMethods: 0
+      maxPatchedMethods: 0,
+      includeConstructors: false
     }
   ],
   [
@@ -32,7 +33,8 @@ const presets = new Map([
         "Gameplay.Skills.PlayerBombs..ctor",
         "Gameplay.Spawn.SceneSpawner.OnPlayerLoaded"
       ],
-      maxPatchedMethods: 12
+      maxPatchedMethods: 12,
+      includeConstructors: false
     }
   ],
   [
@@ -51,7 +53,26 @@ const presets = new Map([
         "Gameplay.Spawn.SceneSpawner.OnPlayerLoaded",
         "UI.Views.PlayerCustomizationView.OnTryOnCharacterOutfitLocally"
       ],
-      maxPatchedMethods: 12
+      maxPatchedMethods: 12,
+      includeConstructors: false
+    }
+  ],
+  [
+    "lobby-hotspots",
+    {
+      enableMod: true,
+      enableLogging: true,
+      includeNamespacePrefixes: [
+        "UI.Views.",
+        "UI.Buttons.",
+        "Networking.PGOS.",
+        "Collections.",
+        "Base.",
+        "Gameplay.Player."
+      ],
+      targetMethodPatterns: [],
+      maxPatchedMethods: 120,
+      includeConstructors: false
     }
   ]
 ]);
@@ -92,7 +113,7 @@ async function main() {
   content = replaceOrAppendSetting(content, "TargetMethodPatterns", preset.targetMethodPatterns.join(";"));
   content = replaceOrAppendSetting(content, "ExcludeNamespacePrefixes", "");
   content = replaceOrAppendSetting(content, "IncludePropertyAccessors", "false");
-  content = replaceOrAppendSetting(content, "IncludeConstructors", "true");
+  content = replaceOrAppendSetting(content, "IncludeConstructors", preset.includeConstructors ? "true" : "false");
   content = replaceOrAppendSetting(content, "IncludeCompilerGenerated", "false");
   content = replaceOrAppendSetting(content, "MaxPatchedMethods", `${preset.maxPatchedMethods}`);
 

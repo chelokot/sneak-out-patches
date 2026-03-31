@@ -1,4 +1,5 @@
 using Collections;
+using Gameplay.Skills;
 using HarmonyLib;
 using Types;
 using UI.Views;
@@ -104,5 +105,14 @@ internal static class CharacterShopViewShiftPatch
     private static void Postfix(CharacterShopView __instance)
     {
         MummyUnlockRuntime.LogCharacterShopStep("Shift", __instance);
+    }
+}
+
+[HarmonyPatch(typeof(SarcophagusInitializer), "Start")]
+internal static class SarcophagusInitializerStartPatch
+{
+    private static void Postfix(Sarcophagus[] ___sarcophagi)
+    {
+        MummySarcophagusVisualRuntime.ApplyToSarcophagi(___sarcophagi);
     }
 }

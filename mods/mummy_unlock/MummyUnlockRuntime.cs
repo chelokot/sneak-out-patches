@@ -32,6 +32,7 @@ internal static class MummyUnlockRuntime
     public static void Initialize(ManualLogSource logger)
     {
         _logger = logger;
+        MummySarcophagusVisualRuntime.Initialize(logger);
         _harmony ??= new Harmony(MummyUnlockPlugin.PluginGuid);
         _harmony.PatchAll();
         LogMummySpriteCandidatesOnce();

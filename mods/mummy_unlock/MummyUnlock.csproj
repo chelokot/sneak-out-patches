@@ -39,6 +39,10 @@
       <HintPath>$(InteropDir)/Assembly-CSharp.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="Fusion.Runtime">
+      <HintPath>$(InteropDir)/Fusion.Runtime.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="Il2Cppmscorlib">
       <HintPath>$(InteropDir)/Il2Cppmscorlib.dll</HintPath>
       <Private>false</Private>
@@ -59,5 +63,10 @@
       <HintPath>$(InteropDir)/Unity.TextMeshPro.dll</HintPath>
       <Private>false</Private>
     </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Assets/sarcophagus_mesh.json" LogicalName="SneakOut.MummyUnlock.Assets.sarcophagus_mesh.json" />
+    <EmbeddedResource Include="Assets/sarcophagus_texture.png" LogicalName="SneakOut.MummyUnlock.Assets.sarcophagus_texture.png" />
   </ItemGroup>
 </Project>

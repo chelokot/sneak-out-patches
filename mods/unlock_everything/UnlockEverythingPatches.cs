@@ -377,7 +377,12 @@ internal static class UnlockEverythingSelections
             return true;
         }
 
-        if (!UnlockEverythingRuntime.UsePersistentSelections || !IsCurrentInternalId(internalId))
+        if (!UnlockEverythingRuntime.UsePersistentSelections)
+        {
+            return false;
+        }
+
+        if (internalId > 0 && !IsCurrentInternalId(internalId))
         {
             return false;
         }
@@ -467,13 +472,21 @@ internal static class UnlockEverythingSelections
     {
         modifier = 0;
 
-        if (PlayersActiveSkillsGetModifierDirectlyMethod?.Invoke(playersActiveSkills, new object[] { skillType, skillModifierType, tier, characterType }) is not float directModifier)
+        try
         {
+            if (PlayersActiveSkillsGetModifierDirectlyMethod?.Invoke(playersActiveSkills, new object[] { skillType, skillModifierType, tier, characterType }) is not float directModifier)
+            {
+                return false;
+            }
+
+            modifier = directModifier;
+            return true;
+        }
+        catch (Exception exception)
+        {
+            UnlockEverythingRuntime.LogError("Unlock Everything direct skill modifier lookup failed", exception);
             return false;
         }
-
-        modifier = directModifier;
-        return true;
     }
 
     internal static System.Reflection.MethodBase? GetSceneSpawnerOnPlayerLoadedTargetMethod()
@@ -2803,19 +2816,22 @@ internal static class PlayersActiveSkillsHaveSkillEquippedPatch
         return UnlockEverythingSelections.GetPlayersActiveSkillsHaveSkillEquippedTargetMethod();
     }
 
-    private static void Postfix(int internalId, SkillType cardSkillType, RuntimeCharacterType characterType, ref bool __result)
+    private static bool Prefix(int internalId, SkillType cardSkillType, RuntimeCharacterType characterType, ref bool __result)
     {
-        var originalResult = __result;
-        if (UnlockEverythingSelections.TryGetLocalSkillEquipped(internalId, cardSkillType, characterType, out var equipped))
+        if (!UnlockEverythingSelections.TryGetLocalSkillEquipped(internalId, cardSkillType, characterType, out var equipped))
         {
-            __result = equipped;
-            if (!UnlockEverythingSelections.IsCurrentInternalIdForLogging(internalId))
-            {
-                UnlockEverythingRuntime.LogSkillUiEvent(
-                    "PlayersActiveSkills.HaveSkillEquipped:remote",
-                    $"internalId={internalId}, skill={cardSkillType}, characterType={characterType}, before={originalResult}, after={__result}");
-            }
+            return true;
         }
+
+        __result = equipped;
+        if (!UnlockEverythingSelections.IsCurrentInternalIdForLogging(internalId))
+        {
+            UnlockEverythingRuntime.LogSkillUiEvent(
+                "PlayersActiveSkills.HaveSkillEquipped:remote",
+                $"internalId={internalId}, skill={cardSkillType}, characterType={characterType}, after={__result}");
+        }
+
+        return false;
     }
 }
 
@@ -2827,24 +2843,27 @@ internal static class PlayersActiveSkillsGetPlayerSkillModifierPatch
         return UnlockEverythingSelections.GetPlayersActiveSkillsGetPlayerSkillModifierTargetMethod();
     }
 
-    private static void Postfix(object __instance, int internalId, SkillType cardSkillType, object skillModifierType, ref float __result)
+    private static bool Prefix(object __instance, int internalId, SkillType cardSkillType, object skillModifierType, ref float __result)
     {
-        var originalResult = __result;
         if (!UnlockEverythingSelections.TryGetLocalSkillTier(internalId, cardSkillType, out var characterType, out var tier))
         {
-            return;
+            return true;
         }
 
-        if (UnlockEverythingSelections.TryGetDirectSkillModifier(__instance, cardSkillType, skillModifierType, characterType, tier, out var modifier))
+        if (!UnlockEverythingSelections.TryGetDirectSkillModifier(__instance, cardSkillType, skillModifierType, characterType, tier, out var modifier))
         {
-            __result = modifier;
-            if (!UnlockEverythingSelections.IsCurrentInternalIdForLogging(internalId))
-            {
-                UnlockEverythingRuntime.LogSkillUiEvent(
-                    "PlayersActiveSkills.GetPlayerSkillModifier:remote",
-                    $"internalId={internalId}, skill={cardSkillType}, modifierType={skillModifierType}, tier={tier}, characterType={characterType}, before={originalResult}, after={__result}");
-            }
+            return true;
         }
+
+        __result = modifier;
+        if (!UnlockEverythingSelections.IsCurrentInternalIdForLogging(internalId))
+        {
+            UnlockEverythingRuntime.LogSkillUiEvent(
+                "PlayersActiveSkills.GetPlayerSkillModifier:remote",
+                $"internalId={internalId}, skill={cardSkillType}, modifierType={skillModifierType}, tier={tier}, characterType={characterType}, after={__result}");
+        }
+
+        return false;
     }
 }
 

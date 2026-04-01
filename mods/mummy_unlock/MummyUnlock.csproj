@@ -67,6 +67,9 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Assets/sarcophagus_mesh.json" LogicalName="SneakOut.MummyUnlock.Assets.sarcophagus_mesh.json" />
-    <EmbeddedResource Include="Assets/sarcophagus_texture.png" LogicalName="SneakOut.MummyUnlock.Assets.sarcophagus_texture.png" />
+    <EmbeddedResource Include="Assets/sarcophagus_texture.jpg" LogicalName="SneakOut.MummyUnlock.Assets.sarcophagus_texture.jpg" />
+    <EmbeddedResource Include="Assets/mummy_character_icon.png" LogicalName="SneakOut.MummyUnlock.Assets.mummy_character_icon.png" />
+    <EmbeddedResource Include="Assets/mummy_sarcophagus_icon.png" LogicalName="SneakOut.MummyUnlock.Assets.mummy_sarcophagus_icon.png" />
+    <EmbeddedResource Include="Assets/mummy_trap_icon.png" LogicalName="SneakOut.MummyUnlock.Assets.mummy_trap_icon.png" />
   </ItemGroup>
 </Project>

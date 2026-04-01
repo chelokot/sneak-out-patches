@@ -32,6 +32,7 @@ internal static class MummyUnlockRuntime
     public static void Initialize(ManualLogSource logger)
     {
         _logger = logger;
+        MummyAbilityIconRuntime.Initialize();
         MummySarcophagusVisualRuntime.Initialize(logger);
         _harmony ??= new Harmony(MummyUnlockPlugin.PluginGuid);
         _harmony.PatchAll();
@@ -67,10 +68,7 @@ internal static class MummyUnlockRuntime
 
             if (!entriesByCharacter.ContainsKey(MummyCharacterType))
             {
-                var fallbackEntry = entriesByCharacter.TryGetValue(CharacterType.murderer_dracula, out var draculaEntry)
-                    ? draculaEntry
-                    : rawEntries[0];
-                entriesByCharacter[MummyCharacterType] = CreateMummyEntry(fallbackEntry);
+                entriesByCharacter[MummyCharacterType] = CreateMummyEntry();
             }
 
             var sanitizedEntries = new List<CharacterShopView.CharacterToBuy>();
@@ -222,6 +220,11 @@ internal static class MummyUnlockRuntime
             shopView._currentCharacter = currentCharacter;
 
             var currentEntry = charactersToBuy[currentCharacter];
+            if (currentEntry.CharacterType != MummyCharacterType)
+            {
+                return false;
+            }
+
             shopView._characterImage.sprite = currentEntry.CharacterSprite;
             shopView._characterImage.overrideSprite = currentEntry.CharacterSprite;
             shopView._characterName.text = TranslateShopText(shopView, currentEntry.NameKey);
@@ -229,26 +232,26 @@ internal static class MummyUnlockRuntime
             shopView._secondSkillName.text = TranslateShopText(shopView, currentEntry.SecondSkillNameKey);
             shopView._firstSkillDescription.text = TranslateShopText(shopView, currentEntry.FirstSkillDescriptionKey);
             shopView._secondSkillDescription.text = TranslateShopText(shopView, currentEntry.SecondSkillDescriptionKey);
+            MummyAbilityIconRuntime.ApplyToCharacterShopView(shopView);
 
-            var isMummy = currentEntry.CharacterType == MummyCharacterType;
             if (shopView._buyButton is not null)
             {
-                shopView._buyButton.interactable = !isMummy;
+                shopView._buyButton.interactable = false;
             }
 
             if (shopView._buyPanel is not null)
             {
-                shopView._buyPanel.SetActive(!isMummy);
+                shopView._buyPanel.SetActive(false);
             }
 
             if (shopView._gamepadBuy is not null)
             {
-                shopView._gamepadBuy.SetActive(!isMummy);
+                shopView._gamepadBuy.SetActive(false);
             }
 
             if (shopView._costText is not null)
             {
-                shopView._costText.text = isMummy ? string.Empty : "100";
+                shopView._costText.text = string.Empty;
             }
 
             return true;
@@ -334,13 +337,13 @@ internal static class MummyUnlockRuntime
         return indices;
     }
 
-    private static CharacterShopView.CharacterToBuy CreateMummyEntry(CharacterShopView.CharacterToBuy fallbackEntry)
+    private static CharacterShopView.CharacterToBuy CreateMummyEntry()
     {
         var mummyEntry = new CharacterShopView.CharacterToBuy
         {
             CharacterType = MummyCharacterType,
             NameKey = "Mummy",
-            CharacterSprite = fallbackEntry.CharacterSprite,
+            CharacterSprite = MummyAbilityIconRuntime.GetCharacterSprite(),
             FirstSkill = SpookedSkillType.MummySandTrap,
             SecondSkill = SpookedSkillType.MummySarcophagus,
             FirstSkillNameKey = "Sand Trap",

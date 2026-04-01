@@ -40,6 +40,7 @@ These are narrow runtime replacements for old binary patches or scene edits.
 - `mummy-unlock`
 - `start-delay-reducer`
 - `friend-invite-unlock`
+- `friend-join-button`
 
 These stay separate because each one owns a single gameplay or lobby concern and has a clear rollback boundary.
 
@@ -78,6 +79,13 @@ Do not merge them just because both touch lobby behavior.
 
 `double-party-invite-fix` is a network-join fix for the first accepted party invite.
 `friend-invite-unlock` is a social UI behavior change with its own config and rollback story.
+
+### `friend-invite-unlock` and `friend-join-button`
+
+Do not merge them.
+
+`friend-invite-unlock` keeps otherwise disabled invite paths available.
+`friend-join-button` is a separate presence-driven join affordance with a different network source and failure mode.
 
 ### `unlock-everything` and `lobby-skill-sandbox`
 

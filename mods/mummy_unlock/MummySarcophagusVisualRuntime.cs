@@ -4,16 +4,17 @@ using BepInEx.Logging;
 using Gameplay.Skills;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using UnityEngine;
+using Object = UnityEngine.Object;
 
 namespace SneakOut.MummyUnlock;
 
 internal static class MummySarcophagusVisualRuntime
 {
     private const string MeshResourceName = "SneakOut.MummyUnlock.Assets.sarcophagus_mesh.json";
-    private const string TextureResourceName = "SneakOut.MummyUnlock.Assets.sarcophagus_texture.png";
+    private const string TextureResourceName = "SneakOut.MummyUnlock.Assets.sarcophagus_texture.jpg";
     private static readonly Vector3 ReplacementPosition = new(0f, 1f, 0.5f);
     private static readonly Vector3 ReplacementScale = new(0.568422f, 0.568422f, 0.568422f);
-    private static readonly Quaternion ReplacementRotation = Quaternion.identity;
+    private static readonly Quaternion ReplacementRotation = Quaternion.Euler(0f, 180f, 180f);
     private static readonly HashSet<int> AppliedCubeIds = new();
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
 
@@ -54,35 +55,105 @@ internal static class MummySarcophagusVisualRuntime
         }
     }
 
-    private static bool ApplyToSarcophagus(Sarcophagus sarcophagus)
+    public static void ApplyToSceneSarcophagi(string source)
     {
-        var cube = sarcophagus.transform.Find("Cube");
-        if (cube is null)
+        var sarcophagi = Resources.FindObjectsOfTypeAll<Sarcophagus>();
+        if (sarcophagi is null || sarcophagi.Length == 0)
         {
-            _logger?.LogWarning($"Mummy sarcophagus visual child not found on '{sarcophagus.gameObject.name}'");
+            _logger?.LogWarning($"No mummy sarcophagus objects found for scene-wide apply via {source}");
+            return;
+        }
+
+        ApplyToSarcophagi(sarcophagi);
+        _logger?.LogInfo($"Scene-wide mummy sarcophagus apply via {source}: count={sarcophagi.Length}, names=[{string.Join(", ", sarcophagi.Select(static sarcophagus => sarcophagus.gameObject.name))}]");
+    }
+
+    public static bool ApplyToSarcophagus(Sarcophagus sarcophagus)
+    {
+        _logger?.LogInfo($"Attempting mummy sarcophagus replacement on '{sarcophagus.gameObject.name}'");
+        var visualTransform = ResolveVisualTransform(sarcophagus);
+        if (visualTransform is null)
+        {
+            _logger?.LogWarning($"Mummy sarcophagus visual target not found on '{sarcophagus.gameObject.name}'");
             return false;
         }
 
-        var cubeId = cube.gameObject.GetInstanceID();
-        if (!AppliedCubeIds.Add(cubeId))
+        var visualObject = visualTransform.gameObject;
+        var visualId = visualObject.GetInstanceID();
+        if (!AppliedCubeIds.Add(visualId))
         {
             return false;
         }
 
-        var meshFilter = cube.GetComponent<MeshFilter>();
-        var meshRenderer = cube.GetComponent<MeshRenderer>();
+        var meshFilter = visualObject.GetComponent<MeshFilter>();
+        var meshRenderer = visualObject.GetComponent<MeshRenderer>();
         if (meshFilter is null || meshRenderer is null)
         {
-            _logger?.LogWarning($"Mummy sarcophagus visual components missing on '{cube.gameObject.name}'");
+            _logger?.LogWarning($"Mummy sarcophagus visual components missing on '{visualObject.name}'");
             return false;
         }
 
         meshFilter.sharedMesh = GetOrCreateMesh();
         meshRenderer.sharedMaterial = GetOrCreateMaterial(meshRenderer);
-        cube.localPosition = ReplacementPosition;
-        cube.localRotation = ReplacementRotation;
-        cube.localScale = ReplacementScale;
+        visualTransform.localPosition = ReplacementPosition;
+        visualTransform.localRotation = ReplacementRotation;
+        visualTransform.localScale = ReplacementScale;
+        _logger?.LogInfo($"Applied mummy sarcophagus replacement on '{sarcophagus.gameObject.name}' via '{visualObject.name}'");
         return true;
+    }
+
+    private static Transform? ResolveVisualTransform(Sarcophagus sarcophagus)
+    {
+        if (TryResolveNamedChild(sarcophagus.transform, "Cube", out var namedCube))
+        {
+            var namedCubeTransform = namedCube!;
+            _logger?.LogInfo($"Resolved mummy sarcophagus visual target by name on '{sarcophagus.gameObject.name}' -> '{namedCubeTransform.gameObject.name}'");
+            return namedCubeTransform;
+        }
+
+        var cube = sarcophagus.transform.Find("Cube");
+        if (cube is not null)
+        {
+            _logger?.LogInfo($"Resolved mummy sarcophagus direct child target on '{sarcophagus.gameObject.name}' -> '{cube.gameObject.name}'");
+            return cube;
+        }
+
+        var meshFilters = sarcophagus.GetComponentsInChildren<MeshFilter>(true);
+        _logger?.LogInfo($"Mummy sarcophagus mesh filter fallback on '{sarcophagus.gameObject.name}': count={meshFilters.Length}");
+        for (var index = 0; index < meshFilters.Length; index++)
+        {
+            var meshFilter = meshFilters[index];
+            if (meshFilter is null)
+            {
+                continue;
+            }
+
+            _logger?.LogInfo($"Resolved mummy sarcophagus mesh-filter fallback on '{sarcophagus.gameObject.name}' -> '{meshFilter.gameObject.name}'");
+            return meshFilter.transform;
+        }
+
+        return null;
+    }
+
+    private static bool TryResolveNamedChild(Transform rootTransform, string childName, out Transform? childTransform)
+    {
+        if (rootTransform.name == childName)
+        {
+            childTransform = rootTransform;
+            return true;
+        }
+
+        for (var childIndex = 0; childIndex < rootTransform.childCount; childIndex++)
+        {
+            var nestedChild = rootTransform.GetChild(childIndex);
+            if (TryResolveNamedChild(nestedChild, childName, out childTransform))
+            {
+                return true;
+            }
+        }
+
+        childTransform = null;
+        return false;
     }
 
     private static Mesh GetOrCreateMesh()

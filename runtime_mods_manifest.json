@@ -73,6 +73,17 @@
     "default_config_template_path": "config_templates/runtime_mods/start-delay-reducer.cfg"
   },
   {
+    "option_id": "background-loading-guard",
+    "label": "Background Loading Guard",
+    "details": "Builds and installs the BepInEx runtime mod that forces runInBackground and logs early loading focus transitions.",
+    "category": "quality-of-life",
+    "default_enabled": true,
+    "project_relative_path": "mods/background_loading_guard/BackgroundLoadingGuard.csproj",
+    "assembly_name": "SneakOut.BackgroundLoadingGuard",
+    "config_relative_path": "BepInEx/config/chelokot.sneakout.background-loading-guard.cfg",
+    "default_config_template_path": "config_templates/runtime_mods/background-loading-guard.cfg"
+  },
+  {
     "option_id": "friend-invite-unlock",
     "label": "Friend Invite Unlock",
     "details": "Builds and installs the BepInEx runtime mod that keeps offline friends inviteable from the lobby list.",
@@ -82,6 +93,17 @@
     "assembly_name": "SneakOut.FriendInviteUnlock",
     "config_relative_path": "BepInEx/config/chelokot.sneakout.friend-invite-unlock.cfg",
     "default_config_template_path": "config_templates/runtime_mods/friend-invite-unlock.cfg"
+  },
+  {
+    "option_id": "friend-join-button",
+    "label": "Friend Join Button",
+    "details": "Builds and installs the BepInEx runtime mod that adds a separate JOIN button to the friend popup using backend presence data for joinable parties.",
+    "category": "quality-of-life",
+    "default_enabled": true,
+    "project_relative_path": "mods/friend_join_button/FriendJoinButton.csproj",
+    "assembly_name": "SneakOut.FriendJoinButton",
+    "config_relative_path": "BepInEx/config/chelokot.sneakout.friend-join-button.cfg",
+    "default_config_template_path": "config_templates/runtime_mods/friend-join-button.cfg"
   },
   {
     "option_id": "lobby-skill-sandbox",

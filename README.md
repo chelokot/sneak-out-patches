@@ -69,6 +69,8 @@ Core and gameplay mods:
   Reduces host-side pre-match delays.
 - `friend-invite-unlock`
   Keeps offline friends inviteable from the lobby list.
+- `friend-join-button`
+  Replaces the friend popup action with `JOIN` when the friend's presence exposes a joinable party.
 
 Experimental and debug mods:
 

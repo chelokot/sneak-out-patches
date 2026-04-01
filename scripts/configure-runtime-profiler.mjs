@@ -74,6 +74,19 @@ const presets = new Map([
       maxPatchedMethods: 120,
       includeConstructors: false
     }
+  ],
+  [
+    "lobby-ui-safe",
+    {
+      enableMod: true,
+      enableLogging: true,
+      includeNamespacePrefixes: [
+        "UI.Views."
+      ],
+      targetMethodPatterns: [],
+      maxPatchedMethods: 40,
+      includeConstructors: false
+    }
   ]
 ]);
 

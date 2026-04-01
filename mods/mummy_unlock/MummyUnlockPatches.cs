@@ -29,6 +29,7 @@ internal static class SeekerSelectionViewManagerAwakePatch
 {
     private static void Postfix(SeekerSelectionView __instance)
     {
+        MummyAbilityIconRuntime.ApplyToSeekerSelectionView(__instance);
         MummyUnlockRuntime.LogSeekerSelectionView(__instance);
     }
 }
@@ -38,6 +39,7 @@ internal static class SeekerSelectionViewRefreshLabelTextPatch
 {
     private static void Postfix(SeekerSelectionView __instance)
     {
+        MummyAbilityIconRuntime.ApplyToSeekerSelectionView(__instance);
         MummyUnlockRuntime.LogSeekerSelectionView(__instance);
     }
 }
@@ -108,11 +110,74 @@ internal static class CharacterShopViewShiftPatch
     }
 }
 
+[HarmonyPatch(typeof(MummySarcophagusManager), nameof(MummySarcophagusManager.Init))]
+internal static class MummySarcophagusManagerInitPatch
+{
+    private static void Postfix(Sarcophagus[] sarcophagi)
+    {
+        MummySarcophagusVisualRuntime.ApplyToSarcophagi(sarcophagi);
+    }
+}
+
 [HarmonyPatch(typeof(SarcophagusInitializer), "Start")]
 internal static class SarcophagusInitializerStartPatch
 {
-    private static void Postfix(Sarcophagus[] ___sarcophagi)
+    private static void Postfix()
     {
-        MummySarcophagusVisualRuntime.ApplyToSarcophagi(___sarcophagi);
+        MummySarcophagusVisualRuntime.ApplyToSceneSarcophagi("SarcophagusInitializer.Start");
+    }
+}
+
+[HarmonyPatch(typeof(LoadingScreenView), "AllowSceneActivation")]
+internal static class LoadingScreenViewAllowSceneActivationSarcophagusPatch
+{
+    private static void Prefix(SceneType sceneType)
+    {
+        if (sceneType == SceneType.Game || sceneType == SceneType.Map01 || sceneType == SceneType.Map02 || sceneType == SceneType.Map03 || sceneType == SceneType.Map05_TagGame || sceneType == SceneType.Map_East01 || sceneType == SceneType.Map_East02 || sceneType == SceneType.Map_School02)
+        {
+            MummySarcophagusVisualRuntime.ApplyToSceneSarcophagi($"LoadingScreenView.AllowSceneActivation:{sceneType}");
+        }
+    }
+}
+
+[HarmonyPatch(typeof(PlayerActionsView), "SetFirstSkillSprite")]
+internal static class PlayerActionsViewSetFirstSkillSpritePatch
+{
+    private static void Postfix(PlayerActionsView __instance, SpookedSkillType firstSkill)
+    {
+        MummyAbilityIconRuntime.ApplyToPlayerActionsView(__instance, firstSkill, false);
+    }
+}
+
+[HarmonyPatch(typeof(PlayerActionsView), "SetSecondSkillSprite")]
+internal static class PlayerActionsViewSetSecondSkillSpritePatch
+{
+    private static void Postfix(PlayerActionsView __instance, SpookedSkillType secondSkill)
+    {
+        MummyAbilityIconRuntime.ApplyToPlayerActionsView(__instance, secondSkill, true);
+    }
+}
+
+[HarmonyPatch]
+internal static class SceneSpawnerOnPlayerLoadedSarcophagusPatch
+{
+    private static System.Reflection.MethodBase? TargetMethod()
+    {
+        var sceneSpawnerType = AccessTools.TypeByName("Gameplay.Spawn.SceneSpawner");
+        return sceneSpawnerType is null ? null : AccessTools.Method(sceneSpawnerType, "OnPlayerLoaded");
+    }
+
+    private static void Postfix()
+    {
+        MummySarcophagusVisualRuntime.ApplyToSceneSarcophagi("SceneSpawner.OnPlayerLoaded");
+    }
+}
+
+[HarmonyPatch(typeof(Sarcophagus), "OnAwake")]
+internal static class SarcophagusOnAwakePatch
+{
+    private static void Postfix(Sarcophagus __instance)
+    {
+        MummySarcophagusVisualRuntime.ApplyToSarcophagus(__instance);
     }
 }

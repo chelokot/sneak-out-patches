@@ -33,6 +33,7 @@ internal static class MummyUnlockRuntime
     {
         _logger = logger;
         MummyAbilityIconRuntime.Initialize();
+        MummyAnimatorFallbackRuntime.Initialize(logger);
         MummySarcophagusVisualRuntime.Initialize(logger);
         _harmony ??= new Harmony(MummyUnlockPlugin.PluginGuid);
         _harmony.PatchAll();

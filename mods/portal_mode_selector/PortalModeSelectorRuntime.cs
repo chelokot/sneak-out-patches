@@ -513,6 +513,11 @@ internal static class PortalModeSelectorRuntime
         return true;
     }
 
+    public static bool IsBerekRequested()
+    {
+        return TryGetEffectiveRequestedMode(out var selectedMode) && selectedMode == GameModeType.Berek;
+    }
+
     public static bool TryRedirectDefaultModeStart(object controller, CharacterType seekerCharacterType, ref IEnumerator enumerator)
     {
         if (!TryGetEffectiveRequestedMode(out var selectedMode) || selectedMode != GameModeType.Berek)

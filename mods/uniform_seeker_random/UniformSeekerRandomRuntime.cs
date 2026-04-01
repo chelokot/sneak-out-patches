@@ -16,6 +16,10 @@ internal static class UniformSeekerRandomRuntime
     private static readonly Type? ShouldStartStateClosureType = typeof(ShouldStartState).GetNestedType("<>c", BindingFlags.NonPublic);
     private static readonly FieldInfo? ShouldStartStateClosureInstanceField = ShouldStartStateClosureType?.GetField("<>9", BindingFlags.Public | BindingFlags.Static);
     private static readonly MethodInfo? ShouldStartStateGetRandomSeekerPredicateMethod = ShouldStartStateClosureType?.GetMethod("<GetRandomSeeker>b__9_0", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+    private static readonly Type? PortalModeSelectorRuntimeType = AccessTools.TypeByName("SneakOut.PortalModeSelector.PortalModeSelectorRuntime");
+    private static readonly MethodInfo? PortalModeSelectorIsBerekRequestedMethod = PortalModeSelectorRuntimeType is null
+        ? null
+        : AccessTools.Method(PortalModeSelectorRuntimeType, "IsBerekRequested");
     private static ManualLogSource? _logger;
     private static Harmony? _harmony;
     private static UniformSeekerRandomConfig? _configuration;
@@ -37,6 +41,16 @@ internal static class UniformSeekerRandomRuntime
 
         if (shouldStartState._gameState.GameMode == GameModeType.Berek)
         {
+            return false;
+        }
+
+        if (IsBerekRequestedByPortalSelector())
+        {
+            if (_configuration.EnableLogging.Value)
+            {
+                _logger?.LogInfo("Uniform seeker random skipped because crown mode is requested by Portal Mode Selector");
+            }
+
             return false;
         }
 
@@ -105,5 +119,27 @@ internal static class UniformSeekerRandomRuntime
         }
 
         return networkPlayer => (bool)ShouldStartStateGetRandomSeekerPredicateMethod.Invoke(closureInstance, new object[] { networkPlayer })!;
+    }
+
+    private static bool IsBerekRequestedByPortalSelector()
+    {
+        if (PortalModeSelectorIsBerekRequestedMethod is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            return PortalModeSelectorIsBerekRequestedMethod.Invoke(null, Array.Empty<object>()) is true;
+        }
+        catch (Exception exception)
+        {
+            if (_configuration?.EnableLogging.Value == true)
+            {
+                _logger?.LogWarning($"Uniform seeker random could not query Portal Mode Selector: {exception.GetType().Name}");
+            }
+
+            return false;
+        }
     }
 }

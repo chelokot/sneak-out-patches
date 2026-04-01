@@ -1,4 +1,5 @@
 using Collections;
+using Gameplay.Player.Components;
 using Gameplay.Skills;
 using HarmonyLib;
 using Types;
@@ -155,6 +156,24 @@ internal static class PlayerActionsViewSetSecondSkillSpritePatch
     private static void Postfix(PlayerActionsView __instance, SpookedSkillType secondSkill)
     {
         MummyAbilityIconRuntime.ApplyToPlayerActionsView(__instance, secondSkill, true);
+    }
+}
+
+[HarmonyPatch(typeof(EntityNetworkAnimatorComponent), nameof(EntityNetworkAnimatorComponent.HandleBuffAnimation))]
+internal static class EntityNetworkAnimatorComponentHandleBuffAnimationPatch
+{
+    private static void Prefix(EntityNetworkAnimatorComponent __instance, SpookedBuffType buffType, float duration)
+    {
+        MummyAnimatorFallbackRuntime.TryApplyReactionController(__instance, buffType, duration);
+    }
+}
+
+[HarmonyPatch(typeof(EntityNetworkAnimatorComponent), nameof(EntityNetworkAnimatorComponent.Render))]
+internal static class EntityNetworkAnimatorComponentRenderPatch
+{
+    private static void Postfix(EntityNetworkAnimatorComponent __instance)
+    {
+        MummyAnimatorFallbackRuntime.RestoreIfDue(__instance);
     }
 }
 

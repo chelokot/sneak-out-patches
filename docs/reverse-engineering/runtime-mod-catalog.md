@@ -40,7 +40,7 @@ This is the broadest mod in the repo. It touches:
 - persistence
 - live sync
 
-It is a good candidate for a future split, but not during active sync debugging. Right now the safer refactor is to document its layering rules and keep one clear identity for it across tooling, code, and docs.
+It keeps one install identity because those layers share profile state and must be enabled or rolled back together. Its implementation is split by responsibility into profile, skill, cosmetic, web-service, and live-player-sync modules.
 
 ## Experimental and debug groups
 

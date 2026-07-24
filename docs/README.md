@@ -39,8 +39,6 @@
   Key functions, offsets, and why they matter.
 - `reverse-engineering/berek-startup-flow.md`
   The startup chain that had to be repaired to make `Berek` playable.
-- `reverse-engineering/private-party-invite-bug.md`
-  Why private party invites only worked on the second accept.
 - `reverse-engineering/install-and-runtime-layout.md`
   Steam app paths, library locations, and runtime artifacts.
 - `reverse-engineering/evidence-sources.md`

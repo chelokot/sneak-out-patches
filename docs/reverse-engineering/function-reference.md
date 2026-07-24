@@ -236,7 +236,9 @@ Important implementation note:
 - patching the shared `.rdata` literal `0x18357FDC0` globally is unsafe because it is reused outside seeker selection
 - the safe uniform-random patch is to retarget that single `movss` to an existing `1.0f` constant instead
 
-## Patch offsets used by the current working script
+## Historical binary-patch offsets
+
+The current installer has no binary patch options. These offsets are retained only for interpreting older experiment notes.
 
 `GameAssembly.dll`
 
@@ -251,13 +253,12 @@ Important implementation note:
 - `0x823201`
 - `0x823310`
 - `0x8233EE`
-- `0x81593E`
 - `0x6A1D8F`
 
 `Sneak Out_Data/resources.assets`
 
 - `0x4990E2C`
 
-The authoritative source for the exact byte-level patch set is:
+The authoritative source for the active patch set is:
 
 - `tools/patch_sneak_out.py`

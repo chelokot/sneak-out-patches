@@ -1,10 +1,17 @@
 import { copyFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { fileExists, localDotnetExecutablePath, runCommand } from "./lib/workspace-tools.mjs";
+import { resolveBuildInteropDirectory } from "./lib/game-install.mjs";
 import { loadRuntimeMods } from "./lib/runtime-mod-manifest.mjs";
 
-async function buildRuntimeMod(runtimeMod) {
-  await runCommand(localDotnetExecutablePath(), ["build", runtimeMod.projectPath, "-c", "Release"]);
+async function buildRuntimeMod(runtimeMod, interopDirectory) {
+  await runCommand(localDotnetExecutablePath(), [
+    "build",
+    runtimeMod.projectPath,
+    "-c",
+    "Release",
+    `-p:InteropDir=${interopDirectory}`
+  ]);
 
   if (!(await fileExists(runtimeMod.builtDllPath))) {
     throw new Error(`Missing built runtime mod DLL: ${runtimeMod.builtDllPath}`);
@@ -27,8 +34,10 @@ if (selectedArgument === "--list") {
 }
 
 if (selectedArgument === "--all") {
+  const { interopDirectory, source } = await resolveBuildInteropDirectory();
+  console.log(`interop: ${interopDirectory} (${source})`);
   for (const runtimeMod of runtimeMods) {
-    await buildRuntimeMod(runtimeMod);
+    await buildRuntimeMod(runtimeMod, interopDirectory);
   }
   process.exit(0);
 }
@@ -42,4 +51,6 @@ if (!runtimeMod) {
   throw new Error(`Unknown runtime mod: ${selectedArgument}`);
 }
 
-await buildRuntimeMod(runtimeMod);
+const { interopDirectory, source } = await resolveBuildInteropDirectory();
+console.log(`interop: ${interopDirectory} (${source})`);
+await buildRuntimeMod(runtimeMod, interopDirectory);

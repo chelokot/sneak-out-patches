@@ -8,11 +8,13 @@ internal sealed class LobbySkillSandboxConfig
         ConfigEntry<bool> enableMod,
         ConfigEntry<bool> enableLobbySkillUi,
         ConfigEntry<bool> enableLobbySkillUse,
+        ConfigEntry<bool> enableLobbyPropChange,
         ConfigEntry<bool> enableLogging)
     {
         EnableMod = enableMod;
         EnableLobbySkillUi = enableLobbySkillUi;
         EnableLobbySkillUse = enableLobbySkillUse;
+        EnableLobbyPropChange = enableLobbyPropChange;
         EnableLogging = enableLogging;
     }
 
@@ -22,6 +24,8 @@ internal sealed class LobbySkillSandboxConfig
 
     public ConfigEntry<bool> EnableLobbySkillUse { get; }
 
+    public ConfigEntry<bool> EnableLobbyPropChange { get; }
+
     public ConfigEntry<bool> EnableLogging { get; }
 
     public static LobbySkillSandboxConfig Bind(ConfigFile configFile)
@@ -29,8 +33,8 @@ internal sealed class LobbySkillSandboxConfig
         var enableMod = configFile.Bind(
             "general",
             "EnableMod",
-            true,
-            "Enable lobby-only penguin skill UI and use hooks.");
+            false,
+            "Enable the experimental lobby-only penguin skill sandbox.");
         var enableLobbySkillUi = configFile.Bind(
             "general",
             "EnableLobbySkillUi",
@@ -40,7 +44,12 @@ internal sealed class LobbySkillSandboxConfig
             "general",
             "EnableLobbySkillUse",
             true,
-            "Allow the local penguin to use slide and prop-change while in the lobby.");
+            "Allow the local penguin to use slide and separately enabled experimental skills while in the lobby.");
+        var enableLobbyPropChange = configFile.Bind(
+            "general",
+            "EnableLobbyPropChange",
+            false,
+            "Allow prop-change only when the lobby has a real room and initialized gameplay prop pool.");
         var enableLogging = configFile.Bind(
             "general",
             "EnableLogging",
@@ -51,6 +60,7 @@ internal sealed class LobbySkillSandboxConfig
             enableMod,
             enableLobbySkillUi,
             enableLobbySkillUse,
+            enableLobbyPropChange,
             enableLogging);
     }
 }

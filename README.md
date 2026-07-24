@@ -53,12 +53,8 @@ External prerequisites:
 
 Core and gameplay mods:
 
-- `double-party-invite-fix`
-  Fixes the first accepted private-party invite flow.
 - `uniform-seeker-random`
   Replaces the default seeker selection with a uniform random choice.
-- `ui-crash-guards`
-  Suppresses known crash-prone battlepass and daily-quest refresh handlers.
 - `portal-mode-selector`
   Runtime portal mode and map selector hooks.
 - `mummy-unlock`
@@ -67,21 +63,21 @@ Core and gameplay mods:
   Profile overlay, local apply hooks, persistence, and live sync work.
 - `start-delay-reducer`
   Reduces host-side pre-match delays.
+- `background-loading-guard`
+  Keeps the game responsive during scene loading without changing the normal background-running preference.
 - `friend-invite-unlock`
   Keeps offline friends inviteable from the lobby list.
-- `friend-join-button`
-  Replaces the friend popup action with `JOIN` when the friend's presence exposes a joinable party.
 
 Experimental and debug mods:
 
 - `lobby-skill-sandbox`
-  Lobby-only penguin skill sandbox.
+  Opt-in lobby-only penguin skill sandbox. Slide is supported; prop-change runs only when explicitly enabled and backed by initialized gameplay room data.
 - `free-fly`
   Vertical free-fly debugging controls.
 - `runtime-profiler`
   Managed method profiler for narrow runtime investigations.
 
-The patcher enables all mods except `runtime-profiler` and `free-fly` by default.
+The patcher enables stable gameplay mods by default. Experimental and debug mods are opt-in.
 
 ## Common commands
 
@@ -114,7 +110,7 @@ Install specific runtime mods into an explicit game directory:
 ```bash
 npm run patcher -- \
   --game-dir "/path/to/Sneak Out" \
-  --mods double-party-invite-fix,unlock-everything,start-delay-reducer
+  --mods unlock-everything,start-delay-reducer
 ```
 
 Install from committed artifacts without local builds:
@@ -122,7 +118,7 @@ Install from committed artifacts without local builds:
 ```bash
 npm run patcher -- \
   --game-dir "/path/to/Sneak Out" \
-  --mods double-party-invite-fix,unlock-everything \
+  --mods unlock-everything,start-delay-reducer \
   --nobuild
 ```
 

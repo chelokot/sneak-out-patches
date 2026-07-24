@@ -22,7 +22,6 @@ internal static class UnlockEverythingRuntime
     private static ManualLogSource? _logger;
     private static Harmony? _harmony;
     private static UnlockEverythingConfig? _configuration;
-    private static readonly HashSet<string> SuppressedLoopSources = new();
     private static ClientCache? _currentClientCache;
     private static readonly object ResearchLogLock = new();
     private static string? _researchLogPath;
@@ -386,18 +385,6 @@ internal static class UnlockEverythingRuntime
         var formattedMessage = $"{message}: {exception}";
         _logger?.LogError(formattedMessage);
         WriteResearchLog("ERROR", formattedMessage, force: true);
-    }
-
-    public static void LogSuppressedLoop(string source)
-    {
-        if (!SuppressedLoopSources.Add(source))
-        {
-            return;
-        }
-
-        var message = $"Suppressed unstable lobby view path: {source}";
-        _logger?.LogWarning(message);
-        WriteResearchLog("WARN", message, force: true);
     }
 
     private static int GetLength(string? value)

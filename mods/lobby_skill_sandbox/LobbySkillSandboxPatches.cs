@@ -1,17 +1,17 @@
+using Gameplay.Player;
 using Gameplay.Player.Components;
 using HarmonyLib;
 using UI;
-using UI.Views;
-using UnityEngine;
 
 namespace SneakOut.LobbySkillSandbox;
 
 [HarmonyPatch(typeof(GameUIManager), "ActivateLobby")]
 internal static class GameUIManagerActivateLobbyPatch
 {
-    private static void Postfix()
+    private static void Postfix(GameUIManager __instance)
     {
         LobbySkillSandboxRuntime.SetLobbyUiActive(true);
+        LobbySkillSandboxRuntime.EnableLobbySkillView(__instance);
     }
 }
 
@@ -51,31 +51,28 @@ internal static class EntitySkillsComponentHostValidateAndUseSkillPatch
     }
 }
 
-[HarmonyPatch]
+[HarmonyPatch(typeof(SpookedNetworkPlayer), nameof(SpookedNetworkPlayer.Spawned))]
+internal static class SpookedNetworkPlayerSpawnedPatch
+{
+    private static void Postfix(SpookedNetworkPlayer __instance)
+    {
+        LobbySkillSandboxRuntime.TryEnableLobbySkillViewAfterSpawn(__instance);
+    }
+}
+
+[HarmonyPatch(typeof(PlayerInputController), "OnFirstSkillInput")]
 internal static class PlayerInputControllerFirstSkillPatch
 {
-    private static System.Reflection.MethodBase? TargetMethod()
-    {
-        var type = AccessTools.TypeByName("Gameplay.Player.PlayerInputController");
-        return type is null ? null : AccessTools.Method(type, "OnFirstSkillInput");
-    }
-
-    private static bool Prefix(Component __instance)
+    private static bool Prefix(PlayerInputController __instance)
     {
         return !LobbySkillSandboxRuntime.TryHandleLobbySkillInput(__instance, false);
     }
 }
 
-[HarmonyPatch]
+[HarmonyPatch(typeof(PlayerInputController), "OnSecondSkillInput")]
 internal static class PlayerInputControllerSecondSkillPatch
 {
-    private static System.Reflection.MethodBase? TargetMethod()
-    {
-        var type = AccessTools.TypeByName("Gameplay.Player.PlayerInputController");
-        return type is null ? null : AccessTools.Method(type, "OnSecondSkillInput");
-    }
-
-    private static bool Prefix(Component __instance)
+    private static bool Prefix(PlayerInputController __instance)
     {
         return !LobbySkillSandboxRuntime.TryHandleLobbySkillInput(__instance, true);
     }

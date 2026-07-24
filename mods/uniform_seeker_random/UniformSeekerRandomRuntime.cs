@@ -1,10 +1,7 @@
 using BepInEx.Logging;
 using Gameplay.Match.MatchState;
-using Gameplay.Player.Components;
 using HarmonyLib;
-using System;
 using System.Collections.Generic;
-using System.Reflection;
 using Types;
 
 namespace SneakOut.UniformSeekerRandom;
@@ -12,14 +9,6 @@ namespace SneakOut.UniformSeekerRandom;
 internal static class UniformSeekerRandomRuntime
 {
     private static readonly System.Random Random = new();
-    private static readonly FieldInfo? NetworkPlayerRegistryComponentsField = AccessTools.Field(typeof(NetworkPlayerRegistry), "_components");
-    private static readonly Type? ShouldStartStateClosureType = typeof(ShouldStartState).GetNestedType("<>c", BindingFlags.NonPublic);
-    private static readonly FieldInfo? ShouldStartStateClosureInstanceField = ShouldStartStateClosureType?.GetField("<>9", BindingFlags.Public | BindingFlags.Static);
-    private static readonly MethodInfo? ShouldStartStateGetRandomSeekerPredicateMethod = ShouldStartStateClosureType?.GetMethod("<GetRandomSeeker>b__9_0", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-    private static readonly Type? PortalModeSelectorRuntimeType = AccessTools.TypeByName("SneakOut.PortalModeSelector.PortalModeSelectorRuntime");
-    private static readonly MethodInfo? PortalModeSelectorIsBerekRequestedMethod = PortalModeSelectorRuntimeType is null
-        ? null
-        : AccessTools.Method(PortalModeSelectorRuntimeType, "IsBerekRequested");
     private static ManualLogSource? _logger;
     private static Harmony? _harmony;
     private static UniformSeekerRandomConfig? _configuration;
@@ -44,16 +33,6 @@ internal static class UniformSeekerRandomRuntime
             return false;
         }
 
-        if (IsBerekRequestedByPortalSelector())
-        {
-            if (_configuration.EnableLogging.Value)
-            {
-                _logger?.LogInfo("Uniform seeker random skipped because crown mode is requested by Portal Mode Selector");
-            }
-
-            return false;
-        }
-
         var candidateInternalIds = CollectEligibleSeekerInternalIds(shouldStartState);
         if (candidateInternalIds.Count == 0)
         {
@@ -72,29 +51,12 @@ internal static class UniformSeekerRandomRuntime
 
     private static List<int> CollectEligibleSeekerInternalIds(ShouldStartState shouldStartState)
     {
-        var predicate = GetOriginalGetRandomSeekerPredicate();
         var candidateInternalIds = new List<int>();
-        var networkPlayers = NetworkPlayerRegistryComponentsField?.GetValue(shouldStartState._networkPlayerRegistry) as SpookedNetworkPlayer[];
-        if (networkPlayers is null)
+        var networkPlayers = shouldStartState._networkPlayerRegistry._components;
+        for (var playerIndex = 0; playerIndex < networkPlayers.Length; playerIndex++)
         {
-            return candidateInternalIds;
-        }
-
-        foreach (var networkPlayer in networkPlayers)
-        {
-            if (networkPlayer is null)
-            {
-                continue;
-            }
-
-            if (predicate is not null)
-            {
-                if (!predicate(networkPlayer))
-                {
-                    continue;
-                }
-            }
-            else if (!networkPlayer.CanBeSeeker)
+            var networkPlayer = networkPlayers[playerIndex];
+            if (networkPlayer is null || !networkPlayer.CanBeSeeker)
             {
                 continue;
             }
@@ -103,43 +65,5 @@ internal static class UniformSeekerRandomRuntime
         }
 
         return candidateInternalIds;
-    }
-
-    private static Func<SpookedNetworkPlayer, bool>? GetOriginalGetRandomSeekerPredicate()
-    {
-        if (ShouldStartStateClosureInstanceField is null || ShouldStartStateGetRandomSeekerPredicateMethod is null)
-        {
-            return null;
-        }
-
-        var closureInstance = ShouldStartStateClosureInstanceField.GetValue(null);
-        if (closureInstance is null)
-        {
-            return null;
-        }
-
-        return networkPlayer => (bool)ShouldStartStateGetRandomSeekerPredicateMethod.Invoke(closureInstance, new object[] { networkPlayer })!;
-    }
-
-    private static bool IsBerekRequestedByPortalSelector()
-    {
-        if (PortalModeSelectorIsBerekRequestedMethod is null)
-        {
-            return false;
-        }
-
-        try
-        {
-            return PortalModeSelectorIsBerekRequestedMethod.Invoke(null, Array.Empty<object>()) is true;
-        }
-        catch (Exception exception)
-        {
-            if (_configuration?.EnableLogging.Value == true)
-            {
-                _logger?.LogWarning($"Uniform seeker random could not query Portal Mode Selector: {exception.GetType().Name}");
-            }
-
-            return false;
-        }
     }
 }

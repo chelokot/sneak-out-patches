@@ -13,11 +13,20 @@ using Kinguinverse.WebServiceProvider.Types_v2.Products;
 using UI;
 using UI.Buttons;
 using UI.Views;
+using UnityEngine.EventSystems;
 using ClientCharacterType = Types.CharacterType;
+using CharactersSkillsRuntime = Types.Structs.CharactersSkills;
+using EntitySkillsComponentRuntime = Gameplay.Player.Components.EntitySkillsComponent;
+using GameRuntime = Game.Game;
 using Il2CppCollections = Il2CppSystem.Collections.Generic;
 using Il2CppTasks = Il2CppSystem.Threading.Tasks;
+using NetworkPlayerRegistryRuntime = Gameplay.Player.Components.NetworkPlayerRegistry;
+using PlayersActiveSkillsRuntime = Collections.Skills.PlayersActiveSkills;
 using RuntimeCharacterType = Types.CharacterType;
+using ScopeCleanerRuntime = Gameplay.ScopeCleaner;
+using SpookedNetworkPlayerRuntime = Gameplay.Player.Components.SpookedNetworkPlayer;
 using SpookedSkillType = Types.SpookedSkillType;
+using TreeSkillSlotTypeRuntime = Types.TreeSkillSlotType;
 
 namespace SneakOut.UnlockEverything;
 
@@ -46,52 +55,43 @@ internal static class UnlockEverythingSelections
     private static PlayerNewMetaInventory? _currentInventory;
     private static UnityEngine.Component? _currentNetworkPlayer;
     private static readonly Dictionary<int, object> LoadedCharactersSkillsByInternalId = new();
-    private static readonly Type? GameType = AccessTools.TypeByName("Game");
-    private static readonly Type? SpookedNetworkPlayerType = AccessTools.TypeByName("Gameplay.Player.Components.SpookedNetworkPlayer");
-    private static readonly Type? NetworkPlayerRegistryType = AccessTools.TypeByName("NetworkPlayerRegistry");
-    private static readonly Type? CharactersSkillsType = AccessTools.TypeByName("CharactersSkills");
-    private static readonly Type? TreeSkillSlotTypeType = AccessTools.TypeByName("TreeSkillSlotType");
-    private static readonly Type? MyPlayerRegistryType = AccessTools.TypeByName("MyPlayerRegistry");
-    private static readonly Type? PlayersActiveSkillsType = AccessTools.TypeByName("Collections.Skills.PlayersActiveSkills");
-    private static readonly Type? EntitySkillsComponentType = AccessTools.TypeByName("Gameplay.Player.Components.EntitySkillsComponent");
-    private static readonly Type? SceneSpawnerType = AccessTools.TypeByName("Gameplay.Spawn.SceneSpawner");
-    private static readonly Type? ScopeCleanerType = AccessTools.TypeByName("ScopeCleaner");
+    private static readonly HashSet<string> LoggedRemoteSkillDiagnostics = new();
     private static readonly System.Reflection.PropertyInfo? GameInternalIdProperty =
-        GameType is null ? null : AccessTools.Property(GameType, "InternalId");
+        AccessTools.Property(typeof(GameRuntime), "InternalId");
     private static readonly System.Reflection.MethodInfo? PlayerNewMetaInventoryGetMyPlayerRegistryMethod =
         AccessTools.Method(typeof(PlayerNewMetaInventory), "get__myPlayerRegistry");
     private static readonly System.Reflection.MethodInfo? NetworkPlayerRegistryGetItemMethod =
-        NetworkPlayerRegistryType is null ? null : AccessTools.Method(NetworkPlayerRegistryType, "get_Item", new[] { typeof(int) });
+        AccessTools.Method(typeof(NetworkPlayerRegistryRuntime), "get_Item", new[] { typeof(int) });
     private static readonly System.Reflection.MethodInfo? PlayerCustomizationViewGetSpookedPlayerCharacterDataMethod =
         AccessTools.Method(typeof(PlayerCustomizationView), "get__spookedPlayerCharacterData");
     private static readonly System.Reflection.MethodInfo? PlayerCustomizationViewSetCurrentCharacterDataMethod =
         AccessTools.Method(typeof(PlayerCustomizationView), "set__currentCharacterData");
     private static readonly System.Reflection.MethodInfo? SpookedNetworkPlayerGetCharacterDataMethod =
-        SpookedNetworkPlayerType is null ? null : AccessTools.Method(SpookedNetworkPlayerType, "get_CharacterData");
+        AccessTools.Method(typeof(SpookedNetworkPlayerRuntime), "get_CharacterData");
     private static readonly System.Reflection.MethodInfo? SpookedNetworkPlayerChangeCharacterDataMethod =
-        SpookedNetworkPlayerType is null ? null : AccessTools.Method(SpookedNetworkPlayerType, "ChangeCharacterData");
+        AccessTools.Method(typeof(SpookedNetworkPlayerRuntime), "ChangeCharacterData");
     private static readonly System.Reflection.MethodInfo? SpookedNetworkPlayerInitMethod =
-        SpookedNetworkPlayerType is null ? null : AccessTools.Method(SpookedNetworkPlayerType, "Init");
+        AccessTools.Method(typeof(SpookedNetworkPlayerRuntime), "Init");
     private static readonly System.Reflection.MethodInfo? SpookedNetworkPlayerGetCharactersSkillsMethod =
-        SpookedNetworkPlayerType is null ? null : AccessTools.Method(SpookedNetworkPlayerType, "get_CharactersSkills");
+        AccessTools.Method(typeof(SpookedNetworkPlayerRuntime), "get_CharactersSkills");
     private static readonly System.Reflection.MethodInfo? SpookedNetworkPlayerGetCharacterTypeMethod =
-        SpookedNetworkPlayerType is null ? null : AccessTools.Method(SpookedNetworkPlayerType, "get_CharacterType");
+        AccessTools.Method(typeof(SpookedNetworkPlayerRuntime), "get_CharacterType");
     private static readonly System.Reflection.MethodInfo? SpookedNetworkPlayerGetInternalIdMethod =
-        SpookedNetworkPlayerType is null ? null : AccessTools.Method(SpookedNetworkPlayerType, "get_InternalId");
+        AccessTools.Method(typeof(SpookedNetworkPlayerRuntime), "get_InternalId");
     private static readonly System.Reflection.MethodInfo? SpookedNetworkPlayerSetCharactersSkillsMethod =
-        SpookedNetworkPlayerType is null ? null : AccessTools.Method(SpookedNetworkPlayerType, "set_CharactersSkills");
+        AccessTools.Method(typeof(SpookedNetworkPlayerRuntime), "set_CharactersSkills");
     private static readonly System.Reflection.MethodInfo? EntitySkillsComponentRefreshPlayerSkillsMethod =
-        EntitySkillsComponentType is null ? null : AccessTools.Method(EntitySkillsComponentType, "RefreshPlayerSkills");
+        AccessTools.Method(typeof(EntitySkillsComponentRuntime), "RefreshPlayerSkills");
     private static readonly System.Reflection.PropertyInfo? EntitySkillsComponentInternalIdProperty =
-        EntitySkillsComponentType is null ? null : AccessTools.Property(EntitySkillsComponentType, "InternalId");
+        AccessTools.Property(typeof(EntitySkillsComponentRuntime), "InternalId");
     private static readonly System.Reflection.MethodInfo? CharactersSkillsToCharacterSkillsMethod =
-        CharactersSkillsType is null ? null : AccessTools.Method(CharactersSkillsType, "ToCharacterSkills");
+        AccessTools.Method(typeof(CharactersSkillsRuntime), "ToCharacterSkills");
     private static readonly System.Reflection.MethodInfo? CharactersSkillsAddOrReplaceSkillInSlotMethod =
-        CharactersSkillsType is null ? null : AccessTools.Method(CharactersSkillsType, "AddOrReplaceSkillInSlot");
+        AccessTools.Method(typeof(CharactersSkillsRuntime), "AddOrReplaceSkillInSlot");
     private static readonly System.Reflection.MethodInfo? CharactersSkillsGetSkillFromSlotMethod =
-        CharactersSkillsType is null ? null : AccessTools.Method(CharactersSkillsType, "GetSkillFromSlot");
+        AccessTools.Method(typeof(CharactersSkillsRuntime), "GetSkillFromSlot");
     private static readonly System.Reflection.MethodInfo? PlayersActiveSkillsGetModifierDirectlyMethod =
-        PlayersActiveSkillsType is null ? null : AccessTools.Method(PlayersActiveSkillsType, "GetModifierDirectly");
+        AccessTools.Method(typeof(PlayersActiveSkillsRuntime), "GetModifierDirectly");
     private static readonly System.Reflection.MethodInfo? AvatarAndFrameViewGetCurrentCategorySelectedMethod =
         AccessTools.Method(typeof(AvatarAndFrameView), "get__currentCategorySelected");
     private static readonly System.Reflection.MethodInfo? AvatarAndFrameViewGetCurrentSelectedProductMethod =
@@ -134,18 +134,6 @@ internal static class UnlockEverythingSelections
 
     private static int GetCurrentInternalId()
     {
-        if (_currentInventory is not null
-            && PlayerNewMetaInventoryGetMyPlayerRegistryMethod is not null
-            && MyPlayerRegistryType is not null)
-        {
-            var myPlayerRegistry = PlayerNewMetaInventoryGetMyPlayerRegistryMethod.Invoke(_currentInventory, Array.Empty<object>());
-            var networkIdField = myPlayerRegistry?.GetType().GetField("NetworkId", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
-            if (networkIdField?.GetValue(myPlayerRegistry) is int networkId && networkId > 0)
-            {
-                return networkId;
-            }
-        }
-
         return GameInternalIdProperty?.GetValue(null) is int internalId ? internalId : 0;
     }
 
@@ -195,6 +183,27 @@ internal static class UnlockEverythingSelections
     internal static bool IsCurrentInternalIdForLogging(int internalId)
     {
         return IsCurrentInternalId(internalId);
+    }
+
+    private static bool ShouldLogRemoteSkillDiagnostic(int internalId)
+    {
+        return internalId > 0 && !IsCurrentInternalId(internalId);
+    }
+
+    private static void LogRemoteSkillDiagnosticOnce(string source, int internalId, SkillType skillType, string details)
+    {
+        if (!ShouldLogRemoteSkillDiagnostic(internalId))
+        {
+            return;
+        }
+
+        var key = $"{source}|{internalId}|{skillType}|{details}";
+        if (!LoggedRemoteSkillDiagnostics.Add(key))
+        {
+            return;
+        }
+
+        UnlockEverythingRuntime.LogSkillUiEvent(source, $"internalId={internalId}, skill={skillType}, {details}");
     }
 
     private static bool TryGetLocalCharacterForType(int internalId, CharacterType characterType, out Character character)
@@ -324,7 +333,8 @@ internal static class UnlockEverythingSelections
                 var playerSkillType = playerSkillPayload.GetType();
                 var skillTypeField = playerSkillType.GetField("SkillType", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
                 var tierField = playerSkillType.GetField("Tier", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
-                if (skillTypeField?.GetValue(playerSkillPayload) is not SkillType payloadSkillType || tierField?.GetValue(playerSkillPayload) is not int payloadTier)
+                if (skillTypeField?.GetValue(playerSkillPayload) is not SkillType payloadSkillType
+                    || tierField?.GetValue(playerSkillPayload) is not byte payloadTier)
                 {
                     continue;
                 }
@@ -352,7 +362,7 @@ internal static class UnlockEverythingSelections
             && TryGetSkillTierFromCharactersSkillsPayload(charactersSkillsPayload, skillType, out characterType, out tier);
     }
 
-    internal static void RememberLoadedCharactersSkills(int internalId, object? charactersSkillsPayload)
+    private static void RememberLoadedCharactersSkills(int internalId, object? charactersSkillsPayload)
     {
         if (internalId <= 0 || charactersSkillsPayload is null)
         {
@@ -360,11 +370,18 @@ internal static class UnlockEverythingSelections
         }
 
         LoadedCharactersSkillsByInternalId[internalId] = charactersSkillsPayload;
+        if (ShouldLogRemoteSkillDiagnostic(internalId))
+        {
+            UnlockEverythingRuntime.LogSkillUiEvent(
+                "UnlockEverythingSelections.RememberLoadedCharactersSkills",
+                $"internalId={internalId}, payload={DescribeCharactersSkillsPayload(charactersSkillsPayload)}");
+        }
     }
 
     internal static void ClearLoadedCharactersSkills()
     {
         LoadedCharactersSkillsByInternalId.Clear();
+        LoggedRemoteSkillDiagnostics.Clear();
     }
 
     internal static bool TryGetLocalSkillTier(int internalId, SkillType skillType, out RuntimeCharacterType characterType, out int tier)
@@ -374,22 +391,42 @@ internal static class UnlockEverythingSelections
 
         if (TryGetLoadedSkillTier(internalId, skillType, out characterType, out tier))
         {
+            LogRemoteSkillDiagnosticOnce(
+                "UnlockEverythingSelections.TryGetLocalSkillTier:loaded",
+                internalId,
+                skillType,
+                $"characterType={characterType}, tier={tier}");
             return true;
         }
 
         if (!UnlockEverythingRuntime.UsePersistentSelections)
         {
+            LogRemoteSkillDiagnosticOnce(
+                "UnlockEverythingSelections.TryGetLocalSkillTier:miss",
+                internalId,
+                skillType,
+                "reason=persistentSelectionsDisabled");
             return false;
         }
 
         if (internalId > 0 && !IsCurrentInternalId(internalId))
         {
+            LogRemoteSkillDiagnosticOnce(
+                "UnlockEverythingSelections.TryGetLocalSkillTier:miss",
+                internalId,
+                skillType,
+                "reason=remoteWithoutLoadedPayload");
             return false;
         }
 
         var player = GetPlayer();
         if (player?.Characters is null)
         {
+            LogRemoteSkillDiagnosticOnce(
+                "UnlockEverythingSelections.TryGetLocalSkillTier:miss",
+                internalId,
+                skillType,
+                "reason=noPlayerCharacters");
             return false;
         }
 
@@ -400,9 +437,24 @@ internal static class UnlockEverythingSelections
                 continue;
             }
 
-            return TryMapWebCharacterTypeToRuntimeCharacterType(currentCharacter.Type, out characterType);
+            var mapped = TryMapWebCharacterTypeToRuntimeCharacterType(currentCharacter.Type, out characterType);
+            if (mapped)
+            {
+                LogRemoteSkillDiagnosticOnce(
+                    "UnlockEverythingSelections.TryGetLocalSkillTier:local",
+                    internalId,
+                    skillType,
+                    $"characterType={characterType}, tier={tier}");
+            }
+
+            return mapped;
         }
 
+        LogRemoteSkillDiagnosticOnce(
+            "UnlockEverythingSelections.TryGetLocalSkillTier:miss",
+            internalId,
+            skillType,
+            "reason=skillNotFound");
         return false;
     }
 
@@ -440,32 +492,47 @@ internal static class UnlockEverythingSelections
         if (TryGetLoadedSkillTier(internalId, skillType, out var loadedCharacterType, out _))
         {
             equipped = loadedCharacterType == characterType;
+            LogRemoteSkillDiagnosticOnce(
+                "UnlockEverythingSelections.TryGetLocalSkillEquipped:loaded",
+                internalId,
+                skillType,
+                $"requestedCharacterType={characterType}, loadedCharacterType={loadedCharacterType}, equipped={equipped}");
             return true;
         }
 
         if (!TryMapClientCharacterType(characterType, out var webCharacterType)
             || !TryGetLocalCharacterForType(internalId, webCharacterType, out var character))
         {
+            LogRemoteSkillDiagnosticOnce(
+                "UnlockEverythingSelections.TryGetLocalSkillEquipped:miss",
+                internalId,
+                skillType,
+                $"requestedCharacterType={characterType}, reason=noCharacter");
             return false;
         }
 
         equipped = TryGetSkillTier(character.SkillCards, skillType, out _);
+        LogRemoteSkillDiagnosticOnce(
+            "UnlockEverythingSelections.TryGetLocalSkillEquipped:local",
+            internalId,
+            skillType,
+            $"requestedCharacterType={characterType}, equipped={equipped}");
         return true;
     }
 
     internal static System.Reflection.MethodBase? GetPlayersActiveSkillsHaveSkillEquippedTargetMethod()
     {
-        return PlayersActiveSkillsType is null ? null : AccessTools.Method(PlayersActiveSkillsType, "HaveSkillEquipped");
+        return AccessTools.Method(typeof(PlayersActiveSkillsRuntime), "HaveSkillEquipped");
     }
 
     internal static System.Reflection.MethodBase? GetPlayersActiveSkillsGetPlayerSkillModifierTargetMethod()
     {
-        return PlayersActiveSkillsType is null ? null : AccessTools.Method(PlayersActiveSkillsType, "GetPlayerSkillModifier");
+        return AccessTools.Method(typeof(PlayersActiveSkillsRuntime), "GetPlayerSkillModifier");
     }
 
     internal static System.Reflection.MethodBase? GetEntitySkillsComponentGetSkillTargetMethod()
     {
-        return EntitySkillsComponentType is null ? null : AccessTools.Method(EntitySkillsComponentType, "GetSkill");
+        return AccessTools.Method(typeof(EntitySkillsComponentRuntime), "GetSkill");
     }
 
     internal static bool TryGetDirectSkillModifier(object playersActiveSkills, SkillType skillType, object skillModifierType, RuntimeCharacterType characterType, int tier, out float modifier)
@@ -489,11 +556,6 @@ internal static class UnlockEverythingSelections
         }
     }
 
-    internal static System.Reflection.MethodBase? GetSceneSpawnerOnPlayerLoadedTargetMethod()
-    {
-        return SceneSpawnerType is null ? null : AccessTools.Method(SceneSpawnerType, "OnPlayerLoaded");
-    }
-
     internal static System.Reflection.MethodBase? GetSpookedNetworkPlayerInitTargetMethod()
     {
         return SpookedNetworkPlayerInitMethod;
@@ -501,12 +563,12 @@ internal static class UnlockEverythingSelections
 
     internal static System.Reflection.MethodBase? GetScopeCleanerCleanTargetMethod()
     {
-        return ScopeCleanerType is null ? null : AccessTools.Method(ScopeCleanerType, "Clean");
+        return AccessTools.Method(typeof(ScopeCleanerRuntime), "Clean");
     }
 
     internal static System.Reflection.MethodBase? GetScopeCleanerGameplayCleanTargetMethod()
     {
-        return ScopeCleanerType is null ? null : AccessTools.Method(ScopeCleanerType, "GameplayClean");
+        return AccessTools.Method(typeof(ScopeCleanerRuntime), "GameplayClean");
     }
 
     internal static string DescribeCharactersSkillsPayload(object? charactersSkillsPayload)
@@ -547,6 +609,18 @@ internal static class UnlockEverythingSelections
     internal static int GetNetworkPlayerInternalId(object networkPlayer)
     {
         return SpookedNetworkPlayerGetInternalIdMethod?.Invoke(networkPlayer, Array.Empty<object>()) is int internalId ? internalId : 0;
+    }
+
+    internal static void RememberLoadedCharactersSkillsFromNetworkPlayer(object networkPlayer)
+    {
+        if (!UnlockEverythingRuntime.UseProfileOverlay)
+        {
+            return;
+        }
+
+        var internalId = GetNetworkPlayerInternalId(networkPlayer);
+        var charactersSkillsPayload = SpookedNetworkPlayerGetCharactersSkillsMethod?.Invoke(networkPlayer, Array.Empty<object>());
+        RememberLoadedCharactersSkills(internalId, charactersSkillsPayload);
     }
 
     internal static bool TryMaxCharactersSkillsPayload(ref object? charactersSkillsPayload)
@@ -847,7 +921,7 @@ internal static class UnlockEverythingSelections
 
         foreach (var candidate in UnityEngine.Resources.FindObjectsOfTypeAll<UnityEngine.MonoBehaviour>())
         {
-            if (candidate is null || candidate.GetType() != SpookedNetworkPlayerType)
+            if (candidate is null || candidate.GetType() != typeof(SpookedNetworkPlayerRuntime))
             {
                 continue;
             }
@@ -1253,13 +1327,8 @@ internal static class UnlockEverythingSelections
 
     private static Il2CppSystem.Enum? TryGetSelectedAvatarProductFromButtons(AvatarAndFrameView view)
     {
-        var eventSystemType = AccessTools.TypeByName("UnityEngine.EventSystems.EventSystem");
-        var currentEventSystem = eventSystemType is null
-            ? null
-            : AccessTools.Property(eventSystemType, "current")?.GetValue(null);
-        var selectedObject = currentEventSystem is null
-            ? null
-            : AccessTools.Property(eventSystemType!, "currentSelectedGameObject")?.GetValue(currentEventSystem) as UnityEngine.GameObject;
+        var currentEventSystem = EventSystem.current;
+        var selectedObject = currentEventSystem is null ? null : currentEventSystem.currentSelectedGameObject;
         if (selectedObject is null)
         {
             return null;
@@ -1820,12 +1889,12 @@ internal static class UnlockEverythingSelections
 
     private static SkillType GetRegistrySkillFromSlot(object charactersSkills, ClientCharacterType clientCharacterType, int slotType)
     {
-        if (CharactersSkillsGetSkillFromSlotMethod is null || TreeSkillSlotTypeType is null)
+        if (CharactersSkillsGetSkillFromSlotMethod is null)
         {
             return SkillType.None;
         }
 
-        var slotValue = System.Enum.ToObject(TreeSkillSlotTypeType, slotType);
+        var slotValue = System.Enum.ToObject(typeof(TreeSkillSlotTypeRuntime), slotType);
         return CharactersSkillsGetSkillFromSlotMethod.Invoke(charactersSkills, new[] { slotValue, (object)clientCharacterType }) is SkillType skillType
             ? skillType
             : SkillType.None;
@@ -1867,7 +1936,7 @@ internal static class UnlockEverythingSelections
             return false;
         }
 
-        if (CharactersSkillsToCharacterSkillsMethod is null || TreeSkillSlotTypeType is null || CharactersSkillsAddOrReplaceSkillInSlotMethod is null)
+        if (CharactersSkillsToCharacterSkillsMethod is null || CharactersSkillsAddOrReplaceSkillInSlotMethod is null)
         {
             return false;
         }
@@ -1878,7 +1947,7 @@ internal static class UnlockEverythingSelections
             return false;
         }
 
-        var slotValue = System.Enum.ToObject(TreeSkillSlotTypeType, slotType);
+        var slotValue = System.Enum.ToObject(typeof(TreeSkillSlotTypeRuntime), slotType);
         CharactersSkillsAddOrReplaceSkillInSlotMethod.Invoke(charactersSkills, new object[] { skillType, slotValue, clientCharacterType, selectedCard.Tier });
         RebuildCharacterSkillCardsFromRegistry(charactersSkills, clientCharacterType, character, cards);
         UnlockEverythingRuntime.LogSkillSelectionSnapshot("UnlockEverythingSelections.ApplyTreeSkillSelection:applied", character);
@@ -2820,6 +2889,13 @@ internal static class PlayersActiveSkillsHaveSkillEquippedPatch
     {
         if (!UnlockEverythingSelections.TryGetLocalSkillEquipped(internalId, cardSkillType, characterType, out var equipped))
         {
+            if (!UnlockEverythingSelections.IsCurrentInternalIdForLogging(internalId))
+            {
+                UnlockEverythingRuntime.LogSkillUiEvent(
+                    "PlayersActiveSkills.HaveSkillEquipped:original",
+                    $"internalId={internalId}, skill={cardSkillType}, characterType={characterType}, reason=noOverride");
+            }
+
             return true;
         }
 
@@ -2847,11 +2923,25 @@ internal static class PlayersActiveSkillsGetPlayerSkillModifierPatch
     {
         if (!UnlockEverythingSelections.TryGetLocalSkillTier(internalId, cardSkillType, out var characterType, out var tier))
         {
+            if (!UnlockEverythingSelections.IsCurrentInternalIdForLogging(internalId))
+            {
+                UnlockEverythingRuntime.LogSkillUiEvent(
+                    "PlayersActiveSkills.GetPlayerSkillModifier:original",
+                    $"internalId={internalId}, skill={cardSkillType}, modifierType={skillModifierType}, reason=noTierOverride");
+            }
+
             return true;
         }
 
         if (!UnlockEverythingSelections.TryGetDirectSkillModifier(__instance, cardSkillType, skillModifierType, characterType, tier, out var modifier))
         {
+            if (!UnlockEverythingSelections.IsCurrentInternalIdForLogging(internalId))
+            {
+                UnlockEverythingRuntime.LogSkillUiEvent(
+                    "PlayersActiveSkills.GetPlayerSkillModifier:original",
+                    $"internalId={internalId}, skill={cardSkillType}, modifierType={skillModifierType}, tier={tier}, characterType={characterType}, reason=directLookupFailed");
+            }
+
             return true;
         }
 
@@ -2894,8 +2984,7 @@ internal static class SpookedNetworkPlayerSpawnedRememberPatch
 {
     private static System.Reflection.MethodBase? TargetMethod()
     {
-        var type = AccessTools.TypeByName("Gameplay.Player.Components.SpookedNetworkPlayer");
-        return type is null ? null : AccessTools.Method(type, "Spawned");
+        return AccessTools.Method(typeof(SpookedNetworkPlayerRuntime), "Spawned");
     }
 
     private static void Postfix(object __instance)
@@ -2909,8 +2998,7 @@ internal static class SpookedNetworkPlayerSpawnedReadyStartupSkinPatch
 {
     private static System.Reflection.MethodBase? TargetMethod()
     {
-        var type = AccessTools.TypeByName("Gameplay.Player.Components.SpookedNetworkPlayer");
-        return type is null ? null : AccessTools.Method(type, "RPC_SpawnedReady");
+        return AccessTools.Method(typeof(SpookedNetworkPlayerRuntime), "RPC_SpawnedReady");
     }
 
     private static void Postfix(object __instance)
@@ -3090,90 +3178,6 @@ internal static class KinguinverseWebServicePutOffSkinPartPatch
     }
 }
 
-[HarmonyPatch(typeof(DailyQuestsView), "Refresh")]
-internal static class DailyQuestsViewRefreshPatch
-{
-    private static bool Prefix(DailyQuestsView __instance)
-    {
-        if (!UnlockEverythingRuntime.UseLocalStub && !UnlockEverythingRuntime.UseProfileOverlay)
-        {
-            return true;
-        }
-
-        try
-        {
-            if (__instance._clientCache.PlayerDailyQuests is null)
-            {
-                UnlockEverythingOverlay.EnsureClientCache(__instance._clientCache);
-            }
-
-            UnlockEverythingRuntime.LogSuppressedLoop("DailyQuestsView.Refresh");
-            return false;
-        }
-        catch (Exception exception)
-        {
-            UnlockEverythingRuntime.LogError("Backend stabilizer DailyQuestsView.Refresh prefix failed", exception);
-            return false;
-        }
-    }
-}
-
-[HarmonyPatch(typeof(BattlepassView), "OnOnWebplayerRefreshEvent")]
-internal static class BattlepassViewOnWebplayerRefreshPatch
-{
-    private static bool Prefix(BattlepassView __instance)
-    {
-        if (!UnlockEverythingRuntime.UseLocalStub && !UnlockEverythingRuntime.UseProfileOverlay)
-        {
-            return true;
-        }
-
-        try
-        {
-            if (__instance._clientCache.SeasonPass is null || __instance._clientCache.CurrentSeasonPassProgression is null)
-            {
-                UnlockEverythingOverlay.EnsureClientCache(__instance._clientCache);
-            }
-
-            UnlockEverythingRuntime.LogSuppressedLoop("BattlepassView.OnOnWebplayerRefreshEvent");
-            return false;
-        }
-        catch (Exception exception)
-        {
-            UnlockEverythingRuntime.LogError("Backend stabilizer BattlepassView.OnOnWebplayerRefreshEvent prefix failed", exception);
-            return false;
-        }
-    }
-}
-
-[HarmonyPatch(typeof(BattlepassView), "SetEndTime")]
-internal static class BattlepassViewSetEndTimePatch
-{
-    private static bool Prefix(BattlepassView __instance)
-    {
-        if (!UnlockEverythingRuntime.UseLocalStub && !UnlockEverythingRuntime.UseProfileOverlay)
-        {
-            return true;
-        }
-
-        try
-        {
-            if (__instance._clientCache.SeasonPass is null)
-            {
-                UnlockEverythingOverlay.EnsureClientCache(__instance._clientCache);
-            }
-
-            UnlockEverythingRuntime.LogSuppressedLoop("BattlepassView.SetEndTime");
-            return false;
-        }
-        catch (Exception exception)
-        {
-            UnlockEverythingRuntime.LogError("Backend stabilizer BattlepassView.SetEndTime prefix failed", exception);
-            return false;
-        }
-    }
-}
-
 [HarmonyPatch(typeof(KinguinverseWebService), nameof(KinguinverseWebService.RefreshPlayer))]
 internal static class KinguinverseWebServiceRefreshPlayerPatch
 {
@@ -3286,22 +3290,35 @@ internal static class KinguinverseWebServiceGetProductsV2Patch
 
     private static void Postfix(Il2CppTasks.Task<Result<Products>> __result)
     {
-        if (UnlockEverythingRuntime.UseLocalStub || __result is null || !__result.IsCompletedSuccessfully)
+        if (UnlockEverythingRuntime.UseLocalStub || __result is null)
         {
             return;
         }
 
         try
         {
-            var result = __result.Result;
-            if (result is not null && result.IsSuccessful && result.Value is not null)
+            if (__result.IsCompletedSuccessfully)
             {
-                UnlockEverythingRuntime.LogProductsResponse("KinguinverseWebService.GetProductsV2", result.Value);
+                LogProducts(__result.Result);
+                return;
             }
+
+            UnlockEverythingRuntime.ContinueOnMainThread(
+                __result,
+                LogProducts,
+                "Backend research GetProductsV2 completion logging failed");
         }
         catch (Exception exception)
         {
             UnlockEverythingRuntime.LogError("Backend research GetProductsV2 postfix failed", exception);
+        }
+    }
+
+    private static void LogProducts(Result<Products> result)
+    {
+        if (result is not null && result.IsSuccessful && result.Value is not null)
+        {
+            UnlockEverythingRuntime.LogProductsResponse("KinguinverseWebService.GetProductsV2", result.Value);
         }
     }
 }
@@ -3445,22 +3462,35 @@ internal static class KinguinverseWebServiceGetPlayerResourcesPatch
 
     private static void Postfix(Il2CppTasks.Task<Result<PlayerResources>> __result)
     {
-        if (UnlockEverythingRuntime.UseLocalStub || __result is null || !__result.IsCompletedSuccessfully)
+        if (UnlockEverythingRuntime.UseLocalStub || __result is null)
         {
             return;
         }
 
         try
         {
-            var result = __result.Result;
-            if (result is not null && result.IsSuccessful && result.Value is not null)
+            if (__result.IsCompletedSuccessfully)
             {
-                UnlockEverythingRuntime.LogResourcesResponse("KinguinverseWebService.GetPlayerResources", result.Value);
+                LogResources(__result.Result);
+                return;
             }
+
+            UnlockEverythingRuntime.ContinueOnMainThread(
+                __result,
+                LogResources,
+                "Backend research GetPlayerResources completion logging failed");
         }
         catch (Exception exception)
         {
             UnlockEverythingRuntime.LogError("Backend research GetPlayerResources postfix failed", exception);
+        }
+    }
+
+    private static void LogResources(Result<PlayerResources> result)
+    {
+        if (result is not null && result.IsSuccessful && result.Value is not null)
+        {
+            UnlockEverythingRuntime.LogResourcesResponse("KinguinverseWebService.GetPlayerResources", result.Value);
         }
     }
 }
@@ -3482,56 +3512,34 @@ internal static class KinguinverseWebServiceGetPlayerByUserIdPatch
 
         try
         {
-            if (!__result.IsCompletedSuccessfully)
+            if (__result.IsCompletedSuccessfully)
             {
+                ApplyOverlay(userId, __result.Result);
                 return;
             }
 
-            if (__result.Result is { IsSuccessful: true, Value: not null } result)
-            {
-                UnlockEverythingStub.ApplyWebPlayerSimplifiedOverlay(result.Value);
-                UnlockEverythingRuntime.LogSkillUiEvent("KinguinverseWebService.GetPlayer:overlayApplied", $"userId={userId}, characters={result.Value.Characters?.Count ?? 0}");
-            }
+            UnlockEverythingRuntime.ContinueOnMainThread(
+                __result,
+                result => ApplyOverlay(userId, result),
+                "Backend stabilizer GetPlayer(int) completion overlay failed");
         }
         catch (Exception exception)
         {
             UnlockEverythingRuntime.LogError("Backend stabilizer GetPlayer(int) postfix failed", exception);
         }
     }
-}
 
-[HarmonyPatch]
-internal static class SceneSpawnerOnPlayerLoadedSkillPayloadPatch
-{
-    private static System.Reflection.MethodBase? TargetMethod()
+    private static void ApplyOverlay(int userId, Result<WebPlayersSimplified> result)
     {
-        return UnlockEverythingSelections.GetSceneSpawnerOnPlayerLoadedTargetMethod();
-    }
-
-    private static void Prefix(object[] __args)
-    {
-        if (!UnlockEverythingRuntime.UseProfileOverlay || __args.Length <= 18)
+        if (result is not { IsSuccessful: true, Value: not null })
         {
             return;
         }
 
-        try
-        {
-            var before = UnlockEverythingSelections.DescribeCharactersSkillsPayload(__args[18]);
-            var payload = __args[18];
-            var applied = UnlockEverythingSelections.TryMaxCharactersSkillsPayload(ref payload);
-            __args[18] = payload!;
-            var nickname = __args.Length > 16 ? __args[16]?.ToString() ?? string.Empty : string.Empty;
-            var internalId = __args.Length > 0 && __args[0] is int value ? value : 0;
-            UnlockEverythingSelections.RememberLoadedCharactersSkills(internalId, __args[18]);
-            UnlockEverythingRuntime.LogSkillUiEvent(
-                "SceneSpawner.OnPlayerLoaded:skillsPayload",
-                $"internalId={internalId}, nickname={nickname}, applied={applied}, before={before}, after={UnlockEverythingSelections.DescribeCharactersSkillsPayload(__args[18])}");
-        }
-        catch (Exception exception)
-        {
-            UnlockEverythingRuntime.LogError("Backend stabilizer SceneSpawner.OnPlayerLoaded skills payload fix failed", exception);
-        }
+        UnlockEverythingStub.ApplyWebPlayerSimplifiedOverlay(result.Value);
+        UnlockEverythingRuntime.LogSkillUiEvent(
+            "KinguinverseWebService.GetPlayer:overlayApplied",
+            $"userId={userId}, characters={result.Value.Characters?.Count ?? 0}");
     }
 }
 
@@ -3556,12 +3564,11 @@ internal static class SpookedNetworkPlayerInitSkillPayloadPatch
             var payload = __args[3];
             var applied = UnlockEverythingSelections.TryMaxCharactersSkillsPayload(ref payload);
             __args[3] = payload!;
-            var internalId = __args[0] is int networkId ? networkId : 0;
+            var networkId = __args[0] is int value ? value : 0;
             var nickname = __args[1]?.ToString() ?? string.Empty;
-            UnlockEverythingSelections.RememberLoadedCharactersSkills(internalId, __args[3]);
             UnlockEverythingRuntime.LogSkillUiEvent(
                 "SpookedNetworkPlayer.Init:skillsPayload",
-                $"internalId={internalId}, nickname={nickname}, applied={applied}, before={before}, after={UnlockEverythingSelections.DescribeCharactersSkillsPayload(__args[3])}");
+                $"networkId={networkId}, nickname={nickname}, applied={applied}, before={before}, after={UnlockEverythingSelections.DescribeCharactersSkillsPayload(__args[3])}");
         }
         catch (Exception exception)
         {
@@ -3578,6 +3585,7 @@ internal static class SpookedNetworkPlayerInitSkillPayloadPatch
 
         try
         {
+            UnlockEverythingSelections.RememberLoadedCharactersSkillsFromNetworkPlayer(__instance);
             var internalId = UnlockEverythingSelections.GetNetworkPlayerInternalId(__instance);
             UnlockEverythingRuntime.LogSkillUiEvent(
                 "SpookedNetworkPlayer.Init:liveCharactersSkills",

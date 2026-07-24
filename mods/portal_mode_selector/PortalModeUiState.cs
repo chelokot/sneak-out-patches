@@ -103,7 +103,6 @@ internal sealed record PortalModeUiState(
         && MapTitleText is not null
         && MapTitleText.Pointer != IntPtr.Zero
         && MapOptions is not null
-        && MapOptions.Length > 0
         && MapOptions.All(option => option.IsAlive)
         && PlaySectionObject is not null
         && PlaySectionObject.Pointer != IntPtr.Zero

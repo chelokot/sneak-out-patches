@@ -65,7 +65,7 @@ const presets = new Map([
       includeNamespacePrefixes: [
         "UI.Views.",
         "UI.Buttons.",
-        "Networking.PGOS.",
+        "Networking.Party.",
         "Collections.",
         "Base.",
         "Gameplay.Player."

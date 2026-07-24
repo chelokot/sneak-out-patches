@@ -1,13 +1,15 @@
 using BepInEx.Logging;
+using Events;
 using HarmonyLib;
-using Networking.PGOS;
 using Networking.Friends;
+using Networking.Party;
 using Steamworks;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using UnityEngine;
 using UI.Views.Lobby.People;
+using Il2CppFriends = Il2CppSystem.Collections.Generic;
 
 namespace SneakOut.FriendInviteUnlock;
 
@@ -16,6 +18,9 @@ internal static class FriendInviteUnlockRuntime
     private static ManualLogSource? _logger;
     private static Harmony? _harmony;
     private static FriendInviteUnlockConfig? _configuration;
+    private static readonly HashSet<ulong> InviteOverrideSteamIds = new();
+    private static readonly MethodInfo? PgosLobbyInviteToPartyMethod =
+        AccessTools.Method(typeof(PgosLobby), "InviteToParty", new[] { typeof(string) });
 
     public static void Initialize(ManualLogSource logger, FriendInviteUnlockConfig configuration)
     {
@@ -31,14 +36,19 @@ internal static class FriendInviteUnlockRuntime
 
     private static bool ShouldForceInvite(SpookedFriend? friend)
     {
-        return Enabled
-            && friend is not null;
+        return Enabled && HasActionableInviteTarget(friend);
     }
 
-    private static bool ShouldForceActive(SpookedFriend? friend)
+    private static bool HasInviteOverride(SpookedFriend? friend)
     {
-        return Enabled
-            && friend is not null;
+        return friend is not null && InviteOverrideSteamIds.Contains(friend.SteamId.m_SteamID);
+    }
+
+    private static bool HasActionableInviteTarget(SpookedFriend? friend)
+    {
+        return friend is not null
+            && friend.SteamId.m_SteamID != 0
+            && PgosLobbyInviteToPartyMethod is not null;
     }
 
     private static bool CanUseInviteOverride(PgosLobby? pgosLobby)
@@ -58,7 +68,7 @@ internal static class FriendInviteUnlockRuntime
 
     private static bool ShouldPromoteStatus(FriendPlayerRecord record, SpookedFriend? friend, bool amITeamLeader, bool itsMyPlayer, bool partOfTheTeam)
     {
-        if (!ShouldForceActive(friend))
+        if (!ShouldForceInvite(friend))
         {
             return false;
         }
@@ -80,22 +90,30 @@ internal static class FriendInviteUnlockRuntime
     {
         if (!ShouldPromoteStatus(record, friend, amITeamLeader, itsMyPlayer, partOfTheTeam))
         {
+            if (friend is not null)
+            {
+                InviteOverrideSteamIds.Remove(friend.SteamId.m_SteamID);
+            }
+
             return;
         }
 
+        InviteOverrideSteamIds.Add(friend!.SteamId.m_SteamID);
         record._status = PlayerRecordStatus.OnlineActionOn;
         record.RefreshRecord();
         EnforceActiveRecordVisualState(record);
 
         if (_configuration!.EnableLogging.Value)
         {
-            _logger?.LogInfo($"Forced active friend record for '{friend!.Nickname}' ({friend.PgosId})");
+            _logger?.LogInfo($"Forced active friend record for '{friend!.Nickname}' ({friend.SteamId.m_SteamID})");
         }
     }
 
     private static bool ShouldForcePopupInvite(FriendOnHoverPopupView popupView)
     {
-        if (!ShouldForceInvite(popupView._data))
+        if (popupView._status != PlayerRecordStatus.OnlineActionOn
+            || !ShouldForceInvite(popupView._data)
+            || !HasInviteOverride(popupView._data))
         {
             return false;
         }
@@ -134,7 +152,6 @@ internal static class FriendInviteUnlockRuntime
         {
             record._statusFlagImage.color = record._onlineColor;
         }
-
     }
 
     [HarmonyPatch(typeof(FriendPlayerRecord), nameof(FriendPlayerRecord.InitPlayerRecord))]
@@ -182,7 +199,7 @@ internal static class FriendInviteUnlockRuntime
                 return;
             }
 
-            if (!ShouldForceActive(__instance._data))
+            if (!HasInviteOverride(__instance._data))
             {
                 return;
             }
@@ -191,39 +208,30 @@ internal static class FriendInviteUnlockRuntime
         }
     }
 
-    [HarmonyPatch(typeof(FriendPlayerRecord), "RefreshRecord")]
-    private static class FriendPlayerRecordRefreshRecordPatch
-    {
-        [HarmonyPostfix]
-        private static void Postfix(FriendPlayerRecord __instance)
-        {
-            if (!ShouldForceActive(__instance._data))
-            {
-                return;
-            }
-
-            EnforceActiveRecordVisualState(__instance);
-        }
-    }
-
-    private static void MergeAllSteamFriends(List<SpookedFriend> friends)
+    private static void MergeAllSteamFriends(Il2CppFriends.List<SpookedFriend> friends)
     {
         if (!Enabled)
         {
             return;
         }
 
-        var friendsBySteamId = new Dictionary<ulong, SpookedFriend>();
-        foreach (var friend in friends)
+        var mergedFriends = new List<SpookedFriend>();
+        var existingSteamIds = new HashSet<ulong>();
+        for (var index = 0; index < friends.Count; index++)
         {
-            friendsBySteamId[friend.SteamId.m_SteamID] = friend;
+            var friend = friends[index];
+            mergedFriends.Add(friend);
+            if (friend.SteamId.m_SteamID != 0)
+            {
+                existingSteamIds.Add(friend.SteamId.m_SteamID);
+            }
         }
 
         var totalSteamFriends = SteamFriends.GetFriendCount(EFriendFlags.k_EFriendFlagImmediate);
         for (var index = 0; index < totalSteamFriends; index++)
         {
             var steamId = SteamFriends.GetFriendByIndex(index, EFriendFlags.k_EFriendFlagImmediate);
-            if (steamId.m_SteamID == 0 || friendsBySteamId.ContainsKey(steamId.m_SteamID))
+            if (steamId.m_SteamID == 0 || !existingSteamIds.Add(steamId.m_SteamID))
             {
                 continue;
             }
@@ -240,17 +248,20 @@ internal static class FriendInviteUnlockRuntime
                 0,
                 string.Empty);
 
-            friendsBySteamId.Add(steamId.m_SteamID, syntheticFriend);
+            mergedFriends.Add(syntheticFriend);
         }
 
-        var orderedFriends = friendsBySteamId.Values
+        var orderedFriends = mergedFriends
             .OrderByDescending(HasClassicActiveState)
             .ThenByDescending(friend => friend.Online)
             .ThenBy(friend => friend.Nickname, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
         friends.Clear();
-        friends.AddRange(orderedFriends);
+        foreach (var friend in orderedFriends)
+        {
+            friends.Add(friend);
+        }
 
         if (_configuration!.EnableLogging.Value)
         {
@@ -263,16 +274,11 @@ internal static class FriendInviteUnlockRuntime
         return friend.Online && !string.IsNullOrWhiteSpace(friend.PgosId);
     }
 
+    [HarmonyPatch(typeof(SpookedFriendsRefreshedFullEvent), "get_Friends")]
     private static class SpookedFriendsRefreshedFullEventGetFriendsPatch
     {
-        private static MethodBase? TargetMethod()
-        {
-            var eventType = AccessTools.TypeByName("Events.SpookedFriendsRefreshedFullEvent");
-            return eventType is null ? null : AccessTools.Method(eventType, "get_Friends");
-        }
-
         [HarmonyPostfix]
-        private static void Postfix(List<SpookedFriend> __result)
+        private static void Postfix(Il2CppFriends.List<SpookedFriend> __result)
         {
             MergeAllSteamFriends(__result);
         }
@@ -320,18 +326,15 @@ internal static class FriendInviteUnlockRuntime
             }
 
             var friend = __instance._data;
-            if (friend is null || string.IsNullOrEmpty(friend.PgosId) || __instance._pgosLobby is null)
-            {
-                return true;
-            }
-
             __instance._buttonClicked = true;
-            __instance._pgosLobby.InviteToParty(friend.PgosId);
+            PgosLobbyInviteToPartyMethod!.Invoke(
+                __instance._pgosLobby,
+                new object[] { friend.SteamId.m_SteamID.ToString() });
             __instance.HideOptions();
 
             if (_configuration!.EnableLogging.Value)
             {
-                _logger?.LogInfo($"Forced invite send for '{friend.Nickname}' ({friend.PgosId})");
+                _logger?.LogInfo($"Forced invite send for '{friend.Nickname}' ({friend.SteamId.m_SteamID})");
             }
 
             return false;

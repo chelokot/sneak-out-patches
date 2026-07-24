@@ -84,6 +84,17 @@
     "default_config_template_path": "config_templates/runtime_mods/lobby-skill-sandbox.cfg"
   },
   {
+    "option_id": "lobby-test-bot",
+    "label": "Lobby Test Bot",
+    "details": "Builds the opt-in host-only lobby tool that spawns one inert network player through the game's native SceneSpawner path.",
+    "category": "experimental",
+    "default_enabled": false,
+    "project_relative_path": "mods/lobby_test_bot/LobbyTestBot.csproj",
+    "assembly_name": "SneakOut.LobbyTestBot",
+    "config_relative_path": "BepInEx/config/chelokot.sneakout.lobby-test-bot.cfg",
+    "default_config_template_path": "config_templates/runtime_mods/lobby-test-bot.cfg"
+  },
+  {
     "option_id": "free-fly",
     "label": "Free Fly (Debug)",
     "details": "Builds and installs the BepInEx runtime mod that moves the local player vertically with PageUp and PageDown for debugging.",

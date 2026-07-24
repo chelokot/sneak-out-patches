@@ -82,6 +82,8 @@ Experimental and debug mods:
 
 - `lobby-skill-sandbox`
   Opt-in lobby-only penguin skill sandbox. Slide is supported; prop-change runs only when explicitly enabled and backed by initialized gameplay room data.
+- `lobby-test-bot`
+  Host-only portal button that adds or removes one inert network player for solo match-start testing.
 - `free-fly`
   Vertical free-fly debugging controls.
 - `runtime-profiler`

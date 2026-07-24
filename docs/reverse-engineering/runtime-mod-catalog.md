@@ -45,6 +45,7 @@ It keeps one install identity because those layers share profile state and must 
 ## Experimental and debug groups
 
 - `lobby-skill-sandbox`
+- `lobby-test-bot`
 - `free-fly`
 - `runtime-profiler`
 
@@ -56,6 +57,7 @@ They stay separate because:
 - lobby slide use is the supported sandbox scope
 - lobby prop-change remains off unless explicitly enabled and a real room plus initialized gameplay prop pool are available
 - the lobby skill panel reuses an existing view model and stays unavailable when the normal UI graph is not initialized
+- `lobby-test-bot` is a host-only match-start tool that uses the stock `SceneSpawner` bot path instead of faking player counts
 - `free-fly` is a debugging tool
 - `runtime-profiler` is instrumentation, not gameplay behavior
 

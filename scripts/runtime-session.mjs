@@ -352,11 +352,11 @@ async function main() {
     watchedLogPaths.map((path) => snapshotFile(path, join(sessionDirectory, "before")))
   );
 
-  const initialLogMetadataByPath = await getWatchedLogMetadata(watchedLogPaths);
   if (options.clearLogs) {
     await truncateFile(logOutputPath);
     await truncateFile(errorLogPath);
   }
+  const initialLogMetadataByPath = await getWatchedLogMetadata(watchedLogPaths);
 
   const initialWindowIds = await getWindowIds(options.windowName, options);
   const initialProcesses = await getSneakOutProcesses(options);

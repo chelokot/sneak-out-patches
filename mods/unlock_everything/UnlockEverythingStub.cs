@@ -278,10 +278,10 @@ internal static class UnlockEverythingStub
         lock (Sync)
         {
             CaptureIdentity(null);
-            var seasonPass = CreateSeasonPass();
             response.Consumables ??= new PlayerConsumables();
-            response.DailyQuests = CreateDailyQuests();
-            response.CurrentSeasonPassProgression = CreateSeasonPassProgression(seasonPass.Name);
+            response.DailyQuests ??= CreateDailyQuests();
+            response.CurrentSeasonPassProgression ??= CreateSeasonPassProgression(
+                UnlockEverythingRuntime.CurrentClientCache?.SeasonPass?.Name ?? CreateSeasonPass().Name);
         }
     }
 

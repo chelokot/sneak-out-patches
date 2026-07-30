@@ -76,7 +76,7 @@ internal sealed class RuntimeProfilerConfig
         var includeNamespacePrefixes = configFile.Bind(
             "targeting",
             "IncludeNamespacePrefixes",
-            "Gameplay.Match.;Networking.PGOS.;UI.Views.",
+            "Gameplay.Match.;Networking.Party.;UI.Views.",
             "Semicolon-separated full type-name prefixes to include.");
         var targetMethodPatterns = configFile.Bind(
             "targeting",

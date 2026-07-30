@@ -1,18 +1,41 @@
-import { cp, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, stat, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
+import { resolveGameDirectory, steamAppId } from "./lib/game-install.mjs";
 import { repositoryRoot, runAndCapture, runCommand } from "./lib/workspace-tools.mjs";
 
-const steamAppUri = "steam://rungameid/2410490";
-const defaultGameDirectory = "/run/media/chelokot/second/SteamLibrary/steamapps/common/Sneak Out";
-const defaultSteamLogPath = "/var/home/chelokot/.var/app/com.valvesoftware.Steam/steam-2410490.log";
+const steamAppUri = `steam://rungameid/${steamAppId}`;
 const defaultWindowName = "Sneak Out";
 const defaultWaitSeconds = 25;
-const defaultHostTarget = "chelokot@localhost";
-const defaultHostDisplay = ":0";
-const defaultHostWaylandDisplay = "wayland-0";
-const defaultHostDbusSessionBusAddress = "unix:path=/run/user/1000/bus";
-const defaultHostXdgRuntimeDirectory = "/run/user/1000";
-const defaultHostSteamLaunchCommand = "flatpak run --command=/app/bin/steam com.valvesoftware.Steam steam://rungameid/2410490";
+const defaultHostTarget = "localhost";
+const defaultHostDisplay = process.env.DISPLAY ?? ":0";
+const defaultHostWaylandDisplay = process.env.WAYLAND_DISPLAY ?? "wayland-0";
+const defaultHostXdgRuntimeDirectory = process.env.XDG_RUNTIME_DIR
+  ?? (typeof process.getuid === "function" ? `/run/user/${process.getuid()}` : "");
+const defaultHostDbusSessionBusAddress = process.env.DBUS_SESSION_BUS_ADDRESS
+  ?? (defaultHostXdgRuntimeDirectory ? `unix:path=${defaultHostXdgRuntimeDirectory}/bus` : "");
+const defaultHostSteamLaunchCommand = `flatpak run --command=/app/bin/steam com.valvesoftware.Steam ${steamAppUri}`;
+
+async function resolveSteamLogPath(explicitPath) {
+  if (explicitPath) {
+    return resolve(explicitPath);
+  }
+
+  const candidates = [
+    join(homedir(), ".var", "app", "com.valvesoftware.Steam", `steam-${steamAppId}.log`),
+    join(homedir(), ".local", "share", "Steam", `steam-${steamAppId}.log`)
+  ];
+  for (const candidate of candidates) {
+    try {
+      await stat(candidate);
+      return candidate;
+    } catch {
+      continue;
+    }
+  }
+
+  return candidates[0];
+}
 
 function parseArguments(argv) {
   const options = {
@@ -21,7 +44,8 @@ function parseArguments(argv) {
     stopExisting: false,
     sessionName: "",
     waitSeconds: defaultWaitSeconds,
-    gameDirectory: process.env.SNEAKOUT_GAME_DIR ?? defaultGameDirectory,
+    gameDirectory: process.env.SNEAKOUT_GAME_DIR,
+    steamLogPath: process.env.SNEAKOUT_STEAM_LOG,
     windowName: defaultWindowName,
     clearLogs: true,
     hostTarget: process.env.SNEAKOUT_HOST_TARGET ?? defaultHostTarget,
@@ -59,6 +83,9 @@ function parseArguments(argv) {
         break;
       case "--window-name":
         options.windowName = argv[++index] ?? options.windowName;
+        break;
+      case "--steam-log":
+        options.steamLogPath = argv[++index] ?? options.steamLogPath;
         break;
       case "--no-log-clear":
         options.clearLogs = false;
@@ -101,6 +128,7 @@ function printHelpAndExit() {
     "  --wait-seconds <n>                   Wait for activity for up to n seconds.",
     "  --game-dir <path>                    Override the game directory.",
     "  --window-name <name>                 Window name to search for.",
+    "  --steam-log <path>                   Override the Steam app log path.",
     "  --no-log-clear                       Preserve existing BepInEx logs instead of truncating them.",
     "  --host <ssh-target>                  Host target for ssh launch.",
     "  --host-display <display>             Host DISPLAY value.",
@@ -306,12 +334,12 @@ async function main() {
   const options = parseArguments(process.argv.slice(2));
   const sessionLabel = `${getTimestampLabel()}${options.sessionName ? `-${options.sessionName}` : ""}`;
   const sessionDirectory = resolve(repositoryRoot, ".tmp", "runtime-sessions", sessionLabel);
-  const gameDirectory = resolve(options.gameDirectory);
+  const gameDirectory = await resolveGameDirectory(options.gameDirectory);
   const bepinexDirectory = join(gameDirectory, "BepInEx");
   const logOutputPath = join(bepinexDirectory, "LogOutput.log");
   const errorLogPath = join(bepinexDirectory, "ErrorLog.log");
   const unityOutputLogPath = join(gameDirectory, "output_log.txt");
-  const steamLogPath = defaultSteamLogPath;
+  const steamLogPath = await resolveSteamLogPath(options.steamLogPath);
   const watchedLogPaths = [
     logOutputPath,
     errorLogPath,
@@ -324,11 +352,11 @@ async function main() {
     watchedLogPaths.map((path) => snapshotFile(path, join(sessionDirectory, "before")))
   );
 
-  const initialLogMetadataByPath = await getWatchedLogMetadata(watchedLogPaths);
   if (options.clearLogs) {
     await truncateFile(logOutputPath);
     await truncateFile(errorLogPath);
   }
+  const initialLogMetadataByPath = await getWatchedLogMetadata(watchedLogPaths);
 
   const initialWindowIds = await getWindowIds(options.windowName, options);
   const initialProcesses = await getSneakOutProcesses(options);

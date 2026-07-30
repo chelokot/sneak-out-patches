@@ -5,6 +5,8 @@ using Il2CppInterop.Runtime.Injection;
 using Types;
 using UI.Views;
 using UnityEngine;
+using UnityEngine.Events;
+using UnityEngine.SceneManagement;
 
 namespace SneakOut.BackgroundLoadingGuard;
 
@@ -14,7 +16,10 @@ internal static class BackgroundLoadingGuardRuntime
     private static Harmony? _harmony;
     private static BackgroundLoadingGuardConfig? _configuration;
     private static bool _loadingFlowActive;
+    private static bool _runInBackgroundForced;
+    private static bool _runInBackgroundBeforeLoading;
     private static bool _watcherInstalled;
+    private static UnityAction<Scene, LoadSceneMode>? _sceneLoadedAction;
 
     public static void Initialize(ManualLogSource logger, BackgroundLoadingGuardConfig configuration)
     {
@@ -22,8 +27,11 @@ internal static class BackgroundLoadingGuardRuntime
         _configuration = configuration;
         _harmony ??= new Harmony(BackgroundLoadingGuardPlugin.PluginGuid);
         _harmony.PatchAll();
-        EnsureRunInBackground("Initialize");
-        EnsureFocusWatcher();
+        if (IsEnabled())
+        {
+            EnsureFocusWatcher();
+            BeginLoadingFlow("Initialize");
+        }
     }
 
     public static void HandleLoadingScreenStart(LoadingScreenView loadingScreenView)
@@ -33,8 +41,7 @@ internal static class BackgroundLoadingGuardRuntime
             return;
         }
 
-        _loadingFlowActive = true;
-        EnsureRunInBackground("LoadingScreenView.Start");
+        BeginLoadingFlow("LoadingScreenView.Start");
         Log($"LoadingScreenView.Start: progress={loadingScreenView.LoadingProgress:0.000}");
     }
 
@@ -45,20 +52,16 @@ internal static class BackgroundLoadingGuardRuntime
             return;
         }
 
-        _loadingFlowActive = true;
-        EnsureRunInBackground("LoadingScreenView.LoadSceneAsync");
+        BeginLoadingFlow("LoadingScreenView.LoadSceneAsync");
         Log($"LoadingScreenView.LoadSceneAsync: sceneType={sceneType}");
     }
 
     public static void HandleAllowSceneActivation(SceneType sceneType)
     {
-        if (!IsEnabled())
+        if (IsEnabled())
         {
-            return;
+            Log($"LoadingScreenView.AllowSceneActivation: sceneType={sceneType}");
         }
-
-        Log($"LoadingScreenView.AllowSceneActivation: sceneType={sceneType}");
-        _loadingFlowActive = false;
     }
 
     public static void HandleApplicationFocus(bool hasFocus)
@@ -88,6 +91,28 @@ internal static class BackgroundLoadingGuardRuntime
         return _configuration is not null && _configuration.EnableMod.Value;
     }
 
+    private static void BeginLoadingFlow(string source)
+    {
+        if (!_loadingFlowActive)
+        {
+            _loadingFlowActive = true;
+            _runInBackgroundBeforeLoading = Application.runInBackground;
+        }
+
+        EnsureRunInBackground(source);
+    }
+
+    private static void EndLoadingFlow()
+    {
+        if (_runInBackgroundForced)
+        {
+            Application.runInBackground = _runInBackgroundBeforeLoading;
+            _runInBackgroundForced = false;
+        }
+
+        _loadingFlowActive = false;
+    }
+
     private static void EnsureRunInBackground(string source)
     {
         if (_configuration is null || !_configuration.EnableMod.Value || !_configuration.ForceRunInBackground.Value)
@@ -95,7 +120,13 @@ internal static class BackgroundLoadingGuardRuntime
             return;
         }
 
+        if (Application.runInBackground)
+        {
+            return;
+        }
+
         Application.runInBackground = true;
+        _runInBackgroundForced = true;
         Log($"runInBackground forced by {source}");
     }
 
@@ -111,7 +142,20 @@ internal static class BackgroundLoadingGuardRuntime
         UnityEngine.Object.DontDestroyOnLoad(watcherObject);
         watcherObject.hideFlags = HideFlags.HideAndDontSave;
         watcherObject.AddComponent<LoadingFocusWatcher>();
+        _sceneLoadedAction = (UnityAction<Scene, LoadSceneMode>)HandleSceneLoaded;
+        SceneManager.sceneLoaded += _sceneLoadedAction;
         _watcherInstalled = true;
+    }
+
+    private static void HandleSceneLoaded(Scene scene, LoadSceneMode mode)
+    {
+        if (!_loadingFlowActive)
+        {
+            return;
+        }
+
+        Log($"Scene loaded: name={scene.name}, mode={mode}");
+        EndLoadingFlow();
     }
 
     private static void Log(string message)
@@ -133,11 +177,6 @@ internal static class BackgroundLoadingGuardRuntime
         public LoadingFocusWatcher() : base(ClassInjector.DerivedConstructorPointer<LoadingFocusWatcher>())
         {
             ClassInjector.DerivedConstructorBody(this);
-        }
-
-        private void Awake()
-        {
-            Application.runInBackground = true;
         }
 
         private void OnApplicationFocus(bool hasFocus)

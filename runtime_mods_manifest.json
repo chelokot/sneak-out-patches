@@ -1,16 +1,5 @@
 [
   {
-    "option_id": "double-party-invite-fix",
-    "label": "Double Party Invite Fix",
-    "details": "Builds and installs the BepInEx runtime mod that fixes the first accepted private-party invite flow.",
-    "category": "core",
-    "default_enabled": true,
-    "project_relative_path": "mods/double_party_invite_fix/DoublePartyInviteFix.csproj",
-    "assembly_name": "SneakOut.DoublePartyInviteFix",
-    "config_relative_path": "BepInEx/config/chelokot.sneakout.double-party-invite-fix.cfg",
-    "default_config_template_path": "config_templates/runtime_mods/double-party-invite-fix.cfg"
-  },
-  {
     "option_id": "uniform-seeker-random",
     "label": "Uniform Seeker Random",
     "details": "Builds and installs the BepInEx runtime mod that replaces the default seeker selection with a uniform random choice.",
@@ -20,17 +9,6 @@
     "assembly_name": "SneakOut.UniformSeekerRandom",
     "config_relative_path": "BepInEx/config/chelokot.sneakout.uniform-seeker-random.cfg",
     "default_config_template_path": "config_templates/runtime_mods/uniform-seeker-random.cfg"
-  },
-  {
-    "option_id": "ui-crash-guards",
-    "label": "UI Crash Guards",
-    "details": "Builds and installs the BepInEx runtime mod that suppresses known crash-prone battlepass and daily-quest refresh handlers.",
-    "category": "core",
-    "default_enabled": true,
-    "project_relative_path": "mods/ui_crash_guards/UICrashGuards.csproj",
-    "assembly_name": "SneakOut.UICrashGuards",
-    "config_relative_path": "BepInEx/config/chelokot.sneakout.ui-crash-guards.cfg",
-    "default_config_template_path": "config_templates/runtime_mods/ui-crash-guards.cfg"
   },
   {
     "option_id": "portal-mode-selector",
@@ -75,7 +53,7 @@
   {
     "option_id": "background-loading-guard",
     "label": "Background Loading Guard",
-    "details": "Builds and installs the BepInEx runtime mod that forces runInBackground and logs early loading focus transitions.",
+    "details": "Builds and installs the BepInEx runtime mod that temporarily enables runInBackground during loading and restores the previous value afterwards.",
     "category": "quality-of-life",
     "default_enabled": true,
     "project_relative_path": "mods/background_loading_guard/BackgroundLoadingGuard.csproj",
@@ -95,26 +73,26 @@
     "default_config_template_path": "config_templates/runtime_mods/friend-invite-unlock.cfg"
   },
   {
-    "option_id": "friend-join-button",
-    "label": "Friend Join Button",
-    "details": "Builds and installs the BepInEx runtime mod that adds a separate JOIN button to the friend popup using backend presence data for joinable parties.",
-    "category": "quality-of-life",
-    "default_enabled": true,
-    "project_relative_path": "mods/friend_join_button/FriendJoinButton.csproj",
-    "assembly_name": "SneakOut.FriendJoinButton",
-    "config_relative_path": "BepInEx/config/chelokot.sneakout.friend-join-button.cfg",
-    "default_config_template_path": "config_templates/runtime_mods/friend-join-button.cfg"
-  },
-  {
     "option_id": "lobby-skill-sandbox",
     "label": "Lobby Skill Sandbox",
-    "details": "Builds and installs the BepInEx runtime mod that exposes penguin skill UI and lobby-only skill use for local testing.",
+    "details": "Builds the opt-in BepInEx sandbox for lobby penguin skill testing. Prop-change additionally requires a real room and initialized gameplay prop pool.",
     "category": "experimental",
-    "default_enabled": true,
+    "default_enabled": false,
     "project_relative_path": "mods/lobby_skill_sandbox/LobbySkillSandbox.csproj",
     "assembly_name": "SneakOut.LobbySkillSandbox",
     "config_relative_path": "BepInEx/config/chelokot.sneakout.lobby-skill-sandbox.cfg",
     "default_config_template_path": "config_templates/runtime_mods/lobby-skill-sandbox.cfg"
+  },
+  {
+    "option_id": "lobby-test-bot",
+    "label": "Lobby Test Bot",
+    "details": "Builds the opt-in host-only lobby tool that spawns one inert network player through the game's native SceneSpawner path.",
+    "category": "experimental",
+    "default_enabled": false,
+    "project_relative_path": "mods/lobby_test_bot/LobbyTestBot.csproj",
+    "assembly_name": "SneakOut.LobbyTestBot",
+    "config_relative_path": "BepInEx/config/chelokot.sneakout.lobby-test-bot.cfg",
+    "default_config_template_path": "config_templates/runtime_mods/lobby-test-bot.cfg"
   },
   {
     "option_id": "free-fly",

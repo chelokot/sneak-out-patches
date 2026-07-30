@@ -11,26 +11,11 @@ For this repo that means:
 - centralize runtime-mod metadata in one manifest
 - prefer structural refactors before gameplay refactors
 
-## Audit result
-
-No current runtime mod looks completely dead.
-
-Each shipped mod currently has:
-
-- a build path
-- an installer entry
-- an artifact path
-- at least one code path or documentation reference
-
-That does not prove every mod is equally healthy, but it does mean the current surface is actively wired into the repo.
-
 ## Stable groups
 
 ### Core
 
-- `double-party-invite-fix`
 - `uniform-seeker-random`
-- `ui-crash-guards`
 - `portal-mode-selector`
 
 These are narrow runtime replacements for old binary patches or scene edits.
@@ -39,8 +24,8 @@ These are narrow runtime replacements for old binary patches or scene edits.
 
 - `mummy-unlock`
 - `start-delay-reducer`
+- `background-loading-guard`
 - `friend-invite-unlock`
-- `friend-join-button`
 
 These stay separate because each one owns a single gameplay or lobby concern and has a clear rollback boundary.
 
@@ -55,11 +40,12 @@ This is the broadest mod in the repo. It touches:
 - persistence
 - live sync
 
-It is a good candidate for a future split, but not during active sync debugging. Right now the safer refactor is to document its layering rules and keep one clear identity for it across tooling, code, and docs.
+It keeps one install identity because those layers share profile state and must be enabled or rolled back together. Its implementation is split by responsibility into profile, skill, cosmetic, web-service, and live-player-sync modules.
 
 ## Experimental and debug groups
 
 - `lobby-skill-sandbox`
+- `lobby-test-bot`
 - `free-fly`
 - `runtime-profiler`
 
@@ -68,24 +54,14 @@ These are intentionally not enabled together with the same confidence level as t
 They stay separate because:
 
 - `lobby-skill-sandbox` is a sandbox feature, not a normal progression fix
+- lobby slide use is the supported sandbox scope
+- lobby prop-change remains off unless explicitly enabled and a real room plus initialized gameplay prop pool are available
+- the lobby skill panel reuses an existing view model and stays unavailable when the normal UI graph is not initialized
+- `lobby-test-bot` is a host-only match-start tool that uses the stock `SceneSpawner` bot path instead of faking player counts
 - `free-fly` is a debugging tool
 - `runtime-profiler` is instrumentation, not gameplay behavior
 
 ## Why some mods are not merged
-
-### `double-party-invite-fix` and `friend-invite-unlock`
-
-Do not merge them just because both touch lobby behavior.
-
-`double-party-invite-fix` is a network-join fix for the first accepted party invite.
-`friend-invite-unlock` is a social UI behavior change with its own config and rollback story.
-
-### `friend-invite-unlock` and `friend-join-button`
-
-Do not merge them.
-
-`friend-invite-unlock` keeps otherwise disabled invite paths available.
-`friend-join-button` is a separate presence-driven join affordance with a different network source and failure mode.
 
 ### `unlock-everything` and `lobby-skill-sandbox`
 

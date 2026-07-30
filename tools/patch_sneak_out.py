@@ -784,7 +784,7 @@ def update_runtime_mod_artifact(runtime_mod: RuntimeModOption, built_dll_path: P
     runtime_mod.artifact_dll_path.write_bytes(artifact_bytes)
 
 
-def build_runtime_mod(runtime_mod: RuntimeModOption) -> Path:
+def build_runtime_mod(game_dir: Path, runtime_mod: RuntimeModOption) -> Path:
     if not runtime_mod.project_path.is_file():
         raise SystemExit(f"Missing runtime mod project: {runtime_mod.project_path}")
     if not RUNTIME_MOD_DOTNET.is_file():
@@ -795,6 +795,7 @@ def build_runtime_mod(runtime_mod: RuntimeModOption) -> Path:
         str(runtime_mod.project_path.relative_to(REPO_ROOT)),
         "-c",
         "Release",
+        f"-p:InteropDir={game_dir / 'BepInEx/interop'}",
     ]
     completed = subprocess.run(
         command,
@@ -816,15 +817,36 @@ def build_runtime_mod(runtime_mod: RuntimeModOption) -> Path:
     return runtime_mod.built_dll_path
 
 
-def resolve_runtime_mod_source_dll(runtime_mod: RuntimeModOption, *, build_runtime_mods: bool) -> Path:
+def resolve_runtime_mod_source_dll(
+    game_dir: Path,
+    runtime_mod: RuntimeModOption,
+    *,
+    build_runtime_mods: bool,
+) -> Path:
     if build_runtime_mods:
-        return build_runtime_mod(runtime_mod)
+        return build_runtime_mod(game_dir, runtime_mod)
     if not runtime_mod.artifact_dll_path.is_file():
         raise SystemExit(
             f"Missing runtime mod artifact: {runtime_mod.artifact_dll_path}\n"
             "Build the runtime mod once without --nobuild and commit the generated DLL."
         )
     return runtime_mod.artifact_dll_path
+
+
+def resolve_runtime_mod_source_dlls(
+    game_dir: Path,
+    selected_runtime_mod_option_ids: tuple[str, ...],
+    *,
+    build_runtime_mods: bool,
+) -> dict[str, Path]:
+    return {
+        option_id: resolve_runtime_mod_source_dll(
+            game_dir,
+            RUNTIME_MOD_OPTION_BY_ID[option_id],
+            build_runtime_mods=build_runtime_mods,
+        )
+        for option_id in selected_runtime_mod_option_ids
+    }
 
 
 def install_runtime_mod(game_dir: Path, runtime_mod: RuntimeModOption, built_dll_path: Path) -> None:
@@ -873,11 +895,11 @@ def install_runtime_mod(game_dir: Path, runtime_mod: RuntimeModOption, built_dll
         print(f"created:   {config_absent_marker_path}")
     print(f"created:   {config_path}")
 
+
 def install_selected_runtime_mods(
     game_dir: Path,
     selected_runtime_mod_option_ids: tuple[str, ...],
-    *,
-    build_runtime_mods: bool,
+    source_dll_paths: dict[str, Path],
 ) -> None:
     if selected_runtime_mod_option_ids:
         install_runtime_loader(game_dir)
@@ -885,23 +907,20 @@ def install_selected_runtime_mods(
             configure_proton_launch_options()
     for option_id in selected_runtime_mod_option_ids:
         runtime_mod = RUNTIME_MOD_OPTION_BY_ID[option_id]
-        source_dll_path = resolve_runtime_mod_source_dll(runtime_mod, build_runtime_mods=build_runtime_mods)
-        install_runtime_mod(game_dir, runtime_mod, source_dll_path)
+        install_runtime_mod(game_dir, runtime_mod, source_dll_paths[option_id])
 
 
 def validate_installed_runtime_mods(
     game_dir: Path,
     selected_runtime_mod_option_ids: tuple[str, ...],
-    *,
-    build_runtime_mods: bool,
+    source_dll_paths: dict[str, Path],
 ) -> None:
     for option_id in selected_runtime_mod_option_ids:
         runtime_mod = RUNTIME_MOD_OPTION_BY_ID[option_id]
-        built_dll_path = resolve_runtime_mod_source_dll(runtime_mod, build_runtime_mods=build_runtime_mods)
         install_path = resolve_runtime_mod_install_path(game_dir, runtime_mod)
         if not install_path.is_file():
             raise SystemExit(f"Missing installed runtime mod: {install_path}")
-        expected_bytes = built_dll_path.read_bytes()
+        expected_bytes = source_dll_paths[option_id].read_bytes()
         actual_bytes = install_path.read_bytes()
         if actual_bytes != expected_bytes:
             diff_offset = first_diff_offset(expected_bytes, actual_bytes)
@@ -1058,10 +1077,15 @@ def main() -> int:
         if selected_patch_option_ids:
             validate_installed_files(game_dir, selected_patch_option_ids)
         if selected_runtime_mod_option_ids:
-            validate_installed_runtime_mods(
+            source_dll_paths = resolve_runtime_mod_source_dlls(
                 game_dir,
                 selected_runtime_mod_option_ids,
                 build_runtime_mods=not args.nobuild,
+            )
+            validate_installed_runtime_mods(
+                game_dir,
+                selected_runtime_mod_option_ids,
+                source_dll_paths,
             )
         print("validated")
         return 0
@@ -1087,16 +1111,21 @@ def main() -> int:
         validate_installed_files(game_dir, selected_patch_option_ids)
 
     if selected_runtime_mod_option_ids:
-        rollback(game_dir)
-        install_selected_runtime_mods(
+        source_dll_paths = resolve_runtime_mod_source_dlls(
             game_dir,
             selected_runtime_mod_option_ids,
             build_runtime_mods=not args.nobuild,
         )
+        rollback(game_dir)
+        install_selected_runtime_mods(
+            game_dir,
+            selected_runtime_mod_option_ids,
+            source_dll_paths,
+        )
         validate_installed_runtime_mods(
             game_dir,
             selected_runtime_mod_option_ids,
-            build_runtime_mods=not args.nobuild,
+            source_dll_paths,
         )
 
     if selected_patch_option_ids:

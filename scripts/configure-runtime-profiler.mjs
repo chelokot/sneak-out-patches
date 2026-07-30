@@ -1,8 +1,8 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { resolveGameDirectory } from "./lib/game-install.mjs";
 
-const defaultConfigPath = process.env.SNEAKOUT_RUNTIME_PROFILER_CONFIG
-  ?? "/run/media/chelokot/second/SteamLibrary/steamapps/common/Sneak Out/BepInEx/config/chelokot.sneakout.runtime-profiler.cfg";
+const explicitConfigPath = process.env.SNEAKOUT_RUNTIME_PROFILER_CONFIG;
 
 const presets = new Map([
   [
@@ -65,7 +65,7 @@ const presets = new Map([
       includeNamespacePrefixes: [
         "UI.Views.",
         "UI.Buttons.",
-        "Networking.PGOS.",
+        "Networking.Party.",
         "Collections.",
         "Base.",
         "Gameplay.Player."
@@ -115,7 +115,9 @@ async function main() {
     throw new Error(`Usage: node scripts/configure-runtime-profiler.mjs <${Array.from(presets.keys()).join("|")}>`);
   }
 
-  const configPath = resolve(defaultConfigPath);
+  const configPath = explicitConfigPath
+    ? resolve(explicitConfigPath)
+    : join(await resolveGameDirectory(), "BepInEx", "config", "chelokot.sneakout.runtime-profiler.cfg");
   const preset = presets.get(presetName);
   await ensureConfig(configPath);
   let content = await readFile(configPath, "utf8");

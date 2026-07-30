@@ -1,6 +1,5 @@
 using System.Reflection;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
-using HarmonyLib;
 using Types;
 using UI.Views;
 using UI.Views.Lobby;
@@ -11,19 +10,11 @@ namespace SneakOut.MummyUnlock;
 
 internal static class MummyAbilityIconRuntime
 {
-    private const string SarcophagusIconResourceName = "SneakOut.MummyUnlock.Assets.mummy_sarcophagus_icon.png";
-    private const string TrapIconResourceName = "SneakOut.MummyUnlock.Assets.mummy_trap_icon.png";
     private const string CharacterIconResourceName = "SneakOut.MummyUnlock.Assets.mummy_character_icon.png";
-    private static Texture2D? _sarcophagusTexture;
-    private static Texture2D? _trapTexture;
     private static Texture2D? _characterTexture;
     private static Sprite? _sarcophagusSprite;
     private static Sprite? _trapSprite;
     private static Sprite? _characterSprite;
-
-    public static void Initialize()
-    {
-    }
 
     public static void ApplyToCharacterShopView(CharacterShopView shopView)
     {
@@ -36,8 +27,13 @@ internal static class MummyAbilityIconRuntime
     {
         var selectionImages = view._selectionsImages;
         var selectionIndices = view._selectionIndices;
-        var viewModel = GetSeekerSelectionViewModel(view);
-        var availableSeekers = viewModel?.AvailableSeekers;
+        var viewModel = view.ViewModel;
+        if (viewModel is null)
+        {
+            return;
+        }
+
+        var availableSeekers = viewModel.AvailableSeekers;
         if (selectionImages is null || selectionIndices is null || availableSeekers is null)
         {
             return;
@@ -93,17 +89,24 @@ internal static class MummyAbilityIconRuntime
 
     private static Sprite GetSarcophagusSprite()
     {
-        return _sarcophagusSprite ??= CreateSprite(ref _sarcophagusTexture, SarcophagusIconResourceName, "MummySarcophagusAbilityIcon");
+        return _sarcophagusSprite ??= ResolveRequiredSprite("Sarcophagus");
     }
 
     private static Sprite GetTrapSprite()
     {
-        return _trapSprite ??= CreateSprite(ref _trapTexture, TrapIconResourceName, "MummyTrapAbilityIcon");
+        return _trapSprite ??= ResolveRequiredSprite("Mummy_sandtrap");
     }
 
     public static Sprite GetCharacterSprite()
     {
         return _characterSprite ??= CreateSprite(ref _characterTexture, CharacterIconResourceName, "MummyCharacterIcon");
+    }
+
+    private static Sprite ResolveRequiredSprite(string spriteName)
+    {
+        return Resources.FindObjectsOfTypeAll<Sprite>()
+                   .FirstOrDefault(sprite => sprite.name == spriteName)
+               ?? throw new InvalidOperationException($"Required game sprite '{spriteName}' was not loaded");
     }
 
     private static Sprite CreateSprite(ref Texture2D? cachedTexture, string resourceName, string spriteName)
@@ -128,20 +131,6 @@ internal static class MummyAbilityIconRuntime
         texture.wrapMode = TextureWrapMode.Clamp;
         texture.filterMode = FilterMode.Bilinear;
         return texture;
-    }
-
-    private static SeekerSelectionViewModel? GetSeekerSelectionViewModel(SeekerSelectionView view)
-    {
-        for (var currentType = view.GetType(); currentType is not null; currentType = currentType.BaseType)
-        {
-            var viewModelField = AccessTools.Field(currentType, "ViewModel");
-            if (viewModelField is not null)
-            {
-                return viewModelField.GetValue(view) as SeekerSelectionViewModel;
-            }
-        }
-
-        return null;
     }
 
     private static byte[] LoadRequiredBytes(string resourceName)

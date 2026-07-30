@@ -1,0 +1,57 @@
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <SneakOutRepositoryRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..'))</SneakOutRepositoryRoot>
+    <BepInExCoreDir Condition="'$(BepInExCoreDir)' == '' and '$(SNEAKOUT_BEPINEX_CORE_DIR)' != ''">$(SNEAKOUT_BEPINEX_CORE_DIR)</BepInExCoreDir>
+    <BepInExCoreDir Condition="'$(BepInExCoreDir)' == ''">$(SneakOutRepositoryRoot)/.tmp/runtime-mod/bepinex/BepInEx/core</BepInExCoreDir>
+    <SneakOutGameDir Condition="'$(SneakOutGameDir)' == '' and '$(SNEAKOUT_GAME_DIR)' != ''">$(SNEAKOUT_GAME_DIR)</SneakOutGameDir>
+    <InteropDir Condition="'$(InteropDir)' == '' and '$(SNEAKOUT_INTEROP_DIR)' != ''">$(SNEAKOUT_INTEROP_DIR)</InteropDir>
+    <InteropDir Condition="'$(InteropDir)' == '' and '$(SneakOutGameDir)' != ''">$(SneakOutGameDir)/BepInEx/interop</InteropDir>
+    <InteropDir Condition="'$(InteropDir)' == ''">$(SneakOutRepositoryRoot)/.tmp/runtime-mod/interop</InteropDir>
+  </PropertyGroup>
+
+  <ItemDefinitionGroup>
+    <Reference>
+      <Private>false</Private>
+    </Reference>
+  </ItemDefinitionGroup>
+
+  <ItemGroup>
+    <Reference Include="BepInEx.Core">
+      <HintPath>$(BepInExCoreDir)/BepInEx.Core.dll</HintPath>
+    </Reference>
+    <Reference Include="BepInEx.Unity.IL2CPP">
+      <HintPath>$(BepInExCoreDir)/BepInEx.Unity.IL2CPP.dll</HintPath>
+    </Reference>
+    <Reference Include="BepInEx.Unity.Common">
+      <HintPath>$(BepInExCoreDir)/BepInEx.Unity.Common.dll</HintPath>
+    </Reference>
+    <Reference Include="Il2CppInterop.Runtime">
+      <HintPath>$(BepInExCoreDir)/Il2CppInterop.Runtime.dll</HintPath>
+    </Reference>
+    <Reference Include="Il2CppInterop.HarmonySupport">
+      <HintPath>$(BepInExCoreDir)/Il2CppInterop.HarmonySupport.dll</HintPath>
+    </Reference>
+    <Reference Include="HarmonyX">
+      <HintPath>$(BepInExCoreDir)/0Harmony.dll</HintPath>
+    </Reference>
+    <Reference Include="Assembly-CSharp">
+      <HintPath>$(InteropDir)/Assembly-CSharp.dll</HintPath>
+    </Reference>
+    <Reference Include="Il2Cppmscorlib">
+      <HintPath>$(InteropDir)/Il2Cppmscorlib.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+  <Target Name="ValidateSneakOutBuildInputs" BeforeTargets="ResolveAssemblyReferences">
+    <Error
+      Condition="!Exists('$(BepInExCoreDir)/BepInEx.Core.dll')"
+      Text="Missing BepInEx build references at '$(BepInExCoreDir)'. Run 'npm install' or set SNEAKOUT_BEPINEX_CORE_DIR." />
+    <Error
+      Condition="!Exists('$(InteropDir)/Assembly-CSharp.dll')"
+      Text="Missing Sneak Out interop assemblies at '$(InteropDir)'. Run the game once with BepInEx, set SNEAKOUT_GAME_DIR or SNEAKOUT_INTEROP_DIR, or populate '.tmp/runtime-mod/interop'." />
+  </Target>
+</Project>

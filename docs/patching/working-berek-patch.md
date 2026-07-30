@@ -10,7 +10,7 @@ Runtime mods
 - `Portal Mode Selector` loads `GameModeType` from a dedicated mode bit instead of a hardcoded `Default`
 - the injected mode row reuses the `OnChangeRoleButton()` callback family, not the private/public callback path, so the real private-game toggle stays untouched
 - startup-time selector setup hooks were removed after they proved too fragile in the live lobby flow
-- `Double Party Invite Fix`, `Uniform Seeker Random`, and `UI Crash Guards` replace the former private-party invite join fix, uniform hunter-random fix, and battlepass refresh no-op
+- `Uniform Seeker Random` replaces the former uniform hunter-random binary fix
 
 `Sneak Out_Data/level0`
 
@@ -62,12 +62,8 @@ Properties:
 
 ## Current runtime options
 
-- `double-party-invite-fix`
-  fixes the first accepted private-party invite flow
 - `uniform-seeker-random`
   replaces the default seeker selection with a uniform random choice
-- `ui-crash-guards`
-  suppresses known crash-prone battlepass and daily-quest refresh handlers
 - `portal-mode-selector`
   adds a real `Normal / Berek` selector to the current portal popup while preserving the separate preferred-role selector
 

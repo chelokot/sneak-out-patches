@@ -26,7 +26,7 @@ internal sealed class BackgroundLoadingGuardConfig
             "general",
             "EnableMod",
             true,
-            "Force background loading behaviour and enable loading-flow probes.");
+            "Keep scene loading active while the game is temporarily unfocused.");
         var forceRunInBackground = configFile.Bind(
             "general",
             "ForceRunInBackground",
@@ -35,7 +35,7 @@ internal sealed class BackgroundLoadingGuardConfig
         var enableLogging = configFile.Bind(
             "general",
             "EnableLogging",
-            true,
+            false,
             "Log loading-screen start, scene activation, and focus changes during loading.");
 
         return new BackgroundLoadingGuardConfig(enableMod, forceRunInBackground, enableLogging);

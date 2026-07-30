@@ -3,11 +3,9 @@ using DG.Tweening;
 using Events;
 using Gameplay.Player.Components;
 using HarmonyLib;
-using Il2CppSystem.Collections;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using Kinguinverse.DataUtils.Events;
-using Networking.PGOS;
-using System.Reflection;
+using Networking;
 using TMPro;
 using Types;
 using UI.Buttons;
@@ -21,26 +19,8 @@ namespace SneakOut.PortalModeSelector;
 
 internal static class PortalModeSelectorRuntime
 {
-    public static readonly SceneType[] ClassicMapPool =
-    {
-        SceneType.Map01,
-        SceneType.Map02,
-        SceneType.Map03,
-        SceneType.Map04,
-        SceneType.Map_East01,
-        SceneType.Map_East02
-    };
-
-    public static readonly SceneType[] CrownMapPool =
-    {
-        SceneType.Map_School01,
-        SceneType.Map_School02,
-        SceneType.Map05_TagGame
-    };
-
     private static readonly Dictionary<IntPtr, PortalModeUiState> UiStateByView = new();
-    private static readonly Dictionary<IntPtr, GameModeType> SelectedModeByView = new();
-    private static readonly Dictionary<IntPtr, PortalMapSelectionState> SelectedMapsByView = new();
+    private static readonly PortalMapSelectionState PreferredMapSelection = new();
     private static readonly Color ClassicModeColor = new(0.08627451f, 0.5372549f, 0.654902f, 1f);
     private static readonly Color CrownModeColor = new(0.8117647f, 0.62352943f, 0f, 1f);
     private static readonly Color MapOptionHoverColor = new(1f, 1f, 1f, 0.16f);
@@ -51,17 +31,10 @@ internal static class PortalModeSelectorRuntime
 
     private static ManualLogSource? _logger;
     private static Harmony? _harmony;
-    private static IntPtr _pendingPlayViewPointer;
-    private static GameModeType? _lastRequestedMode;
-    private static bool _portalTreeLogged;
-    private static bool _mapsToPlayOnLogged;
-    private static bool _kinguinverseTypeLogged;
+    private static GameModeType _preferredMode = GameModeType.Default;
+    private static GameModeType? _activeMode;
+    private static PortalMapSelectionState? _activeMapSelection;
     private static Sprite? _crownIconSprite;
-    private static bool _crownIconSearchCompleted;
-    private static MethodInfo? _handleBerekModeStartMethod;
-    private static bool _berekStartupTriggered;
-    private static readonly Assembly GameplayAssembly = typeof(PortalPlayView).Assembly;
-    private static readonly Assembly WebAssembly = typeof(Kinguinverse.WebServiceProvider.Types_v2.WebMatch).Assembly;
 
     public static void Initialize(ManualLogSource logger)
     {
@@ -70,17 +43,11 @@ internal static class PortalModeSelectorRuntime
         _harmony.PatchAll();
     }
 
-    public static Type? FindPatchedType(string typeName)
+    public static void OpenPortal(PortalPlayView view)
     {
-        var assembly = typeName.StartsWith("Kinguinverse.", StringComparison.Ordinal)
-            ? WebAssembly
-            : GameplayAssembly;
-        return assembly.GetType(typeName);
-    }
-
-    public static MethodBase? FindPatchedMethod(string typeName, string methodName)
-    {
-        return AccessTools.Method(FindPatchedType(typeName), methodName);
+        ClearActiveSelection();
+        PreferredMapSelection.Synchronize(view._spookedSettings.MapsToPlayOn);
+        TryEnsureModeRow(view);
     }
 
     public static bool TryEnsureModeRow(PortalPlayView view)
@@ -128,18 +95,6 @@ internal static class PortalModeSelectorRuntime
         {
             _logger?.LogWarning("Portal selector setup skipped: could not resolve private-game section root");
             return false;
-        }
-
-        if (!_portalTreeLogged)
-        {
-            _portalTreeLogged = true;
-            LogPortalViewTree(view, roleSectionRoot, roleRowRoot, privateSectionRoot, privateRowRoot);
-        }
-
-        if (!_mapsToPlayOnLogged)
-        {
-            _mapsToPlayOnLogged = true;
-            LogMapsToPlayOn(view);
         }
 
         var playSectionRoot = FindPlaySectionRoot(view);
@@ -293,10 +248,6 @@ internal static class PortalModeSelectorRuntime
 
         mapTitleText.text = "Maps";
         mapTitleText.fontSize = 13f;
-        var mapSelectionState = SelectedMapsByView.TryGetValue(viewPointer, out var existingMapSelectionState)
-            ? existingMapSelectionState
-            : new PortalMapSelectionState();
-        SelectedMapsByView[viewPointer] = mapSelectionState;
         var mapOptions = CreateMapOptions(
             viewPointer,
             mapSectionObject.transform,
@@ -307,10 +258,7 @@ internal static class PortalModeSelectorRuntime
         );
         if (mapOptions.Length == 0)
         {
-            _logger?.LogWarning("Portal selector map section disabled: failed to create any map options");
-            UnityEngine.Object.Destroy(mapSectionObject);
-            mapSectionObject = modeSectionObject;
-            mapTitleText = labelText;
+            _logger?.LogWarning("Portal selector found no playable maps in the current game settings");
         }
 
         var leftClassicX = -78.87f;
@@ -366,14 +314,6 @@ internal static class PortalModeSelectorRuntime
         );
 
         UiStateByView[viewPointer] = modeState;
-        if (!SelectedModeByView.ContainsKey(viewPointer))
-        {
-            SelectedModeByView[viewPointer] = GameModeType.Default;
-        }
-
-        _logger?.LogInfo(
-            $"Mode row positions prepared: leftClassic={leftClassicX}, leftCrown={leftCrownX}, rightClassic={rightClassicX}, rightCrown={rightCrownX}, checkbox={checkboxRect?.anchoredPosition}, " +
-            $"sourceVictim={view._victimMovingPanel?.anchoredPosition}, sourceHunter={view._hunterMovingPanel?.anchoredPosition}");
 
         LayoutModeRow(modeState);
         RefreshModeRow(modeState, false);
@@ -381,7 +321,6 @@ internal static class PortalModeSelectorRuntime
         {
             RefreshMapSection(modeState);
         }
-        _logger?.LogInfo($"Portal selector injected for view 0x{viewPointer:x}");
         return true;
     }
 
@@ -400,486 +339,168 @@ internal static class PortalModeSelectorRuntime
         var selectedObject = EventSystem.current?.currentSelectedGameObject;
         if (selectedObject is null || !selectedObject.transform.IsChildOf(state.ModeRowObject.transform))
         {
-            if (selectedObject is not null)
-            {
-                _logger?.LogInfo($"Role toggle passed through original path for selected object {selectedObject.name}");
-            }
             return false;
         }
 
-        var nextMode = GetSelectedMode(view) == GameModeType.Berek ? GameModeType.Default : GameModeType.Berek;
-        SelectedModeByView[view.Pointer] = nextMode;
-        PublishRequestedGameMode(nextMode);
-        RefreshModeRow(state, true);
-        if (state.MapOptions.Length > 0)
-        {
-            RefreshMapSection(state);
-        }
-        _logger?.LogInfo($"Portal mode toggled to {nextMode}");
+        ToggleMode(state);
         return true;
     }
 
-    public static void LogOriginalRoleState(PortalPlayView view, string stage)
+    public static void ActivateSelection(PortalPlayView view)
     {
-        _logger?.LogInfo(
-            $"Original role {stage}: greaterChance={view._greaterChanceForSeeker}, " +
-            $"victim={DescribeRectDetailed(view._victimMovingPanel)}, hunter={DescribeRectDetailed(view._hunterMovingPanel)}, " +
-            $"victimText={DescribeTransform(view._victimObject?.transform)}, seekerText={DescribeTransform(view._seekerObject?.transform)}, " +
-            $"victimXValues={view._victimMovingPanelXValues}, hunterXValues={view._hunterMovingPanelXValues}");
+        PreferredMapSelection.Synchronize(view._spookedSettings.MapsToPlayOn);
+        _activeMode = _preferredMode;
+        _activeMapSelection = PreferredMapSelection.Snapshot();
+        PublishRequestedGameMode(_activeMode.Value);
+        _logger?.LogInfo($"Portal play requested {_activeMode.Value}");
+    }
+
+    public static void ClearActiveSelection()
+    {
+        _activeMode = null;
+        _activeMapSelection = null;
+    }
+
+    public static void ReleasePortalView(PortalPlayView view)
+    {
+        if (!UiStateByView.Remove(view.Pointer, out var state))
+        {
+            return;
+        }
+
+        state.ModeButton.onClick.RemoveListener(state.ModeClickAction);
+        foreach (var option in state.MapOptions)
+        {
+            option.Button.onClick.RemoveListener(option.ClickAction);
+        }
+
+        RestoreLayout(state);
+        UnityEngine.Object.Destroy(state.MapSectionObject);
+        UnityEngine.Object.Destroy(state.ModeSectionObject);
     }
 
     private static void ToggleMode(IntPtr viewPointer)
     {
         if (!UiStateByView.TryGetValue(viewPointer, out var state) || !state.IsAlive)
         {
-            _logger?.LogWarning($"Portal mode click ignored for dead view 0x{viewPointer:x}");
             return;
         }
 
-        var nextMode = state.SelectedMode == GameModeType.Berek ? GameModeType.Default : GameModeType.Berek;
-        SelectedModeByView[viewPointer] = nextMode;
-        PublishRequestedGameMode(nextMode);
+        ToggleMode(state);
+    }
+
+    private static void ToggleMode(PortalModeUiState state)
+    {
+        _preferredMode = _preferredMode == GameModeType.Berek ? GameModeType.Default : GameModeType.Berek;
+        PublishRequestedGameMode(_preferredMode);
         RefreshModeRow(state, true);
-        if (state.MapOptions.Length > 0)
-        {
-            RefreshMapSection(state);
-        }
-        _logger?.LogInfo($"Portal mode button clicked, toggled to {nextMode}");
-    }
-
-    public static bool TryHandlePlay(PortalPlayView view)
-    {
-        _pendingPlayViewPointer = view.Pointer;
-        var selectedMode = GetSelectedMode(view);
-        _lastRequestedMode = selectedMode;
-        _berekStartupTriggered = false;
-        PublishRequestedGameMode(selectedMode);
-        _logger?.LogInfo($"Portal play pressed with requested mode {selectedMode}");
-        return false;
-    }
-
-    public static void LogPortalPlayViewClose(PortalPlayView view)
-    {
-        _logger?.LogInfo($"PortalPlayView.Close invoked for view 0x{view.Pointer:x}");
-    }
-
-    public static void LogGameUiLobbyPlay(UI.GameUIManager gameUiManager, string stage)
-    {
-        var openedViews = new List<string>();
-        foreach (var viewType in UI.GameUIManager.CurrentViewsOpened)
-        {
-            openedViews.Add(viewType.ToString());
-        }
-
-        _logger?.LogInfo(
-            $"GameUIManager.OnLobbyPlayButton {stage}: currentUI={UI.GameUIManager.CurrentUIOpened}, opened=[{string.Join(", ", openedViews)}]");
-    }
-
-    public static void LogMatchmakerOnStart(Matchmaker matchmaker, Il2CppSystem.Object? sender, Il2CppSystem.EventArgs? args, string stage)
-    {
-        var senderDescription = sender is null ? "<null>" : sender.GetType().FullName ?? sender.GetType().Name;
-        var argsDescription = args is null ? "<null>" : args.GetType().FullName ?? args.GetType().Name;
-        _logger?.LogInfo(
-            $"Matchmaker.OnStartMatchmaking {stage}: sender={senderDescription}, args={argsDescription}, currentTicket={matchmaker.CurrentMatchmakingTicket ?? "<null>"}");
-    }
-
-    public static void LogFindPlayersByMatchmaking(Matchmaker matchmaker, GameModeType gameModeType, string stage)
-    {
-        _logger?.LogInfo(
-            $"Matchmaker.FindPlayersByMatchmaking {stage}: requestedMode={gameModeType}, ticket={matchmaker.CurrentMatchmakingTicket ?? "<null>"}, isInMatchmaking={matchmaker.IsInMatchmaking}");
-    }
-
-    public static void LogMatchmakingView(MatchmakingView matchmakingView, string stage)
-    {
-        _logger?.LogInfo(
-            $"MatchmakingView {stage}: playButtonsPanelActive={matchmakingView._playButtonsPanel?.activeSelf}, waitingPanelActive={matchmakingView._waitingPanel?.activeSelf}");
-    }
-
-    public static void LogMatchmakingViewState(MatchmakingView matchmakingView, Gameplay.LobbyMatchmakingStateType state, string stage)
-    {
-        _logger?.LogInfo(
-            $"MatchmakingView {stage}: state={state}, playButtonsPanelActive={matchmakingView._playButtonsPanel?.activeSelf}, waitingPanelActive={matchmakingView._waitingPanel?.activeSelf}, playButtonText={(matchmakingView._playButtonText is null ? "<null>" : matchmakingView._playButtonText.text)}");
+        RefreshMapSection(state);
     }
 
     public static bool TryOverrideMatchMode(ref GameModeType gameModeType)
     {
-        if (!TryGetEffectiveRequestedMode(out var selectedMode))
+        if (!_activeMode.HasValue)
         {
             return false;
         }
 
-        gameModeType = selectedMode;
-        _logger?.LogInfo($"Match mode overridden to {selectedMode}");
+        gameModeType = _activeMode.Value;
         return true;
     }
 
-    public static bool IsBerekRequested()
+    public static void ApplyActiveMode(GameState gameState)
     {
-        return TryGetEffectiveRequestedMode(out var selectedMode) && selectedMode == GameModeType.Berek;
+        if (_activeMode.HasValue)
+        {
+            gameState.GameMode = _activeMode.Value;
+        }
     }
 
-    public static bool TryRedirectDefaultModeStart(object controller, CharacterType seekerCharacterType, ref IEnumerator enumerator)
+    public static void WireAllBerekComponents()
     {
-        if (!TryGetEffectiveRequestedMode(out var selectedMode) || selectedMode != GameModeType.Berek)
-        {
-            _logger?.LogInfo($"HandleDefaultModeStart entered with effective mode {selectedMode}");
-            return false;
-        }
-
-        _handleBerekModeStartMethod ??= AccessTools.Method(controller.GetType(), "HandleBerekModeStart");
-        if (_handleBerekModeStartMethod is null)
-        {
-            _logger?.LogWarning("HandleDefaultModeStart redirect failed: HandleBerekModeStart method not found");
-            return false;
-        }
-
-        var redirectedEnumerator = _handleBerekModeStartMethod.Invoke(controller, new object[] { seekerCharacterType }) as IEnumerator;
-        if (redirectedEnumerator is null)
-        {
-            _logger?.LogWarning("HandleDefaultModeStart redirect failed: HandleBerekModeStart returned null");
-            return false;
-        }
-
-        _logger?.LogInfo($"Redirected HandleDefaultModeStart to HandleBerekModeStart for seeker {seekerCharacterType}");
-        enumerator = redirectedEnumerator;
-        return true;
-    }
-
-    public static void LogBerekModeStart(CharacterType seekerCharacterType)
-    {
-        WireAllBerekComponents("HandleBerekModeStart");
-        _logger?.LogInfo($"HandleBerekModeStart entered for seeker {seekerCharacterType}");
-    }
-
-    public static void LogHandleSeeker(CharacterType seekerCharacterType)
-    {
-        if (!TryGetEffectiveRequestedMode(out var selectedMode))
+        if (_activeMode != GameModeType.Berek)
         {
             return;
         }
 
-        _logger?.LogInfo($"HandleSeeker entered with effective mode {selectedMode} and seeker {seekerCharacterType}");
+        foreach (var player in Resources.FindObjectsOfTypeAll<SpookedNetworkPlayer>())
+        {
+            WirePlayerBerekComponent(player);
+        }
     }
 
-    public static void LogPrepareVictims(CharacterType seekerCharacterType)
+    public static void WirePlayerBerekComponent(SpookedNetworkPlayer player)
     {
-        if (!TryGetEffectiveRequestedMode(out var selectedMode))
+        var berekComponent = player.EntityBerekComponent ?? player.GetComponent<EntityBerekComponent>();
+        if (berekComponent is null)
         {
             return;
         }
 
-        _logger?.LogInfo($"PrepareVictims entered with effective mode {selectedMode} and seeker {seekerCharacterType}");
-    }
-
-    public static void LogConfirmSeekerCharacterEvent(Il2CppSystem.EventArgs? args)
-    {
-        if (!TryGetEffectiveRequestedMode(out var selectedMode))
+        player.EntityBerekComponent = berekComponent;
+        if (berekComponent._spookedNetworkPlayer is null)
         {
-            return;
+            berekComponent._spookedNetworkPlayer = player;
         }
-
-        _logger?.LogInfo($"OnConfirmSeekerCharacterEvent entered with effective mode {selectedMode}; argsType={DescribeArgsType(args)}");
-    }
-
-    public static bool TryStartBerekModeFromPrepareVictims(object controller, CharacterType seekerCharacterType)
-    {
-        if (!TryGetEffectiveRequestedMode(out var selectedMode))
-        {
-            return false;
-        }
-
-        _logger?.LogInfo($"PrepareVictims entered with effective mode {selectedMode} and seeker {seekerCharacterType}");
-        if (selectedMode != GameModeType.Berek)
-        {
-            return false;
-        }
-
-        WireAllBerekComponents("PrepareVictims");
-        if (_berekStartupTriggered)
-        {
-            _logger?.LogInfo("PrepareVictims skipped original path because Berek startup already triggered");
-            return true;
-        }
-
-        if (controller is not MonoBehaviour monoBehaviour)
-        {
-            _logger?.LogWarning("PrepareVictims Berek redirect failed: controller is not MonoBehaviour");
-            return false;
-        }
-
-        _handleBerekModeStartMethod ??= AccessTools.Method(controller.GetType(), "HandleBerekModeStart");
-        if (_handleBerekModeStartMethod is null)
-        {
-            _logger?.LogWarning("PrepareVictims Berek redirect failed: HandleBerekModeStart method not found");
-            return false;
-        }
-
-        var berekEnumerator = _handleBerekModeStartMethod.Invoke(controller, new object[] { seekerCharacterType }) as IEnumerator;
-        if (berekEnumerator is null)
-        {
-            _logger?.LogWarning("PrepareVictims Berek redirect failed: HandleBerekModeStart returned null");
-            return false;
-        }
-
-        monoBehaviour.StartCoroutine(berekEnumerator);
-        _berekStartupTriggered = true;
-        _logger?.LogInfo($"PrepareVictims redirected to HandleBerekModeStart for seeker {seekerCharacterType}");
-        return true;
-    }
-
-    public static void LogKinguinverseStartMatch(object matchStateHelper)
-    {
-        if (!TryGetEffectiveRequestedMode(out var selectedMode))
-        {
-            _logger?.LogInfo("KinguinverseStartMatch entered; no effective requested mode");
-            return;
-        }
-
-        var gameStateProperty = AccessTools.Property(matchStateHelper.GetType(), "_gameState");
-        var gameState = gameStateProperty?.GetValue(matchStateHelper, null);
-        if (gameState is null)
-        {
-            _logger?.LogInfo("KinguinverseStartMatch entered; gameState unresolved");
-            return;
-        }
-
-        var gameModeProperty = AccessTools.Property(gameState.GetType(), "GameMode");
-        var incomingMode = gameModeProperty?.GetValue(gameState, null);
-        _logger?.LogInfo($"KinguinverseStartMatch entered; requestedMode={selectedMode}, gameState.GameMode={incomingMode}");
-
-        if (selectedMode != GameModeType.Berek || gameModeProperty is null)
-        {
-            return;
-        }
-
-        if (!_kinguinverseTypeLogged)
-        {
-            _kinguinverseTypeLogged = true;
-            _logger?.LogInfo(
-                $"KinguinverseStartMatch types: helperType={matchStateHelper.GetType().FullName}, gameStateType={gameState.GetType().FullName}, gameModePropertyType={gameModeProperty.PropertyType.FullName}");
-        }
-
-        var coercedMode = Enum.ToObject(gameModeProperty.PropertyType, (int)GameModeType.Berek);
-        gameModeProperty.SetValue(gameState, coercedMode, null);
-        var forcedMode = gameModeProperty.GetValue(gameState, null);
-        _logger?.LogInfo($"KinguinverseStartMatch forced gameState.GameMode to {forcedMode}");
-    }
-
-    public static bool TryRedirectBeforeSelectionState(object beforeSelectionState, object stateMachine)
-    {
-        if (!TryGetEffectiveRequestedMode(out var selectedModeForLog))
-        {
-            _logger?.LogInfo("BeforeSelectionState.Tick entered; no effective requested mode");
-            return false;
-        }
-
-        _logger?.LogInfo($"BeforeSelectionState.Tick entered with effective mode {selectedModeForLog}");
-
-        if (selectedModeForLog != GameModeType.Berek)
-        {
-            return false;
-        }
-
-        var berekSelectionStateProperty = AccessTools.Property(stateMachine.GetType(), "BerekSelectionState");
-        var berekSelectionState = berekSelectionStateProperty?.GetValue(stateMachine, null);
-        if (berekSelectionState is null)
-        {
-            _logger?.LogWarning("BeforeSelectionState redirect failed: BerekSelectionState unresolved");
-            return false;
-        }
-
-        var enqueueSwitchStateMethod = AccessTools.Method(stateMachine.GetType(), "EnqueueSwitchState");
-        if (enqueueSwitchStateMethod is null)
-        {
-            _logger?.LogWarning("BeforeSelectionState redirect failed: EnqueueSwitchState unresolved");
-            return false;
-        }
-
-        enqueueSwitchStateMethod.Invoke(stateMachine, new[] { berekSelectionState });
-        _logger?.LogInfo("BeforeSelectionState redirected to BerekSelectionState");
-        return true;
-    }
-
-    public static void LogBerekSelectionStateTick(object berekSelectionState, object stateMachine)
-    {
-        if (!TryGetEffectiveRequestedMode(out var selectedMode))
-        {
-            return;
-        }
-
-        _logger?.LogInfo($"BerekSelectionState.Tick entered with effective mode {selectedMode}");
-    }
-
-    public static void WireAllBerekComponents(string stage)
-    {
-        var gameObjects = Resources.FindObjectsOfTypeAll<GameObject>();
-        var wiredPlayers = 0;
-        var foundPlayers = 0;
-        foreach (var gameObject in gameObjects)
-        {
-            var player = gameObject.GetComponent("SpookedNetworkPlayer");
-            if (player is null)
-            {
-                continue;
-            }
-
-            foundPlayers++;
-            if (TryWireBerekComponent(player, stage))
-            {
-                wiredPlayers++;
-            }
-        }
-
-        _logger?.LogInfo($"{stage} wired EntityBerekComponent for {wiredPlayers}/{foundPlayers} players");
-    }
-
-    public static void WirePlayerBerekComponent(object player, string stage)
-    {
-        TryWireBerekComponent(player, stage);
-    }
-
-    public static void LogGivePlayerCrown(object controller)
-    {
-        _logger?.LogInfo("GivePlayerCrown entered");
-        WireAllBerekComponents("GivePlayerCrown");
-    }
-
-    public static void LogInitializeBerekComponents(object controller)
-    {
-        _logger?.LogInfo("InitializeBerekComponents entered");
-        WireAllBerekComponents("InitializeBerekComponents");
-    }
-
-    public static void LogEntityBerekHandleCrown(EntityBerekComponent component)
-    {
-        var crownObject = component._crownObject;
-        _logger?.LogInfo(
-            $"EntityBerekComponent.HandleCrown entered: internalId={component.InternalId}, hasCrown={component.HasCrown()}, crownActive={crownObject?.activeSelf}");
-    }
-
-    public static void TryOverrideKinguinverseTag(object displayClassInstance)
-    {
-        if (!TryGetEffectiveRequestedMode(out var selectedMode))
-        {
-            _logger?.LogInfo("KinguinverseStartMatch closure entered; no effective requested mode");
-            return;
-        }
-
-        var isTagProperty = AccessTools.Property(displayClassInstance.GetType(), "isTag");
-        if (isTagProperty is null)
-        {
-            _logger?.LogInfo($"KinguinverseStartMatch closure entered; isTag field unresolved on {displayClassInstance.GetType().FullName}");
-            return;
-        }
-
-        var incomingValue = isTagProperty.GetValue(displayClassInstance, null);
-        var targetValue = selectedMode == GameModeType.Berek;
-        isTagProperty.SetValue(displayClassInstance, targetValue, null);
-        var forcedValue = isTagProperty.GetValue(displayClassInstance, null);
-        _logger?.LogInfo(
-            $"KinguinverseStartMatch closure tag override: requestedMode={selectedMode}, incomingIsTag={incomingValue}, forcedIsTag={forcedValue}");
-    }
-
-    public static void TryOverrideWebMatchTag(ref bool value)
-    {
-        if (!TryGetEffectiveRequestedMode(out var selectedMode))
-        {
-            return;
-        }
-
-        var targetValue = selectedMode == GameModeType.Berek;
-        if (value == targetValue)
-        {
-            return;
-        }
-
-        _logger?.LogInfo($"WebMatch.Tag overridden from {value} to {targetValue} for requestedMode={selectedMode}");
-        value = targetValue;
     }
 
     public static bool TryOverrideRandomScene(Il2CppStructArray<SceneType> mapsToPlayOn, GameModeType gameModeType, ref SceneType sceneType)
     {
-        if (!TryGetActiveMapSelectionState(out var mapSelectionState))
+        if (!_activeMode.HasValue || _activeMapSelection is null)
         {
             return false;
         }
 
-        var effectiveMode = TryGetEffectiveRequestedMode(out var selectedMode)
-            ? selectedMode
-            : gameModeType;
-        var selectedPool = mapSelectionState.GetSelectedMaps(effectiveMode).ToArray();
+        var availableMaps = mapsToPlayOn.ToHashSet();
+        var selectedPool = _activeMapSelection
+            .GetSelectedMaps(_activeMode.Value)
+            .Where(availableMaps.Contains)
+            .ToArray();
         if (selectedPool.Length == 0)
         {
             return false;
         }
 
         sceneType = selectedPool[UnityEngine.Random.Range(0, selectedPool.Length)];
-        _logger?.LogInfo(
-            $"GetRandomScene overridden to {sceneType} for mode {effectiveMode} (incoming {gameModeType}); sourceMaps=[{string.Join(", ", mapsToPlayOn.Select(map => map.ToString()))}], selectedPool=[{string.Join(", ", selectedPool.Select(map => map.ToString()))}]");
+        _logger?.LogInfo($"Portal selected map {sceneType} for {_activeMode.Value}");
         return true;
     }
 
     public static void TryOverrideStartMatchmakingArgs(Il2CppSystem.EventArgs? args)
     {
-        if (!TryGetEffectiveRequestedMode(out var selectedMode))
+        if (!_activeMode.HasValue || args is not StartMatchmakingEvent matchmakingEvent)
         {
             return;
         }
 
-        if (args is not StartMatchmakingEvent matchmakingEvent)
-        {
-            _logger?.LogInfo($"Matchmaker.OnStartMatchmaking args not overridden: {DescribeArgsType(args)}");
-            return;
-        }
-
-        var incomingMode = matchmakingEvent.GameModeType;
-        matchmakingEvent.GameModeType = selectedMode;
-        _logger?.LogInfo($"StartMatchmakingEvent mode overridden from {incomingMode} to {selectedMode}");
+        matchmakingEvent.GameModeType = _activeMode.Value;
     }
 
     public static void TryOverrideRequestChangeGameModeArgs(Il2CppSystem.EventArgs? args)
     {
-        if (!TryGetEffectiveRequestedMode(out var selectedMode))
+        if (!_activeMode.HasValue || args is not RequestChangeGameModeEvent changeGameModeEvent)
         {
             return;
         }
 
-        if (args is not RequestChangeGameModeEvent changeGameModeEvent)
-        {
-            _logger?.LogInfo($"RequestChangeGameModeEvent args not overridden: {DescribeArgsType(args)}");
-            return;
-        }
-
-        var incomingMode = changeGameModeEvent.RequestedGameModeType;
-        changeGameModeEvent.RequestedGameModeType = selectedMode;
-        _logger?.LogInfo($"RequestChangeGameModeEvent mode overridden from {incomingMode} to {selectedMode}");
+        changeGameModeEvent.RequestedGameModeType = _activeMode.Value;
     }
 
-    public static void TryOverrideSendMatchInfoArgs(Il2CppSystem.EventArgs? args)
+    public static void TryOverrideBroadcastMatchArgs(Il2CppSystem.EventArgs? args)
     {
-        if (!TryGetEffectiveRequestedMode(out var selectedMode))
+        if (!_activeMode.HasValue || args is not BroadcastMatchSessionToOtherLobbyMembers broadcastEvent)
         {
             return;
         }
 
-        if (args is not SendMatchInfoToTeamEvent sendMatchInfoEvent)
-        {
-            _logger?.LogInfo($"SendMatchInfoToTeamEvent args not overridden: {DescribeArgsType(args)}");
-            return;
-        }
-
-        var incomingMode = sendMatchInfoEvent.SelectedGameModeType;
-        sendMatchInfoEvent.SelectedGameModeType = selectedMode;
-        _logger?.LogInfo($"SendMatchInfoToTeamEvent mode overridden from {incomingMode} to {selectedMode} for match {sendMatchInfoEvent.MatchId}");
+        broadcastEvent.SelectedGameModeType = _activeMode.Value;
     }
 
     private static void PublishRequestedGameMode(GameModeType selectedMode)
     {
         try
         {
-            _lastRequestedMode = selectedMode;
             GameEventsManager.Publish<RequestChangeGameModeEvent>(null, new RequestChangeGameModeEvent(selectedMode));
-            _logger?.LogInfo($"Published RequestChangeGameModeEvent: {selectedMode}");
         }
         catch (Exception exception)
         {
@@ -889,120 +510,7 @@ internal static class PortalModeSelectorRuntime
 
     public static GameModeType GetSelectedMode(PortalPlayView view)
     {
-        return SelectedModeByView.TryGetValue(view.Pointer, out var selectedMode)
-            ? selectedMode
-            : GameModeType.Default;
-    }
-
-    private static bool TryGetEffectiveRequestedMode(out GameModeType selectedMode)
-    {
-        if (_lastRequestedMode.HasValue)
-        {
-            selectedMode = _lastRequestedMode.Value;
-            return true;
-        }
-
-        if (_pendingPlayViewPointer != IntPtr.Zero && SelectedModeByView.TryGetValue(_pendingPlayViewPointer, out selectedMode))
-        {
-            return true;
-        }
-
-        selectedMode = GameModeType.Default;
-        return false;
-    }
-
-    private static bool TryWireBerekComponent(object player, string stage)
-    {
-        var playerType = player.GetType();
-        var entityBerekProperty = AccessTools.Property(playerType, "EntityBerekComponent");
-        var gameObjectProperty = AccessTools.Property(playerType, "gameObject");
-        var internalIdProperty = AccessTools.Property(playerType, "InternalId");
-        var characterTypeProperty = AccessTools.Property(playerType, "CharacterType");
-        if (entityBerekProperty is null || gameObjectProperty is null)
-        {
-            return false;
-        }
-
-        var entityBerekComponent = entityBerekProperty.GetValue(player, null) as EntityBerekComponent;
-        if (entityBerekComponent is null)
-        {
-            var playerGameObject = gameObjectProperty.GetValue(player, null) as GameObject;
-            if (playerGameObject is null)
-            {
-                return false;
-            }
-
-            entityBerekComponent = playerGameObject.GetComponent<EntityBerekComponent>();
-        }
-
-        if (entityBerekComponent is null)
-        {
-            return false;
-        }
-
-        var changed = false;
-        if (entityBerekProperty.GetValue(player, null) is null)
-        {
-            entityBerekProperty.SetValue(player, entityBerekComponent, null);
-            changed = true;
-        }
-
-        var berekType = entityBerekComponent.GetType();
-        var spookedNetworkPlayerProperty = AccessTools.Property(berekType, "_spookedNetworkPlayer");
-        if (spookedNetworkPlayerProperty is not null && spookedNetworkPlayerProperty.GetValue(entityBerekComponent, null) is null)
-        {
-            spookedNetworkPlayerProperty.SetValue(entityBerekComponent, player, null);
-            changed = true;
-        }
-
-        if (changed)
-        {
-            var internalId = internalIdProperty?.GetValue(player, null);
-            var characterType = characterTypeProperty?.GetValue(player, null);
-            var pointerProperty = AccessTools.Property(berekType, "Pointer");
-            var componentPointer = pointerProperty?.GetValue(entityBerekComponent, null);
-            _logger?.LogInfo(
-                $"{stage} wired EntityBerekComponent for player {internalId} ({characterType}) component={componentPointer}");
-        }
-
-        return true;
-    }
-
-    private static bool TryGetActiveMapSelectionState(out PortalMapSelectionState mapSelectionState)
-    {
-        if (_pendingPlayViewPointer != IntPtr.Zero
-            && SelectedMapsByView.TryGetValue(_pendingPlayViewPointer, out var pendingMapSelectionState))
-        {
-            mapSelectionState = pendingMapSelectionState;
-            return true;
-        }
-
-        foreach (var state in UiStateByView.Values)
-        {
-            if (!state.IsAlive)
-            {
-                continue;
-            }
-
-            if (SelectedMapsByView.TryGetValue(state.View.Pointer, out var activeMapSelectionState))
-            {
-                mapSelectionState = activeMapSelectionState;
-                return true;
-            }
-        }
-
-        mapSelectionState = null!;
-        return false;
-    }
-
-    private static string DescribeArgsType(Il2CppSystem.EventArgs? args)
-    {
-        if (args is null)
-        {
-            return "<null>";
-        }
-
-        return args.GetType().FullName ?? args.GetType().Name;
+        return _preferredMode;
     }
 
     private static void LayoutModeRow(PortalModeUiState state)
@@ -1042,13 +550,39 @@ internal static class PortalModeSelectorRuntime
         privateSectionRect.SetSiblingIndex(state.OriginalRoleSectionSiblingIndex + 2);
     }
 
+    private static void RestoreLayout(PortalModeUiState state)
+    {
+        var roleSectionRect = state.RoleSectionObject.GetComponent<RectTransform>();
+        var privateSectionRect = state.PrivateSectionObject.GetComponent<RectTransform>();
+        var playSectionRect = state.PlaySectionObject.GetComponent<RectTransform>();
+        var contentRootRect = state.ContentRootObject.GetComponent<RectTransform>();
+        var popupRootRect = state.PopupRootObject.GetComponent<RectTransform>();
+        if (roleSectionRect is null
+            || privateSectionRect is null
+            || playSectionRect is null
+            || contentRootRect is null
+            || popupRootRect is null)
+        {
+            return;
+        }
+
+        roleSectionRect.anchoredPosition = state.OriginalRoleSectionPosition;
+        privateSectionRect.anchoredPosition = state.OriginalPrivateSectionPosition;
+        playSectionRect.anchoredPosition = state.OriginalPlaySectionPosition;
+        contentRootRect.anchoredPosition = state.OriginalContentPosition;
+        contentRootRect.sizeDelta = state.OriginalContentSize;
+        popupRootRect.anchoredPosition = state.OriginalPopupPosition;
+        popupRootRect.sizeDelta = state.OriginalPopupSize;
+        roleSectionRect.SetSiblingIndex(state.OriginalRoleSectionSiblingIndex);
+        privateSectionRect.SetSiblingIndex(state.OriginalRoleSectionSiblingIndex + 1);
+    }
+
     private static void RefreshModeRow(PortalModeUiState state, bool animate)
     {
-        state.LabelText.text = "Game mode";
+        state.LabelText.text = state.View._gameTranslator.Translate("CHOOSE_GAME_MODE");
         state.LeftText.text = "Classic";
         state.RightText.text = "Crown";
         var classicSelected = state.SelectedMode == GameModeType.Default;
-        var selectedColor = classicSelected ? ClassicModeColor : CrownModeColor;
 
         state.LeftPanelImage.color = ClassicModeColor;
         state.RightPanelImage.color = CrownModeColor;
@@ -1067,8 +601,6 @@ internal static class PortalModeSelectorRuntime
             animate
         );
         ApplyModeCheckboxVisual(state, classicSelected, animate);
-        _logger?.LogInfo(
-            $"Mode row refresh: selected={state.SelectedMode}, leftPos={DescribeRectDetailed(state.LeftMovingPanel)}, rightPos={DescribeRectDetailed(state.RightMovingPanel)}");
     }
 
     private static void RefreshMapSection(PortalModeUiState state)
@@ -1102,26 +634,13 @@ internal static class PortalModeSelectorRuntime
         var lineSpacing = 28f;
         var leftX = -84f;
         var rightX = 34f;
-        var singleX = -84f;
         var activeMode = state.SelectedMode == GameModeType.Berek ? GameModeType.Berek : GameModeType.Default;
-        var activeSelections = SelectedMapsByView[state.View.Pointer].GetSelectedMaps(activeMode);
-
-        var classicLayout = new Dictionary<SceneType, Vector2>
-        {
-            [SceneType.Map01] = new Vector2(leftX, lineStartY),
-            [SceneType.Map02] = new Vector2(rightX, lineStartY),
-            [SceneType.Map03] = new Vector2(leftX, lineStartY - lineSpacing),
-            [SceneType.Map04] = new Vector2(rightX, lineStartY - lineSpacing),
-            [SceneType.Map_East01] = new Vector2(singleX, lineStartY - lineSpacing * 2f),
-            [SceneType.Map_East02] = new Vector2(singleX, lineStartY - lineSpacing * 3f)
-        };
-
-        var crownLayout = new Dictionary<SceneType, Vector2>
-        {
-            [SceneType.Map_School01] = new Vector2(singleX, lineStartY),
-            [SceneType.Map_School02] = new Vector2(singleX, lineStartY - lineSpacing),
-            [SceneType.Map05_TagGame] = new Vector2(singleX, lineStartY - lineSpacing * 2f)
-        };
+        var activeSelections = PreferredMapSelection.GetSelectedMaps(activeMode);
+        var visibleOptions = state.MapOptions
+            .Where(option => option.GameModeType == activeMode)
+            .OrderBy(option => (int)option.SceneType)
+            .ToArray();
+        var columnCount = visibleOptions.Length > 3 ? 2 : 1;
 
         foreach (var option in state.MapOptions)
         {
@@ -1141,14 +660,18 @@ internal static class PortalModeSelectorRuntime
             optionRect.anchorMin = new Vector2(0.5f, 1f);
             optionRect.anchorMax = new Vector2(0.5f, 1f);
             optionRect.pivot = new Vector2(0.5f, 1f);
-            optionRect.sizeDelta = option.GameModeType == GameModeType.Default ? new Vector2(150f, 24f) : new Vector2(196f, 24f);
-            optionRect.anchoredPosition = option.GameModeType == GameModeType.Default
-                ? classicLayout[option.SceneType]
-                : crownLayout[option.SceneType];
+            optionRect.sizeDelta = columnCount == 2 ? new Vector2(150f, 24f) : new Vector2(196f, 24f);
+            var optionIndex = Array.IndexOf(visibleOptions, option);
+            var optionColumn = optionIndex % columnCount;
+            var optionRow = optionIndex / columnCount;
+            optionRect.anchoredPosition = new Vector2(
+                columnCount == 1 || optionColumn == 0 ? leftX : rightX,
+                lineStartY - lineSpacing * optionRow
+            );
 
             option.LabelText.fontSize = 18f;
             option.LabelText.alignment = TextAlignmentOptions.Left;
-            option.LabelText.text = option.SceneType.ToString();
+            option.LabelText.text = FormatMapName(option.SceneType);
             RefreshMapOptionVisual(option, activeSelections.Contains(option.SceneType), activeMode);
         }
     }
@@ -1164,7 +687,7 @@ internal static class PortalModeSelectorRuntime
     {
         var options = new List<PortalMapOptionUiState>();
 
-        foreach (var map in ClassicMapPool)
+        foreach (var map in PreferredMapSelection.GetAvailableMaps(GameModeType.Default).OrderBy(sceneType => (int)sceneType))
         {
             var option = CreateMapOption(viewPointer, mapSectionTransform, textTemplate, rowBackgroundSprite, checkboxOutlineSprite, checkboxFillSprite, map, GameModeType.Default);
             if (option is not null)
@@ -1173,7 +696,7 @@ internal static class PortalModeSelectorRuntime
             }
         }
 
-        foreach (var map in CrownMapPool)
+        foreach (var map in PreferredMapSelection.GetAvailableMaps(GameModeType.Berek).OrderBy(sceneType => (int)sceneType))
         {
             var option = CreateMapOption(viewPointer, mapSectionTransform, textTemplate, rowBackgroundSprite, checkboxOutlineSprite, checkboxFillSprite, map, GameModeType.Berek);
             if (option is not null)
@@ -1252,7 +775,7 @@ internal static class PortalModeSelectorRuntime
             checkboxRect.sizeDelta = new Vector2(20f, 20f);
 
             var checkboxOutlineImage = checkboxObject.AddComponent<Image>();
-            checkboxOutlineImage.sprite = null;
+            checkboxOutlineImage.sprite = checkboxOutlineSprite;
             checkboxOutlineImage.color = MapCheckboxOutlineColor;
             checkboxOutlineImage.raycastTarget = false;
 
@@ -1266,7 +789,7 @@ internal static class PortalModeSelectorRuntime
             checkboxFillRect.sizeDelta = new Vector2(12f, 12f);
 
             var checkboxFillImage = checkboxFillObject.AddComponent<Image>();
-            checkboxFillImage.sprite = null;
+            checkboxFillImage.sprite = checkboxFillSprite;
             checkboxFillImage.color = MapCheckboxOffFillColor;
             checkboxFillImage.raycastTarget = false;
 
@@ -1309,17 +832,11 @@ internal static class PortalModeSelectorRuntime
 
     private static void ToggleMap(IntPtr viewPointer, SceneType sceneType, GameModeType gameModeType)
     {
-        if (!SelectedMapsByView.TryGetValue(viewPointer, out var mapSelectionState))
-        {
-            return;
-        }
-
-        var activeSelections = mapSelectionState.GetSelectedMaps(gameModeType);
+        var activeSelections = PreferredMapSelection.GetSelectedMaps(gameModeType);
         if (activeSelections.Contains(sceneType))
         {
             if (activeSelections.Count == 1)
             {
-                _logger?.LogInfo($"Map toggle ignored for {sceneType}: would clear the last available map for {gameModeType}");
                 return;
             }
 
@@ -1334,15 +851,32 @@ internal static class PortalModeSelectorRuntime
         {
             RefreshMapSection(state);
         }
-
-        _logger?.LogInfo($"Map selection toggled for {gameModeType}: [{string.Join(", ", activeSelections.Select(map => map.ToString()))}]");
     }
 
     private static void RefreshMapOptionVisual(PortalMapOptionUiState option, bool selected, GameModeType activeMode)
     {
         option.RowBackgroundImage.color = new Color(1f, 1f, 1f, 0f);
         option.CheckboxOutlineImage.color = MapCheckboxOutlineColor;
-        option.CheckboxFillImage.color = selected ? ClassicModeColor : MapCheckboxOffFillColor;
+        option.CheckboxFillImage.color = selected
+            ? activeMode == GameModeType.Berek ? CrownModeColor : ClassicModeColor
+            : MapCheckboxOffFillColor;
+    }
+
+    private static string FormatMapName(SceneType sceneType)
+    {
+        return sceneType switch
+        {
+            SceneType.Map01 => "Map 1",
+            SceneType.Map02 => "Map 2",
+            SceneType.Map03 => "Map 3",
+            SceneType.Map04 => "Map 4",
+            SceneType.Map_East01 => "East 1",
+            SceneType.Map_East02 => "East 2",
+            SceneType.Map_School01 => "School 1",
+            SceneType.Map_School02 => "School 2",
+            SceneType.Map05_TagGame => "Crown arena",
+            _ => sceneType.ToString()
+        };
     }
 
     private static Transform? FindRowRootFromButton(Transform buttonTransform)
@@ -1368,92 +902,6 @@ internal static class PortalModeSelectorRuntime
     private static float GetWorldY(TMP_Text text)
     {
         return text.transform.position.y;
-    }
-
-    private static void LogPortalViewTree(
-        PortalPlayView view,
-        Transform roleSectionRoot,
-        Transform roleRowRoot,
-        Transform privateSectionRoot,
-        Transform privateRowRoot
-    )
-    {
-        _logger?.LogInfo($"Portal canvas: {DescribeTransform(view._canvasObject?.transform)}");
-        _logger?.LogInfo($"Role section root: {DescribeTransform(roleSectionRoot)}");
-        _logger?.LogInfo($"Role row root: {DescribeTransform(roleRowRoot)}");
-        _logger?.LogInfo($"Private section root: {DescribeTransform(privateSectionRoot)}");
-        _logger?.LogInfo($"Private row root: {DescribeTransform(privateRowRoot)}");
-        _logger?.LogInfo($"Play section root: {DescribeTransform(FindPlaySectionRoot(view))}");
-        _logger?.LogInfo($"Content root: {DescribeTransform(FindCommonAncestor(roleSectionRoot, privateSectionRoot))}");
-        _logger?.LogInfo($"Popup root: {DescribeTransform(FindCommonAncestor(roleSectionRoot, privateSectionRoot, FindPlaySectionRoot(view)))}");
-        LogChildren(roleSectionRoot, 0, 4);
-        LogChildren(privateSectionRoot, 0, 4);
-    }
-
-    private static void LogMapsToPlayOn(PortalPlayView view)
-    {
-        try
-        {
-            var maps = view._spookedSettings?.MapsToPlayOn;
-            if (maps is null)
-            {
-                _logger?.LogWarning("MapsToPlayOn log skipped: _spookedSettings or MapsToPlayOn is null");
-                return;
-            }
-
-            var sceneNames = new List<string>();
-            foreach (var sceneType in maps)
-            {
-                sceneNames.Add(sceneType.ToString());
-            }
-
-            _logger?.LogInfo($"MapsToPlayOn: [{string.Join(", ", sceneNames)}]");
-        }
-        catch (Exception exception)
-        {
-            _logger?.LogError($"MapsToPlayOn log failed: {exception}");
-        }
-    }
-
-    private static void LogChildren(Transform root, int depth, int maxDepth)
-    {
-        if (depth > maxDepth)
-        {
-            return;
-        }
-
-        var indent = new string(' ', depth * 2);
-        _logger?.LogInfo($"{indent}- {DescribeTransform(root)}");
-        for (var index = 0; index < root.childCount; index++)
-        {
-            var child = root.GetChild(index);
-            LogChildren(child, depth + 1, maxDepth);
-        }
-    }
-
-    private static string DescribeTransform(Transform? transform)
-    {
-        if (transform is null)
-        {
-            return "<null>";
-        }
-
-        var rectTransform = transform.GetComponent<RectTransform>();
-        return rectTransform is null
-            ? transform.name
-            : $"{transform.name} pos={rectTransform.anchoredPosition} size={rectTransform.sizeDelta}";
-    }
-
-    private static string DescribeRectDetailed(RectTransform? rectTransform)
-    {
-        if (rectTransform is null)
-        {
-            return "<null>";
-        }
-
-        return $"{rectTransform.name} anchored={rectTransform.anchoredPosition} local={rectTransform.localPosition} " +
-               $"anchorMin={rectTransform.anchorMin} anchorMax={rectTransform.anchorMax} pivot={rectTransform.pivot} " +
-               $"offsetMin={rectTransform.offsetMin} offsetMax={rectTransform.offsetMax} size={rectTransform.sizeDelta}";
     }
 
     private static void ApplyModePanelLayout(RectTransform panel, Vector2 anchorMin, Vector2 anchorMax, float localX, bool animate)
@@ -1498,12 +946,11 @@ internal static class PortalModeSelectorRuntime
 
     private static Sprite? ResolveCrownIconSprite()
     {
-        if (_crownIconSearchCompleted)
+        if (_crownIconSprite is not null && _crownIconSprite.Pointer != IntPtr.Zero)
         {
             return _crownIconSprite;
         }
 
-        _crownIconSearchCompleted = true;
         var sprites = Resources.FindObjectsOfTypeAll<Sprite>();
         var preferredSprite = sprites.FirstOrDefault(sprite =>
             sprite is not null
@@ -1513,10 +960,6 @@ internal static class PortalModeSelectorRuntime
 
         _crownIconSprite = preferredSprite ?? sprites.FirstOrDefault(sprite =>
             sprite is not null && sprite.name.Contains("crown", StringComparison.OrdinalIgnoreCase));
-
-        _logger?.LogInfo(_crownIconSprite is null
-            ? "Crown icon sprite not found in loaded resources"
-            : $"Crown icon sprite resolved: {_crownIconSprite.name}");
 
         return _crownIconSprite;
     }

@@ -11,7 +11,6 @@ using Kinguinverse.WebServiceProvider.Types_v2.Products;
 using Il2CppTasks = Il2CppSystem.Threading.Tasks;
 using System.IO;
 using UI.Views;
-using System.Collections;
 using System.Collections.Generic;
 using ClientCharacterType = Types.CharacterType;
 
@@ -22,7 +21,6 @@ internal static class UnlockEverythingRuntime
     private static ManualLogSource? _logger;
     private static Harmony? _harmony;
     private static UnlockEverythingConfig? _configuration;
-    private static readonly HashSet<string> SuppressedLoopSources = new();
     private static ClientCache? _currentClientCache;
     private static readonly object ResearchLogLock = new();
     private static string? _researchLogPath;
@@ -228,8 +226,8 @@ internal static class UnlockEverythingRuntime
 
         try
         {
-            var getPiecesMethod = AccessTools.Method(typeof(CustomizeCharacterNewMetaView), "get__costumePieceViews");
-            if (getPiecesMethod?.Invoke(view, Array.Empty<object>()) is not IEnumerable piecesEnumerable)
+            var pieces = view._costumePieceViews;
+            if (pieces is null)
             {
                 LogInfo($"{source}: costumePieces=unavailable");
                 return;
@@ -237,9 +235,8 @@ internal static class UnlockEverythingRuntime
 
             var states = new List<string>();
             var index = 0;
-            foreach (var item in piecesEnumerable)
+            foreach (var piece in pieces)
             {
-                var piece = item as CostumePieceView;
                 if (piece is null)
                 {
                     states.Add($"{index}:null");
@@ -249,8 +246,8 @@ internal static class UnlockEverythingRuntime
 
                 var storedSkinType = piece.StoredSkinType;
                 var storedSkinPartType = piece.StoredSkinPartType;
-                var lockObject = AccessTools.Method(typeof(CostumePieceView), "get__lockObject")?.Invoke(piece, Array.Empty<object>()) as UnityEngine.GameObject;
-                var equippedObject = AccessTools.Method(typeof(CostumePieceView), "get__equippedObject")?.Invoke(piece, Array.Empty<object>()) as UnityEngine.GameObject;
+                var lockObject = piece._lockObject;
+                var equippedObject = piece._equippedObject;
                 states.Add($"{index}:{storedSkinType}/{storedSkinPartType}:lock={(lockObject?.activeSelf ?? false)}:equipped={(equippedObject?.activeSelf ?? false)}");
                 index++;
             }
@@ -386,18 +383,6 @@ internal static class UnlockEverythingRuntime
         var formattedMessage = $"{message}: {exception}";
         _logger?.LogError(formattedMessage);
         WriteResearchLog("ERROR", formattedMessage, force: true);
-    }
-
-    public static void LogSuppressedLoop(string source)
-    {
-        if (!SuppressedLoopSources.Add(source))
-        {
-            return;
-        }
-
-        var message = $"Suppressed unstable lobby view path: {source}";
-        _logger?.LogWarning(message);
-        WriteResearchLog("WARN", message, force: true);
     }
 
     private static int GetLength(string? value)

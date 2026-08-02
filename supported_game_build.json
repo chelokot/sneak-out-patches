@@ -4,5 +4,6 @@
   "game_assembly_sha256": "98ceda86f3b8f39b45f78fc54a0f8b9756888001c18f6f75c85632740832a1fc",
   "global_metadata_sha256": "65690a8c5b03cd8759a059166907f6d877f070ace2d5e5b73b12c474f0a9c247",
   "interop_assembly": "Assembly-CSharp.dll",
-  "interop_sha256": "bd508cd6e43dcf656e69a89bb48f1420a0cdea1b2560026c1512f07dcf828835"
+  "interop_cache_key_file": "assembly-hash.txt",
+  "interop_cache_key": "364cb8afdea9edca851cf3d50237dad2"
 }

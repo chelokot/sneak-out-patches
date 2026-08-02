@@ -1,5 +1,10 @@
 # Documentation Index
 
+## performance
+
+- `performance/performance-overhaul.md`
+  Measured startup, frame pacing, memory, rendering and Fusion results for client 1.1.10, including rejected experiments and the automated test harness.
+
 ## runtime mods
 
 - `reverse-engineering/runtime-mod-catalog.md`

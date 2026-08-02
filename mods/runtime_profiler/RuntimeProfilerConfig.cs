@@ -15,6 +15,8 @@ internal sealed class RuntimeProfilerConfig
         ConfigEntry<bool> includeConstructors,
         ConfigEntry<bool> includeCompilerGenerated,
         ConfigEntry<int> maxPatchedMethods,
+        ConfigEntry<int> warmupSeconds,
+        ConfigEntry<int> reportAfterSeconds,
         ConfigEntry<int> topMethodCount,
         ConfigEntry<int> topEdgeCount)
     {
@@ -28,6 +30,8 @@ internal sealed class RuntimeProfilerConfig
         IncludeConstructors = includeConstructors;
         IncludeCompilerGenerated = includeCompilerGenerated;
         MaxPatchedMethods = maxPatchedMethods;
+        WarmupSeconds = warmupSeconds;
+        ReportAfterSeconds = reportAfterSeconds;
         TopMethodCount = topMethodCount;
         TopEdgeCount = topEdgeCount;
     }
@@ -51,6 +55,10 @@ internal sealed class RuntimeProfilerConfig
     public ConfigEntry<bool> IncludeCompilerGenerated { get; }
 
     public ConfigEntry<int> MaxPatchedMethods { get; }
+
+    public ConfigEntry<int> WarmupSeconds { get; }
+
+    public ConfigEntry<int> ReportAfterSeconds { get; }
 
     public ConfigEntry<int> TopMethodCount { get; }
 
@@ -113,6 +121,16 @@ internal sealed class RuntimeProfilerConfig
             "TopMethodCount",
             200,
             "Maximum number of methods to write into the report.");
+        var warmupSeconds = configFile.Bind(
+            "report",
+            "WarmupSeconds",
+            0,
+            "Ignore method calls during this startup/scene-loading warmup period.");
+        var reportAfterSeconds = configFile.Bind(
+            "report",
+            "ReportAfterSeconds",
+            60,
+            "Profiling duration after warmup before the one-shot report is written.");
         var topEdgeCount = configFile.Bind(
             "report",
             "TopEdgeCount",
@@ -130,6 +148,8 @@ internal sealed class RuntimeProfilerConfig
             includeConstructors,
             includeCompilerGenerated,
             maxPatchedMethods,
+            warmupSeconds,
+            reportAfterSeconds,
             topMethodCount,
             topEdgeCount);
     }

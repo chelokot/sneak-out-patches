@@ -11,6 +11,9 @@
     <Reference Include="Fusion.Runtime">
       <HintPath>$(InteropDir)/Fusion.Runtime.dll</HintPath>
     </Reference>
+    <Reference Include="Fusion.Realtime">
+      <HintPath>$(InteropDir)/Fusion.Realtime.dll</HintPath>
+    </Reference>
     <Reference Include="UnityEngine.CoreModule">
       <HintPath>$(InteropDir)/UnityEngine.CoreModule.dll</HintPath>
     </Reference>

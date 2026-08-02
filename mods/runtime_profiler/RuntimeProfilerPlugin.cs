@@ -8,7 +8,7 @@ public sealed class RuntimeProfilerPlugin : BasePlugin
 {
     public const string PluginGuid = "chelokot.sneakout.runtime-profiler";
     public const string PluginName = "Runtime Profiler";
-    public const string PluginVersion = "0.1.0";
+    public const string PluginVersion = "0.2.0";
 
     public override void Load()
     {

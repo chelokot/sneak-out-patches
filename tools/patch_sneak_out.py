@@ -10,6 +10,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import textwrap
 from argparse import ArgumentParser
 from dataclasses import dataclass
@@ -28,6 +29,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 RUNTIME_MOD_DOTNET = REPO_ROOT / ".tmp/runtime-mod/dotnet" / ("dotnet.exe" if os.name == "nt" else "dotnet")
 LOCAL_BEPINEX_DIR = REPO_ROOT / ".tmp/runtime-mod/bepinex"
 RUNTIME_MOD_ARTIFACTS_DIR = REPO_ROOT / "artifacts/runtime_mods"
+SUPPORTED_GAME_BUILD_PATH = REPO_ROOT / "supported_game_build.json"
 PROTON_LAUNCH_OPTIONS = 'WINEDLLOVERRIDES="winhttp=n,b" %command%'
 RUNTIME_LOADER_ENTRY_NAMES: tuple[str, ...] = (
     "BepInEx",
@@ -139,6 +141,84 @@ RUNTIME_MOD_OPTION_BY_ID = {option.option_id: option for option in RUNTIME_MOD_O
 
 def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file_handle:
+        while chunk := file_handle.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def has_compatible_interop_cache(game_dir: Path) -> bool:
+    try:
+        supported_build = json.loads(SUPPORTED_GAME_BUILD_PATH.read_text(encoding="utf-8"))
+        fingerprints = (
+            (game_dir / "GameAssembly.dll", supported_build["game_assembly_sha256"]),
+            (
+                game_dir / "Sneak Out_Data/il2cpp_data/Metadata/global-metadata.dat",
+                supported_build["global_metadata_sha256"],
+            ),
+        )
+        interop_dir = game_dir / "BepInEx/interop"
+        unity_libraries_dir = game_dir / "BepInEx/unity-libs"
+        interop_assembly = interop_dir / supported_build["interop_assembly"]
+        cache_key_path = interop_dir / supported_build["interop_cache_key_file"]
+        cache_key = cache_key_path.read_text(encoding="utf-8").strip()
+        return (
+            all(path.is_file() and sha256_file(path) == expected for path, expected in fingerprints)
+            and interop_assembly.is_file()
+            and unity_libraries_dir.is_dir()
+            and any(unity_libraries_dir.glob("UnityEngine*.dll"))
+            and cache_key == supported_build["interop_cache_key"]
+        )
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return False
+
+
+def detach_compatible_interop_cache(game_dir: Path) -> Path | None:
+    interop_dir = game_dir / "BepInEx" / "interop"
+    if not interop_dir.is_dir() or not has_compatible_interop_cache(game_dir):
+        return None
+
+    cache_parent = REPO_ROOT / ".tmp" / "install-cache"
+    cache_parent.mkdir(parents=True, exist_ok=True)
+    cache_root = Path(tempfile.mkdtemp(prefix="sneakout-interop-", dir=cache_parent))
+    for entry_name in ("interop", "unity-libs"):
+        source_path = game_dir / "BepInEx" / entry_name
+        shutil.move(str(source_path), str(cache_root / entry_name))
+        print(f"cached:    {source_path}")
+    print("            (compatible interop and its hashed Unity libraries preserved across reinstall)")
+    return cache_root
+
+
+def restore_interop_cache(game_dir: Path, cache_root: Path | None) -> None:
+    if cache_root is None:
+        return
+    cached_entries = tuple(
+        cache_root / entry_name
+        for entry_name in ("interop", "unity-libs")
+        if (cache_root / entry_name).is_dir()
+    )
+    if not cached_entries:
+        return
+
+    bepinex_dir = game_dir / "BepInEx"
+    for cached_entry in cached_entries:
+        target_path = bepinex_dir / cached_entry.name
+        if target_path.exists():
+            raise SystemExit(
+                f"Refusing to overwrite a cache entry created during install: {target_path}\n"
+                f"Preserved cache remains at: {cached_entry}"
+            )
+    bepinex_dir.mkdir(parents=True, exist_ok=True)
+    for cached_entry in cached_entries:
+        target_path = bepinex_dir / cached_entry.name
+        shutil.move(str(cached_entry), str(target_path))
+        print(f"restored:  {target_path}")
+    cache_root.rmdir()
+    print("            (cold interop regeneration avoided)")
 
 
 def normalize_vdf_path(raw_path: str) -> Path:
@@ -738,28 +818,39 @@ def configure_bepinex_for_proton(game_dir: Path) -> None:
     config_path = game_dir / "BepInEx" / "config" / "BepInEx.cfg"
     config_path.parent.mkdir(parents=True, exist_ok=True)
     original_text = config_path.read_text(encoding="utf-8") if config_path.is_file() else ""
-    section_pattern = re.compile(
-        r"(?ms)^\[Logging\.Console\]\s*\n(?P<body>.*?)(?=^\[|\Z)"
+    updated_text = update_bepinex_setting(original_text, "Logging.Console", "Enabled", "false")
+    updated_text = update_bepinex_setting(
+        updated_text,
+        "IL2CPP",
+        "PreloadIL2CPPInteropAssemblies",
+        "false",
     )
-    section_match = section_pattern.search(original_text)
-    if section_match is None:
-        separator = "" if not original_text or original_text.endswith("\n\n") else "\n"
-        updated_text = original_text + separator + "[Logging.Console]\n\nEnabled = false\n"
-    else:
-        section_text = section_match.group(0)
-        enabled_pattern = re.compile(r"(?m)^Enabled\s*=.*$")
-        if enabled_pattern.search(section_text):
-            updated_section = enabled_pattern.sub("Enabled = false", section_text, count=1)
-        else:
-            header_end = section_text.find("\n") + 1
-            updated_section = section_text[:header_end] + "\nEnabled = false\n" + section_text[header_end:]
-        updated_text = original_text[: section_match.start()] + updated_section + original_text[section_match.end() :]
 
     if updated_text == original_text:
         print(f"unchanged: {config_path}")
         return
     config_path.write_text(updated_text, encoding="utf-8")
-    print(f"updated:   {config_path} (Wine console disabled)")
+    print(f"updated:   {config_path} (Wine console and global interop preload disabled)")
+
+
+def update_bepinex_setting(content: str, section: str, key: str, value: str) -> str:
+    section_pattern = re.compile(
+        rf"(?ms)^\[{re.escape(section)}\]\s*\n(?P<body>.*?)(?=^\[|\Z)"
+    )
+    section_match = section_pattern.search(content)
+    setting_line = f"{key} = {value}"
+    if section_match is None:
+        separator = "" if not content or content.endswith("\n\n") else "\n"
+        return content + separator + f"[{section}]\n\n{setting_line}\n"
+
+    section_text = section_match.group(0)
+    setting_pattern = re.compile(rf"(?m)^{re.escape(key)}\s*=.*$")
+    if setting_pattern.search(section_text):
+        updated_section = setting_pattern.sub(setting_line, section_text, count=1)
+    else:
+        header_end = section_text.find("\n") + 1
+        updated_section = section_text[:header_end] + f"\n{setting_line}\n" + section_text[header_end:]
+    return content[: section_match.start()] + updated_section + content[section_match.end() :]
 
 
 def resolve_runtime_mod_config_path(game_dir: Path, runtime_mod: RuntimeModOption) -> Path | None:
@@ -1145,12 +1236,18 @@ def main() -> int:
             selected_runtime_mod_option_ids,
             build_runtime_mods=not args.nobuild,
         )
-        rollback(game_dir)
-        install_selected_runtime_mods(
-            game_dir,
-            selected_runtime_mod_option_ids,
-            source_dll_paths,
-        )
+        interop_cache_root = detach_compatible_interop_cache(game_dir)
+        try:
+            rollback(game_dir)
+            install_selected_runtime_mods(
+                game_dir,
+                selected_runtime_mod_option_ids,
+                source_dll_paths,
+            )
+            restore_interop_cache(game_dir, interop_cache_root)
+        except BaseException:
+            restore_interop_cache(game_dir, interop_cache_root)
+            raise
         validate_installed_runtime_mods(
             game_dir,
             selected_runtime_mod_option_ids,

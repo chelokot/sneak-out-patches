@@ -16,7 +16,6 @@ internal sealed record PortalModeUiState(
     Image MapsBackground,
     Text MapsLabel,
     UnityAction MapsClickAction,
-    UnityAction PlayClickAction,
     PortalMapOptionUiState[] MapOptions)
 {
     public bool IsAlive =>
@@ -38,7 +37,6 @@ internal sealed record PortalModeUiState(
         && MapsLabel is not null
         && MapsLabel.Pointer != IntPtr.Zero
         && MapsClickAction is not null
-        && PlayClickAction is not null
         && MapOptions is not null
         && MapOptions.All(option => option.IsAlive);
 }

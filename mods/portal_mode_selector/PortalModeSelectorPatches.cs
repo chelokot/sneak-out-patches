@@ -1,3 +1,4 @@
+using Fusion;
 using Gameplay.Match;
 using Gameplay.Match.MatchState;
 using Gameplay.Player.Components;
@@ -10,6 +11,7 @@ using Networking.Matchmaking;
 using Networking.Photon;
 using Types;
 using UI;
+using UI.Views.Lobby;
 
 namespace SneakOut.PortalModeSelector;
 
@@ -22,12 +24,27 @@ internal static class GameUiManagerOnAwakePatch
     }
 }
 
+[HarmonyPatch(typeof(PortalPlayView), "OnPlay")]
+internal static class PortalPlayViewOnPlayPatch
+{
+    [HarmonyPrefix]
+    [HarmonyPriority(Priority.First)]
+    private static void Prefix(PortalPlayView __instance)
+    {
+        // UnityEvent listeners run in registration order. The stock PLAY listener is registered
+        // before our UI listener, so activate the selection before stock matchmaking observes it.
+        PortalModeSelectorRuntime.ActivateSelection(__instance);
+    }
+}
+
 [HarmonyPatch(typeof(SceneSpawner), nameof(SceneSpawner.Spawn))]
 internal static class SceneSpawnerSpawnPatch
 {
-    [HarmonyPrefix]
-    private static void Prefix(SceneSpawner __instance)
+    [HarmonyPostfix]
+    private static void Postfix(SceneSpawner __instance)
     {
+        // Spawn initializes a fresh scene GameState and can restore the serialized Default value.
+        // Apply the selected mode after that initialization has completed.
         PortalModeSelectorRuntime.ApplyActiveMode(__instance._gameState);
     }
 }
@@ -54,6 +71,16 @@ internal static class MatchmakerOnStartMatchmakingPatch
         {
             startEvent.GameModeType = gameModeType;
         }
+    }
+}
+
+[HarmonyPatch(typeof(NetworkRunner), nameof(NetworkRunner.StartGame), new[] { typeof(StartGameArgs) })]
+internal static class NetworkRunnerStartGamePatch
+{
+    [HarmonyPrefix]
+    private static void Prefix(ref StartGameArgs args)
+    {
+        PortalModeSelectorRuntime.ApplyActiveModeToSessionProperties(args);
     }
 }
 

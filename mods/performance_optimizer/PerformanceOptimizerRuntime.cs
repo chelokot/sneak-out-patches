@@ -53,6 +53,7 @@ internal static class PerformanceOptimizerRuntime
     private static string _activeSceneName = string.Empty;
     private static double _activeSceneStartedSeconds;
     private static int _removedNullRoomLights;
+    private static bool _resolutionSelectorRecoveryReported;
     private static Il2CppStructArray<FrameTiming>? _frameTimingBuffer;
     private static bool _sceneCensusComplete;
     private static int _zeroEngineTimingSamples;
@@ -130,6 +131,23 @@ internal static class PerformanceOptimizerRuntime
         _logger?.LogInfo(
             $"Removed {removedCount} null serialized light reference(s) before Room.OnAwake "
             + $"({_removedNullRoomLights} total); room light caching can continue normally");
+    }
+
+    public static void ReportResolutionSelectorRecovery(
+        int currentWidth,
+        int currentHeight,
+        int fallbackWidth,
+        int fallbackHeight)
+    {
+        if (_resolutionSelectorRecoveryReported)
+        {
+            return;
+        }
+
+        _resolutionSelectorRecoveryReported = true;
+        _logger?.LogWarning(
+            $"Video settings did not contain the active {currentWidth}x{currentHeight} mode; "
+            + $"showing the nearest {fallbackWidth}x{fallbackHeight} option without changing the display mode");
     }
 
     private static PerformancePreset ResolvePreset(PerformancePreset configuredPreset)

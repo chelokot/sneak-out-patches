@@ -98,6 +98,20 @@ The optimizer also removes null serialized `Room.Lights` entries immediately bef
 
 Every individual override remains available in `BepInEx/config/chelokot.sneakout.performance-optimizer.cfg`. Texture streaming is off by default because it only helps assets authored with streaming mipmaps.
 
+## Display-mode safety
+
+The optimizer does not set the resolution, fullscreen mode, or window position. An early profiling
+session accidentally left the diagnostic command line
+`-screen-fullscreen 0 -screen-width 1280 -screen-height 720` in Steam launch options. Because
+Unity command-line values override the saved game settings, every later launch was forced to
+1280×720 windowed mode. The installer now removes that exact legacy diagnostic override while
+preserving unrelated user launch options.
+
+Sneak Out 1.1.10 also throws from `ResolutionSelector.RefreshShownValue` when the active mode is
+not present verbatim in its dropdown array. The optimizer now detects that invalid state and shows
+the nearest dropdown entry without changing the active display mode. A live 1920×1080 exclusive
+fullscreen test opened Video Settings in 33.7 ms without the previous exception.
+
 ## Verified automatic match path
 
 The final unattended tests performed the following real flow in both Classic and Crown:

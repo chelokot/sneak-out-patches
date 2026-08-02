@@ -28,7 +28,10 @@ internal sealed class LobbyTestBotConfig
         ConfigEntry<bool> enableMod,
         ConfigEntry<bool> autoOpenPortalWhenLobbyReady,
         ConfigEntry<bool> capturePortalScreenshot,
+        ConfigEntry<bool> captureFlowSequence,
+        ConfigEntry<bool> autoWalkBeforePortal,
         ConfigEntry<bool> autoAddBotWhenLobbyReady,
+        ConfigEntry<bool> autoRemoveBotWhenReady,
         ConfigEntry<bool> autoStartPrivateMatchWhenBotReady,
         ConfigEntry<float> autoStartDelaySeconds,
         ConfigEntry<DiagnosticGameMode> autoStartGameMode,
@@ -39,7 +42,10 @@ internal sealed class LobbyTestBotConfig
         EnableMod = enableMod;
         AutoOpenPortalWhenLobbyReady = autoOpenPortalWhenLobbyReady;
         CapturePortalScreenshot = capturePortalScreenshot;
+        CaptureFlowSequence = captureFlowSequence;
+        AutoWalkBeforePortal = autoWalkBeforePortal;
         AutoAddBotWhenLobbyReady = autoAddBotWhenLobbyReady;
+        AutoRemoveBotWhenReady = autoRemoveBotWhenReady;
         AutoStartPrivateMatchWhenBotReady = autoStartPrivateMatchWhenBotReady;
         AutoStartDelaySeconds = autoStartDelaySeconds;
         AutoStartGameMode = autoStartGameMode;
@@ -54,7 +60,13 @@ internal sealed class LobbyTestBotConfig
 
     public ConfigEntry<bool> CapturePortalScreenshot { get; }
 
+    public ConfigEntry<bool> CaptureFlowSequence { get; }
+
+    public ConfigEntry<bool> AutoWalkBeforePortal { get; }
+
     public ConfigEntry<bool> AutoAddBotWhenLobbyReady { get; }
+
+    public ConfigEntry<bool> AutoRemoveBotWhenReady { get; }
 
     public ConfigEntry<bool> AutoStartPrivateMatchWhenBotReady { get; }
 
@@ -84,12 +96,27 @@ internal sealed class LobbyTestBotConfig
             "diagnostics",
             "CapturePortalScreenshot",
             false,
-            "Capture the game framebuffer shortly after diagnostic portal opening into BepInEx/ui-captures.");
+            "Capture portal and post-start match framebuffers into BepInEx/ui-captures.");
+        var captureFlowSequence = configFile.Bind(
+            "diagnostics",
+            "CaptureFlowSequence",
+            false,
+            "Capture the rendered game framebuffer every 0.5 seconds from the first plugin update. Intended only for unattended visual regression testing.");
+        var autoWalkBeforePortal = configFile.Bind(
+            "diagnostics",
+            "AutoWalkBeforePortal",
+            false,
+            "Apply normal forward movement to the local player briefly before automatic portal opening. Intended only for unattended visual regression testing.");
         var autoAddBotWhenLobbyReady = configFile.Bind(
             "diagnostics",
             "AutoAddBotWhenLobbyReady",
             false,
             "Automatically add the bot after the host and player registry are ready. Intended for repeatable runtime testing.");
+        var autoRemoveBotWhenReady = configFile.Bind(
+            "diagnostics",
+            "AutoRemoveBotWhenReady",
+            false,
+            "Invoke the real REMOVE BOT button after diagnostic auto-add. Mutually exclusive with automatic match start.");
         var autoStartPrivateMatchWhenBotReady = configFile.Bind(
             "diagnostics",
             "AutoStartPrivateMatchWhenBotReady",
@@ -125,7 +152,10 @@ internal sealed class LobbyTestBotConfig
             enableMod,
             autoOpenPortalWhenLobbyReady,
             capturePortalScreenshot,
+            captureFlowSequence,
+            autoWalkBeforePortal,
             autoAddBotWhenLobbyReady,
+            autoRemoveBotWhenReady,
             autoStartPrivateMatchWhenBotReady,
             autoStartDelaySeconds,
             autoStartGameMode,

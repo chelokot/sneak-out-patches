@@ -73,21 +73,31 @@ internal static class LocalSelectionsStore
             {
                 case SkinType.Head:
                     selection.HeadSkinPartType = (int)skinPartType;
+                    selection.WholeSkinPartType = null;
                     break;
                 case SkinType.Chest:
                     selection.ChestSkinPartType = (int)skinPartType;
+                    selection.WholeSkinPartType = null;
                     break;
                 case SkinType.Legs:
                     selection.LegsSkinPartType = (int)skinPartType;
+                    selection.WholeSkinPartType = null;
                     break;
                 case SkinType.Hands:
                     selection.HandsSkinPartType = (int)skinPartType;
+                    selection.WholeSkinPartType = null;
                     break;
                 case SkinType.Back:
                     selection.BackSkinPartType = (int)skinPartType;
+                    selection.WholeSkinPartType = null;
                     break;
                 case SkinType.Whole:
                     selection.WholeSkinPartType = (int)skinPartType;
+                    selection.HeadSkinPartType = null;
+                    selection.ChestSkinPartType = null;
+                    selection.LegsSkinPartType = null;
+                    selection.HandsSkinPartType = null;
+                    selection.BackSkinPartType = null;
                     break;
                 default:
                     return;
@@ -230,6 +240,14 @@ internal static class LocalSelectionsStore
     private static void ApplySkinParts(WebPlayer player, Character character, PersistedCharacterSelection selection)
     {
         character.SkinParts ??= new SkinParts();
+        if (selection.WholeSkinPartType.HasValue)
+        {
+            character.SkinParts.Whole = FindOrCreateSkinPart(player, SkinType.Whole, (SkinPartType)selection.WholeSkinPartType.Value);
+            UnlockEverythingSelections.NormalizeEquippedSkinParts(character, SkinType.Whole);
+            return;
+        }
+
+        character.SkinParts.Whole = UnlockEverythingSelections.EmptySkinPart(SkinType.Whole);
         if (selection.HeadSkinPartType.HasValue)
         {
             character.SkinParts.Head = FindOrCreateSkinPart(player, SkinType.Head, (SkinPartType)selection.HeadSkinPartType.Value);
@@ -255,10 +273,6 @@ internal static class LocalSelectionsStore
             character.SkinParts.Back = FindOrCreateSkinPart(player, SkinType.Back, (SkinPartType)selection.BackSkinPartType.Value);
         }
 
-        if (selection.WholeSkinPartType.HasValue)
-        {
-            character.SkinParts.Whole = FindOrCreateSkinPart(player, SkinType.Whole, (SkinPartType)selection.WholeSkinPartType.Value);
-        }
     }
 
     private static void ApplySkillCards(WebPlayer player, Character character, PersistedCharacterSelection selection)

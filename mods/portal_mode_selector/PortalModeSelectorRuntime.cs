@@ -1,14 +1,18 @@
 using BepInEx.Logging;
 using Events;
 using Gameplay.Player.Components;
+using Gameplay.Match;
+using Gameplay.Match.MatchState;
 using HarmonyLib;
 using Il2CppInterop.Runtime.Injection;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using Kinguinverse.DataUtils.Events;
 using Networking;
 using Networking.Photon;
+using TMPro;
 using Types;
 using UI;
+using UI.Buttons;
 using UI.Views.Lobby;
 using UnityEngine;
 using UnityEngine.Events;
@@ -31,7 +35,6 @@ internal static class PortalModeSelectorRuntime
 
     private static ManualLogSource? _logger;
     private static Harmony? _harmony;
-    private static Font? _legacyFont;
     private static GameUIManager? _gameUiManager;
     private static bool _watcherInstalled;
     private static bool _controlsPrepared;
@@ -40,6 +43,9 @@ internal static class PortalModeSelectorRuntime
     private static GameModeType? _activeMode;
     private static PortalMapSelectionState? _activeMapSelection;
     private static bool _activeMatchTickConfirmed;
+    private static bool _activeModeCorrectionLogged;
+    private static bool _berekSelectionRedirectLogged;
+    private static bool _berekStartRedirectLogged;
 
     public static void Initialize(ManualLogSource logger)
     {
@@ -143,7 +149,7 @@ internal static class PortalModeSelectorRuntime
         }
 
         var rootObject = new GameObject("CodexPortalControls");
-        rootObject.transform.SetParent(view._playButton.transform, false);
+        rootObject.transform.SetParent(playSection, false);
         var rootRect = rootObject.AddComponent<RectTransform>();
         rootRect.localScale = Vector3.one;
 
@@ -204,7 +210,7 @@ internal static class PortalModeSelectorRuntime
         return true;
     }
 
-    private static (Button Button, Image Background, Text Label)? CreateTextButton(
+    private static (SpookedOutlineButton Button, Image Background, TMP_Text Label)? CreateTextButton(
         Transform parent,
         string name,
         Button styleSource,
@@ -212,30 +218,40 @@ internal static class PortalModeSelectorRuntime
     {
         try
         {
-            var buttonObject = new GameObject($"CodexPortal{name}Button");
-            buttonObject.transform.SetParent(parent, false);
-            var rect = buttonObject.AddComponent<RectTransform>();
+            var sourceButton = styleSource.GetComponent<SpookedOutlineButton>();
+            var sourceBackground = sourceButton?._targetColorImage ?? styleSource.targetGraphic as Image;
+            if (sourceButton is null || sourceBackground is null)
+            {
+                return null;
+            }
+
+            var buttonObject = UnityEngine.Object.Instantiate(styleSource.gameObject, parent, false);
+            buttonObject.name = $"CodexPortal{name}Button";
+            var rect = buttonObject.GetComponent<RectTransform>();
+            var button = buttonObject.GetComponent<SpookedOutlineButton>();
+            var label = buttonObject.GetComponentInChildren<TMP_Text>(true);
+            if (rect is null || button is null || label is null)
+            {
+                UnityEngine.Object.Destroy(buttonObject);
+                throw new InvalidOperationException("The stock portal button clone was missing its native UI components");
+            }
+
             rect.sizeDelta = new Vector2(width, ButtonHeight);
+            button.onClick = new Button.ButtonClickedEvent();
+            var background = button._targetColorImage ?? button.targetGraphic as Image;
+            if (background is null)
+            {
+                UnityEngine.Object.Destroy(buttonObject);
+                throw new InvalidOperationException("The stock portal button clone had no color image");
+            }
 
-            var background = buttonObject.AddComponent<Image>();
-            var button = buttonObject.AddComponent<Button>();
-            CopyButtonStyle(styleSource, button, background);
-
-            var labelObject = new GameObject("Label");
-            labelObject.transform.SetParent(buttonObject.transform, false);
-            var labelRect = labelObject.AddComponent<RectTransform>();
-            labelRect.anchorMin = Vector2.zero;
-            labelRect.anchorMax = Vector2.one;
-            labelRect.offsetMin = new Vector2(4f, 2f);
-            labelRect.offsetMax = new Vector2(-4f, -2f);
-
-            var label = labelObject.AddComponent<Text>();
-            label.font = GetLegacyFont();
-            label.fontSize = 14;
-            label.fontStyle = FontStyle.Bold;
-            label.alignment = TextAnchor.MiddleCenter;
+            label.fontSize = 17f;
+            label.enableAutoSizing = false;
+            label.fontStyle = FontStyles.Bold;
+            label.alignment = TextAlignmentOptions.Center;
             label.color = Color.white;
             label.raycastTarget = false;
+            FitStockButtonLayers(rect, button, label);
 
             return (button, background, label);
         }
@@ -246,43 +262,30 @@ internal static class PortalModeSelectorRuntime
         }
     }
 
-    private static Font GetLegacyFont()
+    private static void FitStockButtonLayers(
+        RectTransform root,
+        SpookedOutlineButton button,
+        TMP_Text label)
     {
-        if (_legacyFont is not null && _legacyFont.Pointer != IntPtr.Zero)
-        {
-            return _legacyFont;
-        }
-
-        _legacyFont = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        return _legacyFont;
+        StretchToRoot(button._targetColorImage?.rectTransform, root);
+        StretchToRoot(button._targetOutlineImage?.rectTransform, root);
+        StretchToRoot(label.rectTransform, root);
     }
 
-    private static void CopyButtonStyle(Button source, Button target, Image targetImage)
+    private static void StretchToRoot(RectTransform? leaf, RectTransform root)
     {
-        target.transition = source.transition;
-        target.colors = source.colors;
-        target.spriteState = source.spriteState;
-        target.navigation = source.navigation;
-        target.targetGraphic = targetImage;
-
-        if (source.targetGraphic is not Image sourceImage)
+        var current = leaf;
+        while (current is not null && current.Pointer != root.Pointer)
         {
-            targetImage.color = ClassicModeColor;
-            return;
+            current.anchorMin = Vector2.zero;
+            current.anchorMax = Vector2.one;
+            current.pivot = new Vector2(0.5f, 0.5f);
+            current.offsetMin = Vector2.zero;
+            current.offsetMax = Vector2.zero;
+            current.anchoredPosition = Vector2.zero;
+            current.localScale = Vector3.one;
+            current = current.parent?.GetComponent<RectTransform>();
         }
-
-        targetImage.sprite = sourceImage.sprite;
-        targetImage.overrideSprite = sourceImage.overrideSprite;
-        targetImage.type = sourceImage.type;
-        targetImage.preserveAspect = sourceImage.preserveAspect;
-        targetImage.fillCenter = sourceImage.fillCenter;
-        targetImage.fillMethod = sourceImage.fillMethod;
-        targetImage.fillAmount = sourceImage.fillAmount;
-        targetImage.fillClockwise = sourceImage.fillClockwise;
-        targetImage.fillOrigin = sourceImage.fillOrigin;
-        targetImage.pixelsPerUnitMultiplier = sourceImage.pixelsPerUnitMultiplier;
-        targetImage.material = sourceImage.material;
-        targetImage.color = sourceImage.color;
     }
 
     private static PortalMapOptionUiState? CreateMapOption(
@@ -323,20 +326,20 @@ internal static class PortalModeSelectorRuntime
             return;
         }
 
-        if (state.RootObject.transform.parent != playButton.transform)
+        if (state.RootObject.transform.parent != playSection)
         {
-            state.RootObject.transform.SetParent(playButton.transform, false);
+            state.RootObject.transform.SetParent(playSection, false);
         }
 
-        // Use PLAY itself as the coordinate system. Its anchors stretch inside an animated parent,
-        // so copying those anchors onto siblings stretches the custom buttons across the modal.
-        rootRect.anchorMin = Vector2.zero;
-        rootRect.anchorMax = Vector2.one;
+        // Mirror PLAY's rect as a transparent sibling. Parenting controls to PLAY made their
+        // pointer events bubble through the stock button and highlighted/clicked PLAY instead.
+        rootRect.anchorMin = new Vector2(0.5f, 0.5f);
+        rootRect.anchorMax = new Vector2(0.5f, 0.5f);
         rootRect.pivot = new Vector2(0.5f, 0.5f);
         rootRect.localScale = Vector3.one;
         rootRect.localRotation = Quaternion.identity;
-        rootRect.anchoredPosition = Vector2.zero;
-        rootRect.sizeDelta = Vector2.zero;
+        rootRect.localPosition = playRect.localPosition;
+        rootRect.sizeDelta = playRect.rect.size;
         rootRect.SetAsLastSibling();
 
         var playHeight = playRect.rect.height;
@@ -479,6 +482,9 @@ internal static class PortalModeSelectorRuntime
         _activeMode = _preferredMode;
         _activeMapSelection = PreferredMapSelection.Snapshot();
         _activeMatchTickConfirmed = false;
+        _activeModeCorrectionLogged = false;
+        _berekSelectionRedirectLogged = false;
+        _berekStartRedirectLogged = false;
         var photonLobby = UnityEngine.Object.FindObjectOfType<PhotonPlayFabLobbyController>();
         if (photonLobby is not null && photonLobby.HasStateAuthority)
         {
@@ -530,10 +536,69 @@ internal static class PortalModeSelectorRuntime
 
     public static void ApplyActiveMode(GameState gameState)
     {
-        if (_activeMode.HasValue)
+        if (_activeMode.HasValue && gameState.GameMode != _activeMode.Value)
         {
+            var staleMode = gameState.GameMode;
             gameState.GameMode = _activeMode.Value;
+            if (!_activeModeCorrectionLogged)
+            {
+                _activeModeCorrectionLogged = true;
+                _logger?.LogInfo(
+                    $"Corrected match-scene GameState mode {staleMode} -> {_activeMode.Value}");
+            }
         }
+    }
+
+    public static void ApplyActiveModeFromPlayer(SpookedNetworkPlayer player)
+    {
+        var gameState = player._gameState;
+        if (gameState is not null && gameState.Pointer != IntPtr.Zero)
+        {
+            ApplyActiveMode(gameState);
+        }
+    }
+
+    public static bool TryRedirectBerekSelection(MatchStateMachine stateMachine)
+    {
+        if (_activeMode != GameModeType.Berek
+            || stateMachine.BerekSelectionState is null
+            || stateMachine.BerekSelectionState.Pointer == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        ApplyActiveMode(stateMachine._gameState);
+        WireAllBerekComponents();
+        stateMachine.EnqueueSwitchState(stateMachine.BerekSelectionState);
+        if (!_berekSelectionRedirectLogged)
+        {
+            _berekSelectionRedirectLogged = true;
+            _logger?.LogInfo("Redirected BeforeSelectionState to BerekSelectionState");
+        }
+
+        return true;
+    }
+
+    public static bool TryStartBerekMode(
+        GameStartController gameStartController,
+        CharacterType seekerCharacterType)
+    {
+        if (_activeMode != GameModeType.Berek)
+        {
+            return false;
+        }
+
+        ApplyActiveMode(gameStartController._gameState);
+        WireAllBerekComponents();
+        gameStartController.StartCoroutine(
+            gameStartController.HandleBerekModeStart(seekerCharacterType));
+        if (!_berekStartRedirectLogged)
+        {
+            _berekStartRedirectLogged = true;
+            _logger?.LogInfo("Redirected PrepareVictims to HandleBerekModeStart");
+        }
+
+        return true;
     }
 
     public static void ApplyActiveModeToSessionProperties(Fusion.StartGameArgs args)
@@ -547,10 +612,7 @@ internal static class PortalModeSelectorRuntime
         // GameState during the lobby-to-match transition, so changing only that earlier object is
         // insufficient for Crown sessions.
         const string key = "game_mode";
-        if (args.SessionProperties.ContainsKey(key))
-        {
-            args.SessionProperties[key] = _activeMode.Value.ToString();
-        }
+        args.SessionProperties[key] = _activeMode.Value.ToString();
     }
 
     public static void ApplyActiveModeForMatchTick(GameState gameState)

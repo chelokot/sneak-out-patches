@@ -5,10 +5,24 @@ using Kinguinverse.WebServiceProvider.Types_v2;
 using UI;
 using UI.Buttons;
 using UI.Views;
+using Gameplay.Spawn;
+using Types.Structs;
 using ClientCharacterType = Types.CharacterType;
 using Il2CppTasks = Il2CppSystem.Threading.Tasks;
 
 namespace SneakOut.UnlockEverything;
+
+[HarmonyPatch(typeof(SceneSpawner), "GetCharacterData")]
+internal static class SceneSpawnerGetCharacterDataPatch
+{
+    private static void Postfix(ref CharacterData __result)
+    {
+        UnlockEverythingSelections.NormalizeCharacterData(ref __result);
+        UnlockEverythingRuntime.LogSkillUiEvent(
+            "SceneSpawner.GetCharacterData:normalized",
+            $"head={__result.HeadType}, torso={__result.TorsoType}, arms={__result.ArmsType}, legs={__result.LegsType}, back={__result.BackType}, whole={__result.WholeType}");
+    }
+}
 
 [HarmonyPatch(typeof(AvatarAndFrameView), "EquipModification")]
 internal static class AvatarAndFrameViewEquipModificationPatch

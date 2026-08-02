@@ -1,3 +1,5 @@
+using TMPro;
+using UI.Buttons;
 using UI.Views.Lobby;
 using UnityEngine;
 using UnityEngine.Events;
@@ -8,13 +10,13 @@ namespace SneakOut.PortalModeSelector;
 internal sealed record PortalModeUiState(
     PortalPlayView View,
     GameObject RootObject,
-    Button ModeButton,
+    SpookedOutlineButton ModeButton,
     Image ModeBackground,
-    Text ModeLabel,
+    TMP_Text ModeLabel,
     UnityAction ModeClickAction,
-    Button MapsButton,
+    SpookedOutlineButton MapsButton,
     Image MapsBackground,
-    Text MapsLabel,
+    TMP_Text MapsLabel,
     UnityAction MapsClickAction,
     PortalMapOptionUiState[] MapOptions)
 {

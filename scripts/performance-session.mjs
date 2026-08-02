@@ -69,22 +69,6 @@ async function runHostDetached(command) {
   child.unref();
 }
 
-async function getSupportingWindowManager() {
-  const { stdout } = await runAndCapture("xprop", ["-root", "_NET_SUPPORTING_WM_CHECK"]);
-  const match = stdout.match(/0x[0-9a-f]+/i);
-  if (!match) {
-    throw new Error("Could not resolve _NET_SUPPORTING_WM_CHECK");
-  }
-  const windowId = match[0];
-  const nameResult = await runAndCapture("xprop", ["-id", windowId, "_NET_WM_NAME"]);
-  const nameMatch = nameResult.stdout.match(/=\s*"(.*)"\s*$/m);
-  return { windowId, name: nameMatch?.[1] ?? "GNOME Shell" };
-}
-
-async function setWindowManagerName(windowId, name) {
-  await runAndCapture("xprop", ["-id", windowId, "-f", "_NET_WM_NAME", "8u", "-set", "_NET_WM_NAME", name]);
-}
-
 async function findSneakOutPid() {
   for (const entry of await readdir("/proc", { withFileTypes: true })) {
     if (!entry.isDirectory() || !/^\d+$/.test(entry.name)) {
@@ -356,7 +340,6 @@ async function main() {
   const sessionDirectory = resolve(repositoryRoot, ".tmp", "performance-sessions", `${timestampLabel()}-${options.sessionName}`);
   await mkdir(sessionDirectory, { recursive: true });
   const sampleHandle = await open(join(sessionDirectory, "process-samples.jsonl"), "w");
-  const wm = await getSupportingWindowManager();
   const performanceReportDirectory = join(gameDirectory, "BepInEx", "performance-reports");
   const profileReportDirectory = join(gameDirectory, "BepInEx", "profile-reports");
   const initialPerformanceReports = await snapshotDirectoryState(performanceReportDirectory);
@@ -375,7 +358,6 @@ async function main() {
       if (existingPid > 0) {
         throw new Error(`Sneak Out is already running as PID ${existingPid}`);
       }
-      await setWindowManagerName(wm.windowId, "steamcompmgr");
       await runHostDetached(`flatpak run --command=/app/bin/steam com.valvesoftware.Steam steam://rungameid/${steamAppId}`);
     }
     pid = await waitForSneakOutPid();
@@ -406,7 +388,6 @@ async function main() {
       await sleep(1000);
       await cleanupSneakOutLaunchers();
     }
-    await setWindowManagerName(wm.windowId, wm.name);
     await sampleHandle.close();
     await snapshotPath(join(gameDirectory, "BepInEx", "LogOutput.log"), sessionDirectory);
     await snapshotPath(join(gameDirectory, "BepInEx", "ErrorLog.log"), sessionDirectory);
@@ -434,7 +415,6 @@ async function main() {
       duration_seconds: options.durationSeconds,
       pid,
       game_directory: gameDirectory,
-      original_wm_name: wm.name,
       signal: caughtSignal,
       player_log: playerLog
     }, null, 2));

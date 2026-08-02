@@ -508,6 +508,7 @@ internal static partial class UnlockEverythingSelections
                     return false;
             }
 
+            NormalizeEquippedSkinParts(character, skinPart.SkinType);
             SaveSelection(character);
             SyncLivePlayerCharacterData(character);
             return true;
@@ -590,6 +591,7 @@ internal static partial class UnlockEverythingSelections
                 return false;
         }
 
+        NormalizeEquippedSkinParts(character, skinType);
         SaveSelection(character);
         SyncLivePlayerCharacterData(character);
         UnlockEverythingRuntime.LogSkinSelectionSnapshot("UnlockEverythingSelections.ApplySkinPartSelection:applied", character);
@@ -698,22 +700,22 @@ internal static partial class UnlockEverythingSelections
         switch (skinType)
         {
             case SkinType.Head:
-                character.SkinParts.Head = null;
+                character.SkinParts.Head = EmptySkinPart(SkinType.Head);
                 break;
             case SkinType.Chest:
-                character.SkinParts.Chest = null;
+                character.SkinParts.Chest = EmptySkinPart(SkinType.Chest);
                 break;
             case SkinType.Legs:
-                character.SkinParts.Legs = null;
+                character.SkinParts.Legs = EmptySkinPart(SkinType.Legs);
                 break;
             case SkinType.Hands:
-                character.SkinParts.Hands = null;
+                character.SkinParts.Hands = EmptySkinPart(SkinType.Hands);
                 break;
             case SkinType.Back:
-                character.SkinParts.Back = null;
+                character.SkinParts.Back = EmptySkinPart(SkinType.Back);
                 break;
             case SkinType.Whole:
-                character.SkinParts.Whole = null;
+                character.SkinParts.Whole = EmptySkinPart(SkinType.Whole);
                 break;
             default:
                 return false;

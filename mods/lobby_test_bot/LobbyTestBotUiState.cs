@@ -1,3 +1,5 @@
+using TMPro;
+using UI.Buttons;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.UI;
@@ -8,9 +10,9 @@ internal sealed class LobbyTestBotUiState
 {
     public LobbyTestBotUiState(
         GameObject rootObject,
-        Button button,
+        SpookedOutlineButton button,
         UnityAction clickAction,
-        Text label)
+        TMP_Text label)
     {
         RootObject = rootObject;
         Button = button;
@@ -20,11 +22,11 @@ internal sealed class LobbyTestBotUiState
 
     public GameObject RootObject { get; }
 
-    public Button Button { get; }
+    public SpookedOutlineButton Button { get; }
 
     public UnityAction ClickAction { get; }
 
-    public Text Label { get; }
+    public TMP_Text Label { get; }
 
     public float NextRefreshTime { get; set; }
 

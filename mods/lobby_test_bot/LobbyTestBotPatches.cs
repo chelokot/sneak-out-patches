@@ -13,6 +13,7 @@ using Networking.Matchmaking.Match;
 using Networking.Party;
 using Types;
 using UI;
+using UnityEngine;
 
 namespace SneakOut.LobbyTestBot;
 
@@ -116,6 +117,26 @@ internal static class SpookedNetworkPlayerInitPatch
     }
 }
 
+[HarmonyPatch(typeof(PlayerInputController), "ResolveLocalInputs")]
+internal static class DiagnosticPlayerMovementPatch
+{
+    [HarmonyPostfix]
+    private static void Postfix(PlayerInputController __instance)
+    {
+        LobbyTestBotRuntime.ApplyDiagnosticMovement(__instance);
+    }
+}
+
+[HarmonyPatch(typeof(UnderlyingPrefabComponent), nameof(UnderlyingPrefabComponent.PrefabSpawned))]
+internal static class UnderlyingPrefabComponentPrefabSpawnedPatch
+{
+    [HarmonyPostfix]
+    private static void Postfix(UnderlyingPrefabComponent __instance, GameObject prefabInstance)
+    {
+        LobbyTestBotRuntime.ObserveUnderlyingPrefabSpawned(__instance, prefabInstance);
+    }
+}
+
 [HarmonyPatch]
 internal static class SceneSpawnerBotSpawnCompletedPatch
 {
@@ -184,19 +205,6 @@ internal static class ManagedBotNetworkAnimatorCommandPatch
     private static bool Prefix(EntityNetworkAnimatorComponent __instance)
     {
         return LobbyTestBotRuntime.ShouldRunNetworkAnimator(__instance);
-    }
-}
-
-[HarmonyPatch(typeof(GameStartController), "HandleVictims")]
-internal static class ManagedBotVictimPlacementPatch
-{
-    [HarmonyPrefix]
-    private static bool Prefix()
-    {
-        // Stock victim placement assumes that every entry is a fully authored character prefab.
-        // The test dummy intentionally is not one. Its current spawn position is sufficient for
-        // mode testing, so skip only this cosmetic staging step while the dummy is present.
-        return !LobbyTestBotRuntime.ShouldSkipVictimPlacement();
     }
 }
 

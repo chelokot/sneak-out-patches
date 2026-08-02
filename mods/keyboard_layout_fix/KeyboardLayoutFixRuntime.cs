@@ -1,0 +1,318 @@
+using System.Runtime.InteropServices;
+using BepInEx.Logging;
+using Events;
+using Il2CppInterop.Runtime.Injection;
+using Kinguinverse.DataUtils.Events;
+using UI.InputBinding;
+using Gameplay.Player;
+using UnityEngine;
+using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.LowLevel;
+
+namespace SneakOut.KeyboardLayoutFix;
+
+internal static class KeyboardLayoutFixRuntime
+{
+    private static readonly IReadOnlyDictionary<char, string> RussianPhysicalKeyLabels =
+        new Dictionary<char, string>
+        {
+            ['Q'] = "Й", ['W'] = "Ц", ['E'] = "У", ['R'] = "К", ['T'] = "Е",
+            ['Y'] = "Н", ['U'] = "Г", ['I'] = "Ш", ['O'] = "Щ", ['P'] = "З",
+            ['A'] = "Ф", ['S'] = "Ы", ['D'] = "В", ['F'] = "А", ['G'] = "П",
+            ['H'] = "Р", ['J'] = "О", ['K'] = "Л", ['L'] = "Д",
+            ['Z'] = "Я", ['X'] = "Ч", ['C'] = "С", ['V'] = "М", ['B'] = "И",
+            ['N'] = "Т", ['M'] = "Ь"
+        };
+    private const float LayoutPollInterval = 0.25f;
+    private const float BindingRefreshDelay = 0.12f;
+    private const float DiagnosticCycleDelay = 95f;
+    private const float DiagnosticRussianDuration = 12f;
+    private const uint KlfActivate = 0x00000001;
+    private const uint KlfSetForProcess = 0x00000100;
+
+    private static ManualLogSource? _logger;
+    private static KeyboardLayoutFixConfig? _configuration;
+    private static bool _watcherInstalled;
+    private static long _lastKeyboardLayout;
+    private static float _nextLayoutPollAt;
+    private static float _bindingRefreshAt = -1f;
+    private static float _diagnosticCycleStartedAt;
+    private static int _diagnosticCycleState;
+
+    public static void Initialize(ManualLogSource logger, KeyboardLayoutFixConfig configuration)
+    {
+        _logger = logger;
+        _configuration = configuration;
+        _diagnosticCycleStartedAt = Time.unscaledTime;
+        if (configuration.EnableMod.Value)
+        {
+            EnsureWatcher();
+        }
+    }
+
+    private static void EnsureWatcher()
+    {
+        if (_watcherInstalled)
+        {
+            return;
+        }
+
+        ClassInjector.RegisterTypeInIl2Cpp<KeyboardLayoutWatcher>();
+        var watcherObject = new GameObject("KeyboardLayoutFixWatcher");
+        UnityEngine.Object.DontDestroyOnLoad(watcherObject);
+        watcherObject.hideFlags = HideFlags.HideAndDontSave;
+        watcherObject.AddComponent<KeyboardLayoutWatcher>();
+        _watcherInstalled = true;
+        DetectLayoutChange(force: true, source: "startup");
+    }
+
+    private static void Tick()
+    {
+        if (_configuration is null || !_configuration.EnableMod.Value)
+        {
+            return;
+        }
+
+        var now = Time.unscaledTime;
+        RunDiagnosticLayoutCycle(now);
+        if (now >= _nextLayoutPollAt)
+        {
+            _nextLayoutPollAt = now + LayoutPollInterval;
+            DetectLayoutChange(force: false, source: "poll");
+        }
+
+        if (_bindingRefreshAt >= 0f && now >= _bindingRefreshAt)
+        {
+            _bindingRefreshAt = -1f;
+            RefreshBindingLabels();
+        }
+    }
+
+    private static void HandleFocus(bool hasFocus)
+    {
+        if (hasFocus)
+        {
+            DetectLayoutChange(force: true, source: "focus");
+        }
+    }
+
+    public static void ApplyPhysicalMovement(PlayerInputController inputController)
+    {
+        if (_configuration is null || !_configuration.EnableMod.Value)
+        {
+            return;
+        }
+
+        var keyboard = Keyboard.current;
+        if (keyboard is null)
+        {
+            return;
+        }
+
+        var horizontal = (keyboard.dKey.isPressed ? 1f : 0f) - (keyboard.aKey.isPressed ? 1f : 0f);
+        var vertical = (keyboard.wKey.isPressed ? 1f : 0f) - (keyboard.sKey.isPressed ? 1f : 0f);
+        if (horizontal == 0f && vertical == 0f)
+        {
+            return;
+        }
+
+        inputController._moveDirection = new Vector2(horizontal, vertical).normalized;
+    }
+
+    private static void DetectLayoutChange(bool force, string source)
+    {
+        var keyboardLayout = GetKeyboardLayout(0).ToInt64();
+        if (!force && keyboardLayout == _lastKeyboardLayout)
+        {
+            return;
+        }
+
+        _lastKeyboardLayout = keyboardLayout;
+        var keyboard = Keyboard.current;
+        if (keyboard is null)
+        {
+            _bindingRefreshAt = Time.unscaledTime + BindingRefreshDelay;
+            Log($"Keyboard layout refresh deferred ({source}): no Input System keyboard; hkl=0x{keyboardLayout:X}");
+            return;
+        }
+
+        // Wine/XWayland does not reliably forward WM_INPUTLANGCHANGE to Unity's Input System.
+        // A configuration event makes it re-query the OS layout and re-resolve physical controls.
+        InputSystem.QueueConfigChangeEvent(keyboard, InputState.currentTime);
+        _bindingRefreshAt = Time.unscaledTime + BindingRefreshDelay;
+        Log(
+            $"Keyboard layout change queued ({source}): hkl=0x{keyboardLayout:X}, "
+            + $"unity={keyboard.keyboardLayout}, W={keyboard.wKey.displayName}, E={keyboard.eKey.displayName}");
+    }
+
+    private static void RefreshBindingLabels()
+    {
+        var initialization = Resources.FindObjectsOfTypeAll<Initialization>()
+            .FirstOrDefault(instance => instance is not null && instance.Pointer != IntPtr.Zero);
+        var keyBindingController = initialization?._keyBindingController;
+        if (keyBindingController is not null && keyBindingController.Pointer != IntPtr.Zero)
+        {
+            keyBindingController.SetAllBindings();
+            ApplyLocalizedPhysicalKeyLabels(keyBindingController);
+        }
+
+        var bindingViews = Resources.FindObjectsOfTypeAll<BindingUI>();
+        var refreshedViews = 0;
+        foreach (var bindingView in bindingViews)
+        {
+            if (bindingView is null
+                || bindingView.Pointer == IntPtr.Zero
+                || !bindingView.isActiveAndEnabled
+                || bindingView.m_Action is null
+                || bindingView.m_BindingText is null)
+            {
+                continue;
+            }
+
+            bindingView.UpdateBindingDisplay();
+            refreshedViews++;
+        }
+
+        // Gameplay interaction, equipment, skill, and settings views already listen to this
+        // stock event. Publishing it avoids hard-coding every UI implementation in the mod.
+        GameEventsManager.Publish<AfterControlsOverrideEvent>(null, new AfterControlsOverrideEvent());
+
+        var keyboard = Keyboard.current;
+        Log(
+            "Keyboard bindings refreshed: "
+            + $"unity={keyboard?.keyboardLayout ?? "unavailable"}, "
+            + $"W={keyboard?.wKey?.displayName ?? "?"}, E={keyboard?.eKey?.displayName ?? "?"}, "
+            + $"bindingViews={refreshedViews}, controllerReady={keyBindingController is not null}, "
+            + $"move={keyBindingController?.MoveActionPcKey ?? "?"}, "
+            + $"primary={keyBindingController?.PrimaryActionPcKey ?? "?"}, "
+            + $"sprint={keyBindingController?.SprintActionPcKey ?? "?"}");
+    }
+
+    private static void ApplyLocalizedPhysicalKeyLabels(KeyBindingController controller)
+    {
+        if (!IsRussianLayout(_lastKeyboardLayout))
+        {
+            return;
+        }
+
+        // Wine updates Keyboard.keyboardLayout but leaves KeyControl.displayName in US English.
+        // Keep the actual InputAction paths untouched so they remain physical keys, and localize
+        // only the controller strings consumed by HUD/settings views.
+        controller._MoveActionPcKey_k__BackingField = LocalizePhysicalKeys(controller.MoveActionPcKey);
+        controller._PrimaryActionPcKey_k__BackingField = LocalizePhysicalKeys(controller.PrimaryActionPcKey);
+        controller._SecondaryActionPcKey_k__BackingField = LocalizePhysicalKeys(controller.SecondaryActionPcKey);
+        controller._KillActionPcKey_k__BackingField = LocalizePhysicalKeys(controller.KillActionPcKey);
+        controller._CrouchActionPcKey_k__BackingField = LocalizePhysicalKeys(controller.CrouchActionPcKey);
+        controller._SprintActionPcKey_k__BackingField = LocalizePhysicalKeys(controller.SprintActionPcKey);
+        controller._EmoteMenuActionPcKey_k__BackingField = LocalizePhysicalKeys(controller.EmoteMenuActionPcKey);
+        controller._PingActionPcKey_k__BackingField = LocalizePhysicalKeys(controller.PingActionPcKey);
+        controller._FirstItemUsageActionPcKey_k__BackingField = LocalizePhysicalKeys(controller.FirstItemUsageActionPcKey);
+        controller._SecondItemUsageActionPcKey_k__BackingField = LocalizePhysicalKeys(controller.SecondItemUsageActionPcKey);
+        controller._FirstSkillActionPcKey_k__BackingField = LocalizePhysicalKeys(controller.FirstSkillActionPcKey);
+        controller._SecondSkillActionPcKey_k__BackingField = LocalizePhysicalKeys(controller.SecondSkillActionPcKey);
+        controller._VoiceChatHoldPcKey_k__BackingField = LocalizePhysicalKeys(controller.VoiceChatHoldPcKey);
+    }
+
+    private static bool IsRussianLayout(long keyboardLayout)
+    {
+        var lowWord = (int)(keyboardLayout & 0xFFFF);
+        var highWord = (int)((keyboardLayout >> 16) & 0xFFFF);
+        return lowWord == 0x0419 || highWord == 0x0419;
+    }
+
+    private static string LocalizePhysicalKeys(string label)
+    {
+        if (string.IsNullOrWhiteSpace(label))
+        {
+            return label;
+        }
+
+        var parts = label.Split('/');
+        for (var index = 0; index < parts.Length; index++)
+        {
+            var part = parts[index].Trim();
+            if (part.Length == 1
+                && RussianPhysicalKeyLabels.TryGetValue(char.ToUpperInvariant(part[0]), out var localized))
+            {
+                parts[index] = localized;
+            }
+        }
+
+        return string.Join("/", parts);
+    }
+
+    private static void RunDiagnosticLayoutCycle(float now)
+    {
+        if (_configuration is null || !_configuration.CycleLayoutsForFlow.Value)
+        {
+            return;
+        }
+
+        if (_diagnosticCycleState == 0
+            && now - _diagnosticCycleStartedAt >= DiagnosticCycleDelay)
+        {
+            ActivateDiagnosticLayout("00000419", "Russian");
+            _diagnosticCycleState = 1;
+            _diagnosticCycleStartedAt = now;
+            return;
+        }
+
+        if (_diagnosticCycleState == 1
+            && now - _diagnosticCycleStartedAt >= DiagnosticRussianDuration)
+        {
+            ActivateDiagnosticLayout("00000409", "English");
+            _diagnosticCycleState = 2;
+        }
+    }
+
+    private static void ActivateDiagnosticLayout(string layoutIdentifier, string label)
+    {
+        var loadedLayout = LoadKeyboardLayout(
+            layoutIdentifier,
+            KlfActivate | KlfSetForProcess);
+        if (loadedLayout == IntPtr.Zero)
+        {
+            _logger?.LogError($"Diagnostic {label} keyboard layout activation failed");
+            return;
+        }
+
+        Log($"Diagnostic keyboard layout activated: {label}, hkl=0x{loadedLayout.ToInt64():X}");
+        DetectLayoutChange(force: true, source: $"diagnostic-{label.ToLowerInvariant()}");
+    }
+
+    private static void Log(string message)
+    {
+        if (_configuration is not null && _configuration.EnableLogging.Value)
+        {
+            _logger?.LogInfo(message);
+        }
+    }
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetKeyboardLayout(uint threadId);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr LoadKeyboardLayout(string layoutIdentifier, uint flags);
+
+    private sealed class KeyboardLayoutWatcher : MonoBehaviour
+    {
+        public KeyboardLayoutWatcher(IntPtr pointer) : base(pointer)
+        {
+        }
+
+        public KeyboardLayoutWatcher() : base(ClassInjector.DerivedConstructorPointer<KeyboardLayoutWatcher>())
+        {
+            ClassInjector.DerivedConstructorBody(this);
+        }
+
+        private void Update()
+        {
+            Tick();
+        }
+
+        private void OnApplicationFocus(bool hasFocus)
+        {
+            HandleFocus(hasFocus);
+        }
+    }
+}

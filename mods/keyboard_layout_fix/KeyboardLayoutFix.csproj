@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>SneakOut.KeyboardLayoutFix</AssemblyName>
+    <RootNamespace>SneakOut.KeyboardLayoutFix</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="Kinguinverse">
+      <HintPath>$(InteropDir)/Kinguinverse.dll</HintPath>
+    </Reference>
+    <Reference Include="Unity.InputSystem">
+      <HintPath>$(InteropDir)/Unity.InputSystem.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(InteropDir)/UnityEngine.CoreModule.dll</HintPath>
+    </Reference>
+    <Reference Include="Unity.TextMeshPro">
+      <HintPath>$(InteropDir)/Unity.TextMeshPro.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+</Project>

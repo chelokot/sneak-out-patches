@@ -26,5 +26,11 @@
     <Reference Include="UnityEngine.TextRenderingModule">
       <HintPath>$(InteropDir)/UnityEngine.TextRenderingModule.dll</HintPath>
     </Reference>
+    <Reference Include="Unity.TextMeshPro">
+      <HintPath>$(InteropDir)/Unity.TextMeshPro.dll</HintPath>
+    </Reference>
+    <Reference Include="DOTween">
+      <HintPath>$(InteropDir)/DOTween.dll</HintPath>
+    </Reference>
   </ItemGroup>
 </Project>

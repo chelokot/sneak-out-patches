@@ -73,6 +73,17 @@
     "default_config_template_path": "config_templates/runtime_mods/background-loading-guard.cfg"
   },
   {
+    "option_id": "keyboard-layout-fix",
+    "label": "Keyboard Layout Fix",
+    "details": "Keeps physical controls and their displayed key labels synchronized when the Windows keyboard layout changes or the game regains focus.",
+    "category": "quality-of-life",
+    "default_enabled": true,
+    "project_relative_path": "mods/keyboard_layout_fix/KeyboardLayoutFix.csproj",
+    "assembly_name": "SneakOut.KeyboardLayoutFix",
+    "config_relative_path": "BepInEx/config/chelokot.sneakout.keyboard-layout-fix.cfg",
+    "default_config_template_path": "config_templates/runtime_mods/keyboard-layout-fix.cfg"
+  },
+  {
     "option_id": "friend-invite-unlock",
     "label": "Friend Invite Unlock",
     "details": "Builds and installs the BepInEx runtime mod that keeps offline friends inviteable from the lobby list.",

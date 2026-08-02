@@ -1,4 +1,6 @@
+using TMPro;
 using Types;
+using UI.Buttons;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.UI;
@@ -10,8 +12,8 @@ internal sealed record PortalMapOptionUiState(
     GameModeType GameModeType,
     GameObject RootObject,
     Image Background,
-    Text Label,
-    Button Button,
+    TMP_Text Label,
+    SpookedOutlineButton Button,
     UnityAction ClickAction)
 {
     public bool IsAlive =>

@@ -123,9 +123,15 @@ internal static class PhotonPlayFabLobbyControllerRpcSendMatchInfoToTeamPatch
 [HarmonyPatch(typeof(BeforeSelectionState), nameof(BeforeSelectionState.Tick))]
 internal static class BeforeSelectionStateTickPatch
 {
-    private static void Prefix(BeforeSelectionState __instance)
+    private static bool Prefix(BeforeSelectionState __instance, MatchStateMachine stateMachine)
     {
         PortalModeSelectorRuntime.ApplyActiveMode(__instance._gameState);
+        if (PortalModeSelectorRuntime.TryRedirectBerekSelection(stateMachine))
+        {
+            return false;
+        }
+
+        return true;
     }
 }
 
@@ -151,10 +157,11 @@ internal static class ShouldStartStateTickPatch
 [HarmonyPatch(typeof(GameStartController), "PrepareVictims")]
 internal static class GameStartControllerPrepareVictimsPatch
 {
-    private static void Prefix(GameStartController __instance)
+    private static bool Prefix(GameStartController __instance, CharacterType seekerCharacterType)
     {
         PortalModeSelectorRuntime.ApplyActiveMode(__instance._gameState);
         PortalModeSelectorRuntime.WireAllBerekComponents();
+        return !PortalModeSelectorRuntime.TryStartBerekMode(__instance, seekerCharacterType);
     }
 }
 
@@ -170,8 +177,25 @@ internal static class MatchStateHelperKinguinverseStartMatchPatch
 [HarmonyPatch(typeof(SpookedNetworkPlayer), nameof(SpookedNetworkPlayer.AssignComponents))]
 internal static class SpookedNetworkPlayerAssignComponentsPatch
 {
+    [HarmonyPriority(Priority.First)]
     private static void Postfix(SpookedNetworkPlayer __instance)
     {
+        PortalModeSelectorRuntime.ApplyActiveModeFromPlayer(__instance);
+        PortalModeSelectorRuntime.WirePlayerBerekComponent(__instance);
+    }
+}
+
+[HarmonyPatch(typeof(SpookedNetworkPlayer), nameof(SpookedNetworkPlayer.Init))]
+internal static class SpookedNetworkPlayerInitPatch
+{
+    [HarmonyPostfix]
+    [HarmonyPriority(Priority.First)]
+    private static void Postfix(SpookedNetworkPlayer __instance)
+    {
+        // Init is the first match-scene lifecycle callback that is proven to run on 1.1.10 for
+        // both the local player and the managed test bot. The scene's DI GameState is available
+        // here, before selection starts, so restore the Photon mode on that exact instance.
+        PortalModeSelectorRuntime.ApplyActiveModeFromPlayer(__instance);
         PortalModeSelectorRuntime.WirePlayerBerekComponent(__instance);
     }
 }

@@ -2,14 +2,18 @@ using BepInEx;
 using BepInEx.Logging;
 using Events;
 using Fusion;
+using Gameplay.Player;
 using Gameplay.Player.Components;
+using Gameplay.Player.Customization;
 using Gameplay.Spawn;
 using HarmonyLib;
 using Il2CppInterop.Runtime.Injection;
 using Networking;
 using Networking.Matchmaking;
 using Networking.Matchmaking.Match;
+using TMPro;
 using Types;
+using UI.Buttons;
 using UI.Views.Lobby;
 using UnityEngine;
 using UnityEngine.Events;
@@ -36,7 +40,6 @@ internal static class LobbyTestBotRuntime
     private static ManualLogSource? _logger;
     private static LobbyTestBotConfig? _configuration;
     private static Harmony? _harmony;
-    private static Font? _legacyFont;
     private static UI.GameUIManager? _gameUiManager;
     private static bool _watcherInstalled;
     private static bool _controlsPrepared;
@@ -46,14 +49,34 @@ internal static class LobbyTestBotRuntime
     private static IntPtr _requestedSpawnerPointer;
     private static IntPtr _diagnosticPublishedLobbySpawnerPointer;
     private static IntPtr _diagnosticOpenedPortalSpawnerPointer;
+    private static float _diagnosticPortalOpenedAt;
     private static float _diagnosticPortalCaptureAt;
     private static bool _diagnosticPortalCaptured;
     private static bool _diagnosticMapPanelOpenedForCapture;
+    private static SpookedOutlineButton? _diagnosticHoveredButton;
+    private static float _diagnosticHoverReleaseAt;
+    private static float _diagnosticMatchCaptureAt;
+    private static bool _diagnosticMatchCaptured;
+    private static string? _diagnosticFlowCaptureDirectory;
+    private static float _diagnosticFlowCaptureStartedAt = -1f;
+    private static float _diagnosticFlowCaptureNextAt;
+    private static int _diagnosticFlowCaptureIndex;
+    private static float _diagnosticWalkStartsAt = -1f;
+    private static float _diagnosticWalkEndsAt = -1f;
+    private static float _diagnosticPortalOpenNotBefore;
+    private static float _nextManagedOutfitRefreshAt = -1f;
+    private static float _managedOutfitRefreshDeadline = -1f;
+    private static bool _managedPrefabRefreshRequested;
+    private static float _managedPrefabRefreshRequestedAt = -1f;
+    private static bool _managedDirectPrefabSpawnRequested;
+    private static UnderlyingPrefabComponent? _managedCharacterPrefabSpawnTarget;
+    private static NetworkRunner.OnBeforeSpawned? _managedCharacterPrefabInitializer;
     private static IntPtr _diagnosticAutoStartSpawnerPointer;
     private static float _diagnosticBotReadyAt;
     private static bool _diagnosticModeRequested;
     private static bool _diagnosticPrivateToggleRequested;
     private static bool _diagnosticPlayRequested;
+    private static bool _diagnosticRemoveRequested;
     private static int _diagnosticLocalPlayerRefId;
     private static IntPtr _managedSpawnerPointer;
     private static IntPtr _managedPlayerPointer;
@@ -65,6 +88,8 @@ internal static class LobbyTestBotRuntime
     private static GameModeType _managedMatchMode;
     [ThreadStatic]
     private static bool _managedMatchStartGuardScope;
+    [ThreadStatic]
+    private static bool _managedCharacterPrefabSpawnScope;
 
     public static void Initialize(ManualLogSource logger, LobbyTestBotConfig configuration)
     {
@@ -104,8 +129,11 @@ internal static class LobbyTestBotRuntime
     {
         try
         {
+            TryCaptureDiagnosticFlow();
             ObservePendingOperation();
             MaintainMatchBot();
+            TryRefreshPendingManagedBotOutfit();
+            TryCaptureDiagnosticMatch();
         }
         catch (Exception exception)
         {
@@ -135,8 +163,10 @@ internal static class LobbyTestBotRuntime
             if (_controlsPrepared)
             {
                 TryRunDiagnosticAutoOpen(view);
+                TryReleaseDiagnosticPortalHover();
                 TryCaptureDiagnosticPortal();
                 TickPortal(view);
+                TryRunDiagnosticAutoRemove(view);
                 TryRunDiagnosticAutoStart(view);
             }
         }
@@ -411,12 +441,42 @@ internal static class LobbyTestBotRuntime
                 return;
             }
 
+            if (_configuration.AutoWalkBeforePortal.Value)
+            {
+                _diagnosticWalkStartsAt = Time.unscaledTime + 0.75f;
+                _diagnosticWalkEndsAt = _diagnosticWalkStartsAt + 2.5f;
+                _diagnosticPortalOpenNotBefore = _diagnosticWalkEndsAt + 0.5f;
+                _logger?.LogInfo("Diagnostic visual flow scheduled 2.5 seconds of stock local movement");
+            }
+
             TryRunDiagnosticAutoAdd();
         }
         catch (Exception exception)
         {
             LogError("Diagnostic lobby bot auto-add failed", exception);
         }
+    }
+
+    public static void ApplyDiagnosticMovement(PlayerInputController inputController)
+    {
+        if (_configuration is null
+            || !_configuration.CaptureFlowSequence.Value
+            || !_configuration.AutoWalkBeforePortal.Value
+            || !inputController.HasInputAuthority
+            || inputController._gameState is null
+            || inputController._gameState.CurrentScene != SceneType.Lobby)
+        {
+            return;
+        }
+
+        var now = Time.unscaledTime;
+        if (now < _diagnosticWalkStartsAt || now >= _diagnosticWalkEndsAt)
+        {
+            return;
+        }
+
+        inputController._moveDirection = Vector2.up;
+        inputController._sprint = false;
     }
 
     public static void ObserveBotSpawnCompleted(NetworkObject networkObject)
@@ -442,11 +502,74 @@ internal static class LobbyTestBotRuntime
                 return;
             }
 
-            RegisterBotInPlayerRegistries(sceneSpawner, bot);
+            // This closure runs before Fusion invokes the component's native Spawned lifecycle.
+            // Mark it ready now, but let that stock lifecycle perform its one authoritative
+            // registry/UI publication. ObservePendingOperation only fills in a missing entry.
+            var characterData = bot._CharacterData;
+            characterData.HeadType = Kinguinverse.WebServiceProvider.Types_v2.SkinPartType.None;
+            characterData.TorsoType = Kinguinverse.WebServiceProvider.Types_v2.SkinPartType.None;
+            characterData.ArmsType = Kinguinverse.WebServiceProvider.Types_v2.SkinPartType.None;
+            characterData.LegsType = Kinguinverse.WebServiceProvider.Types_v2.SkinPartType.None;
+            characterData.BackType = Kinguinverse.WebServiceProvider.Types_v2.SkinPartType.None;
+            characterData.WholeType = Kinguinverse.WebServiceProvider.Types_v2.SkinPartType.None;
+            bot._CharacterData = characterData;
+            bot.IsReady = true;
+            bot.SpawnedReady = true;
         }
         catch (Exception exception)
         {
             LogError("Authoritative lobby bot completion observation failed", exception);
+        }
+    }
+
+    public static void ObserveUnderlyingPrefabSpawned(
+        UnderlyingPrefabComponent underlyingPrefab,
+        GameObject prefabInstance)
+    {
+        if (!Enabled || prefabInstance is null || prefabInstance.Pointer == IntPtr.Zero)
+        {
+            return;
+        }
+
+        try
+        {
+            var player = underlyingPrefab._spookedNetworkPlayer;
+            if (player is null
+                || !player.IsBot
+                || (!IsManagedBot(player) && player.KinguinverseId != _requestedPlayerRefId))
+            {
+                return;
+            }
+
+            SynchronizeManagedBotCharacterData(player);
+            var refreshedControllers = RefreshCharacterControllers(
+                player,
+                prefabInstance.GetComponentsInChildren<PlayerCharacterPrefabController>(true));
+            if (refreshedControllers == 0)
+            {
+                _logger?.LogWarning(
+                    "Managed bot prefab callback contained no PlayerCharacterPrefabController; scheduling a retry");
+                _nextManagedOutfitRefreshAt = Time.unscaledTime + 0.25f;
+                _managedOutfitRefreshDeadline = Time.unscaledTime + 10f;
+                return;
+            }
+
+            _nextManagedOutfitRefreshAt = -1f;
+            _managedOutfitRefreshDeadline = -1f;
+            var animator = player.EntityNetworkAnimatorComponent;
+            if (animator is not null)
+            {
+                ManagedAnimatorPointers.Add(animator.Pointer);
+            }
+            if (LoggingEnabled)
+            {
+                _logger?.LogInfo(
+                    $"Refreshed managed bot outfit from prefab callback on {refreshedControllers} character controller(s)");
+            }
+        }
+        catch (Exception exception)
+        {
+            LogError("Managed bot prefab outfit refresh failed", exception);
         }
     }
 
@@ -455,6 +578,11 @@ internal static class LobbyTestBotRuntime
         if (!Enabled)
         {
             return true;
+        }
+
+        if (_managedCharacterPrefabSpawnScope)
+        {
+            return false;
         }
 
         if (ManagedAnimatorPointers.Contains(animator.Pointer))
@@ -484,21 +612,6 @@ internal static class LobbyTestBotRuntime
         }
 
         return player is not null || (_managedPlayerPointer == IntPtr.Zero && !_carryBotIntoMatch);
-    }
-
-    public static bool ShouldSkipVictimPlacement()
-    {
-        if (!Enabled || _managedPlayerRefId == 0 || _managedPlayerPointer == IntPtr.Zero)
-        {
-            return false;
-        }
-
-        if (LoggingEnabled)
-        {
-            _logger?.LogInfo("Skipped stock victim staging for the animation-less test bot");
-        }
-
-        return true;
     }
 
     public static bool TryOverrideDiagnosticMap(ref SceneType sceneType)
@@ -551,28 +664,27 @@ internal static class LobbyTestBotRuntime
             return null;
         }
 
-        var buttonObject = new GameObject("LobbyTestBotButton");
-        buttonObject.transform.SetParent(view._playButton.transform, false);
-        var buttonRect = buttonObject.AddComponent<RectTransform>();
-        var background = buttonObject.AddComponent<Image>();
-        var button = buttonObject.AddComponent<Button>();
+        var buttonObject = UnityEngine.Object.Instantiate(view._playButton.gameObject, playSection, false);
+        buttonObject.name = "LobbyTestBotButton";
+        var buttonRect = buttonObject.GetComponent<RectTransform>();
+        var button = buttonObject.GetComponent<SpookedOutlineButton>();
+        var label = buttonObject.GetComponentInChildren<TMP_Text>(true);
+        if (buttonRect is null || button is null || label is null)
+        {
+            UnityEngine.Object.Destroy(buttonObject);
+            _logger?.LogWarning("Lobby bot button setup skipped: the stock button clone was incomplete");
+            return null;
+        }
 
-        CopyButtonStyle(view._playButton, button, background);
-
-        var labelObject = new GameObject("Label");
-        labelObject.transform.SetParent(buttonObject.transform, false);
-        var labelRect = labelObject.AddComponent<RectTransform>();
-        labelRect.anchorMin = Vector2.zero;
-        labelRect.anchorMax = Vector2.one;
-        labelRect.offsetMin = new Vector2(4f, 2f);
-        labelRect.offsetMax = new Vector2(-4f, -2f);
-        var label = labelObject.AddComponent<Text>();
-        label.font = GetLegacyFont();
-        label.fontSize = 14;
-        label.fontStyle = FontStyle.Bold;
-        label.alignment = TextAnchor.MiddleCenter;
+        label.fontSize = 15f;
+        label.enableAutoSizing = false;
+        label.enableWordWrapping = false;
+        label.overflowMode = TextOverflowModes.Overflow;
+        label.fontStyle = FontStyles.Bold;
+        label.alignment = TextAlignmentOptions.Center;
         label.color = Color.white;
         label.raycastTarget = false;
+        FitStockButtonLayers(buttonRect, button, label);
 
         var clickAction = (UnityAction)ToggleBot;
         button.onClick = new Button.ButtonClickedEvent();
@@ -590,45 +702,6 @@ internal static class LobbyTestBotRuntime
         return state;
     }
 
-    private static void CopyButtonStyle(Button source, Button target, Image targetImage)
-    {
-        target.transition = source.transition;
-        target.colors = source.colors;
-        target.spriteState = source.spriteState;
-        target.navigation = source.navigation;
-        target.targetGraphic = targetImage;
-
-        if (source.targetGraphic is not Image sourceImage)
-        {
-            targetImage.color = new Color(0.08627451f, 0.5372549f, 0.654902f, 1f);
-            return;
-        }
-
-        targetImage.sprite = sourceImage.sprite;
-        targetImage.overrideSprite = sourceImage.overrideSprite;
-        targetImage.type = sourceImage.type;
-        targetImage.preserveAspect = sourceImage.preserveAspect;
-        targetImage.fillCenter = sourceImage.fillCenter;
-        targetImage.fillMethod = sourceImage.fillMethod;
-        targetImage.fillAmount = sourceImage.fillAmount;
-        targetImage.fillClockwise = sourceImage.fillClockwise;
-        targetImage.fillOrigin = sourceImage.fillOrigin;
-        targetImage.pixelsPerUnitMultiplier = sourceImage.pixelsPerUnitMultiplier;
-        targetImage.material = sourceImage.material;
-        targetImage.color = sourceImage.color;
-    }
-
-    private static Font GetLegacyFont()
-    {
-        if (_legacyFont is not null && _legacyFont.Pointer != IntPtr.Zero)
-        {
-            return _legacyFont;
-        }
-
-        _legacyFont = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        return _legacyFont;
-    }
-
     private static void LayoutButton(PortalPlayView view, LobbyTestBotUiState state)
     {
         var playButton = view._playButton;
@@ -640,9 +713,9 @@ internal static class LobbyTestBotRuntime
             return;
         }
 
-        if (state.RootObject.transform.parent != playButton.transform)
+        if (state.RootObject.transform.parent != playSection)
         {
-            state.RootObject.transform.SetParent(playButton.transform, false);
+            state.RootObject.transform.SetParent(playSection, false);
         }
 
         buttonRect.anchorMin = new Vector2(0.5f, 0.5f);
@@ -652,10 +725,37 @@ internal static class LobbyTestBotRuntime
         buttonRect.localRotation = Quaternion.identity;
         buttonRect.sizeDelta = new Vector2(ButtonWidth, ButtonHeight);
         var playHeight = playRect.rect.height;
-        buttonRect.anchoredPosition = new Vector2(
+        buttonRect.localPosition = playRect.localPosition + new Vector3(
             114f,
-            playHeight * 0.5f + ButtonHeight * 0.5f + 12f);
+            playHeight * 0.5f + ButtonHeight * 0.5f + 12f,
+            0f);
         buttonRect.SetAsLastSibling();
+    }
+
+    private static void FitStockButtonLayers(
+        RectTransform root,
+        SpookedOutlineButton button,
+        TMP_Text label)
+    {
+        StretchToRoot(button._targetColorImage?.rectTransform, root);
+        StretchToRoot(button._targetOutlineImage?.rectTransform, root);
+        StretchToRoot(label.rectTransform, root);
+    }
+
+    private static void StretchToRoot(RectTransform? leaf, RectTransform root)
+    {
+        var current = leaf;
+        while (current is not null && current.Pointer != root.Pointer)
+        {
+            current.anchorMin = Vector2.zero;
+            current.anchorMax = Vector2.one;
+            current.pivot = new Vector2(0.5f, 0.5f);
+            current.offsetMin = Vector2.zero;
+            current.offsetMax = Vector2.zero;
+            current.anchoredPosition = Vector2.zero;
+            current.localScale = Vector3.one;
+            current = current.parent?.GetComponent<RectTransform>();
+        }
     }
 
     private static void ToggleBot()
@@ -773,10 +873,23 @@ internal static class LobbyTestBotRuntime
         _pendingOperation = PendingOperation.Remove;
         _pendingStartedAt = Time.unscaledTime;
         _requestedPlayerRefId = bot.KinguinverseId;
+        var networkObject = bot.Object;
+        var networkObjectId = networkObject.Id;
         var botInternalId = bot.InternalId;
         var botPlayerRefId = bot.KinguinverseId;
-        sceneSpawner.Runner.Despawn(bot.Object);
-        sceneSpawner._networkPlayerRegistry.ClearPlayer(botInternalId);
+
+        // Let the stock SpookedNetworkPlayer.Despawned lifecycle publish its removal while the
+        // registries still contain the bot. Clearing them first leaves a stale lobby UI card.
+        sceneSpawner.Runner.Despawn(networkObject);
+
+        // Current builds remove both entries themselves. Keep this id-only cleanup as a safe
+        // fallback, without touching the component that Despawn may already have invalidated.
+        if (botInternalId >= 0
+            && botInternalId < sceneSpawner._networkPlayerRegistry._components.Length
+            && sceneSpawner._networkPlayerRegistry._components[botInternalId] is not null)
+        {
+            sceneSpawner._networkPlayerRegistry.ClearPlayer(botInternalId);
+        }
         if (sceneSpawner._players.Exists(botPlayerRefId, out _))
         {
             sceneSpawner._players.Remove(botPlayerRefId);
@@ -785,7 +898,7 @@ internal static class LobbyTestBotRuntime
         if (LoggingEnabled)
         {
             _logger?.LogInfo(
-                $"Requested native bot despawn: playerRef={bot.KinguinverseId}, networkObject={bot.Object.Id}");
+                $"Requested native bot despawn: playerRef={botPlayerRefId}, networkObject={networkObjectId}");
         }
     }
 
@@ -875,6 +988,7 @@ internal static class LobbyTestBotRuntime
         var sceneSpawner = ResolveAuthoritativeLobbySpawner();
         if (sceneSpawner is null
             || sceneSpawner._networkPlayerRegistry.Count == 0
+            || Time.unscaledTime < _diagnosticPortalOpenNotBefore
             || _diagnosticOpenedPortalSpawnerPointer == sceneSpawner.Pointer)
         {
             return;
@@ -882,7 +996,8 @@ internal static class LobbyTestBotRuntime
 
         _diagnosticOpenedPortalSpawnerPointer = sceneSpawner.Pointer;
         _logger?.LogInfo("Diagnostic UI automation invoking the stock portal Open callback");
-        view.Open();
+        _gameUiManager!.OpenPortalPlayView();
+        _diagnosticPortalOpenedAt = Time.unscaledTime;
         _diagnosticPortalCaptured = false;
         _diagnosticMapPanelOpenedForCapture = false;
         _diagnosticPortalCaptureAt = Time.unscaledTime + 2f;
@@ -918,6 +1033,96 @@ internal static class LobbyTestBotRuntime
         ScreenCapture.CaptureScreenshot(capturePath);
         _diagnosticPortalCaptured = true;
         _logger?.LogInfo($"Captured diagnostic portal framebuffer: {capturePath}");
+
+        var portalView = _gameUiManager?._portalPlayView;
+        if (portalView is not null
+            && UiStateByView.TryGetValue(portalView.Pointer, out var state)
+            && state.IsAlive)
+        {
+            state.Button.OnPointerEnter(null!);
+            _diagnosticHoveredButton = state.Button;
+            _diagnosticHoverReleaseAt = Time.unscaledTime + 1f;
+            if (portalView._playButton is SpookedOutlineButton playButton && playButton._isHiglighted)
+            {
+                _logger?.LogError("Diagnostic bot hover incorrectly highlighted the stock PLAY button");
+            }
+            else
+            {
+                _logger?.LogInfo("Diagnostic bot hover activated without highlighting PLAY");
+            }
+        }
+    }
+
+    private static void TryReleaseDiagnosticPortalHover()
+    {
+        if (_diagnosticHoveredButton is null || Time.unscaledTime < _diagnosticHoverReleaseAt)
+        {
+            return;
+        }
+
+        if (_diagnosticHoveredButton.Pointer != IntPtr.Zero)
+        {
+            _diagnosticHoveredButton.OnPointerExit(null!);
+        }
+        _diagnosticHoveredButton = null;
+        _diagnosticHoverReleaseAt = 0f;
+    }
+
+    private static void TryCaptureDiagnosticFlow()
+    {
+        if (_configuration is null || !_configuration.CaptureFlowSequence.Value)
+        {
+            return;
+        }
+
+        var now = Time.realtimeSinceStartup;
+        if (_diagnosticFlowCaptureDirectory is null)
+        {
+            var captureRoot = Path.Combine(Paths.BepInExRootPath, "ui-captures");
+            _diagnosticFlowCaptureDirectory = Path.Combine(
+                captureRoot,
+                $"flow-{DateTime.Now:yyyyMMdd-HHmmss}");
+            Directory.CreateDirectory(_diagnosticFlowCaptureDirectory);
+            _diagnosticFlowCaptureStartedAt = now;
+            _diagnosticFlowCaptureNextAt = now;
+            _diagnosticFlowCaptureIndex = 0;
+            _logger?.LogInfo(
+                $"Capturing diagnostic flow every 0.5 seconds: {_diagnosticFlowCaptureDirectory}");
+        }
+
+        if (now < _diagnosticFlowCaptureNextAt)
+        {
+            return;
+        }
+
+        var elapsedMilliseconds = Mathf.Max(
+            0,
+            Mathf.RoundToInt((now - _diagnosticFlowCaptureStartedAt) * 1000f));
+        var capturePath = Path.Combine(
+            _diagnosticFlowCaptureDirectory,
+            $"{_diagnosticFlowCaptureIndex:D5}-{elapsedMilliseconds:D7}ms.png");
+        ScreenCapture.CaptureScreenshot(capturePath);
+        _diagnosticFlowCaptureIndex++;
+        _diagnosticFlowCaptureNextAt = now + 0.5f;
+    }
+
+    private static void TryCaptureDiagnosticMatch()
+    {
+        if (_configuration is null
+            || !_configuration.CapturePortalScreenshot.Value
+            || _diagnosticMatchCaptured
+            || _diagnosticMatchCaptureAt <= 0f
+            || Time.unscaledTime < _diagnosticMatchCaptureAt)
+        {
+            return;
+        }
+
+        var captureDirectory = Path.Combine(Paths.BepInExRootPath, "ui-captures");
+        Directory.CreateDirectory(captureDirectory);
+        var capturePath = Path.Combine(captureDirectory, "match-bot-outfit.png");
+        ScreenCapture.CaptureScreenshot(capturePath);
+        _diagnosticMatchCaptured = true;
+        _logger?.LogInfo($"Captured diagnostic match framebuffer: {capturePath}");
     }
 
     private static void MaintainMatchBot()
@@ -960,7 +1165,9 @@ internal static class LobbyTestBotRuntime
             + $"registeredInternalId={(playersRegistryContainsBot ? registeredInternalId : -1)}, "
             + $"networkObject={networkObject.Id}, valid={networkObject.IsValid}, "
             + $"inSimulation={networkObject.IsInSimulation}, stateAuthority={networkObject.HasStateAuthority}, "
-            + $"networkPlayerCount={registryCount}, scene={sceneSpawner?._gameState.CurrentScene}");
+            + $"networkPlayerCount={registryCount}, scene={sceneSpawner?._gameState.CurrentScene}, "
+            + $"outfit={bot.CharacterData.HeadType}/{bot.CharacterData.TorsoType}/{bot.CharacterData.ArmsType}/"
+            + $"{bot.CharacterData.LegsType}/{bot.CharacterData.BackType}/{bot.CharacterData.WholeType}");
         if (LoggingEnabled)
         {
             var dataRegistry = bot._spookedNetworkPlayerDataRegistry;
@@ -978,23 +1185,6 @@ internal static class LobbyTestBotRuntime
         }
     }
 
-    private static void RegisterBotInPlayerRegistries(SceneSpawner sceneSpawner, SpookedNetworkPlayer bot)
-    {
-        if (!sceneSpawner._players.Exists(bot.KinguinverseId, out var internalId))
-        {
-            internalId = sceneSpawner._players.Add(bot.KinguinverseId);
-        }
-
-        if (internalId < 0 || internalId >= sceneSpawner._networkPlayerRegistry._components.Length)
-        {
-            throw new InvalidOperationException(
-                $"The player registries returned invalid internalId={internalId} for bot playerRef={bot.KinguinverseId}");
-        }
-
-        bot.InternalId = internalId;
-        sceneSpawner._networkPlayerRegistry[internalId] = bot;
-    }
-
     private static void NormalizeBotRegistration(SpookedNetworkPlayer bot)
     {
         var sceneSpawner = ResolveAuthoritativeSpawner();
@@ -1004,9 +1194,34 @@ internal static class LobbyTestBotRuntime
         }
 
         var registry = sceneSpawner._networkPlayerRegistry;
+        var nativeInternalId = -1;
+        for (var internalId = 0; internalId < registry._components.Length; internalId++)
+        {
+            var player = registry._components[internalId];
+            if (player is not null && player.Pointer == bot.Pointer)
+            {
+                nativeInternalId = internalId;
+                break;
+            }
+        }
+
         if (!sceneSpawner._players.Exists(bot.KinguinverseId, out var registeredInternalId))
         {
-            registeredInternalId = sceneSpawner._players.Add(bot.KinguinverseId);
+            if (nativeInternalId >= 0 && nativeInternalId < sceneSpawner._players._registry.Length)
+            {
+                sceneSpawner._players._registry[nativeInternalId] = bot.KinguinverseId;
+                registeredInternalId = nativeInternalId;
+            }
+            else
+            {
+                registeredInternalId = sceneSpawner._players.Add(bot.KinguinverseId);
+            }
+        }
+        else if (nativeInternalId >= 0 && registeredInternalId != nativeInternalId)
+        {
+            sceneSpawner._players._registry[registeredInternalId] = 0;
+            sceneSpawner._players._registry[nativeInternalId] = bot.KinguinverseId;
+            registeredInternalId = nativeInternalId;
         }
 
         bot.InternalId = registeredInternalId;
@@ -1021,18 +1236,14 @@ internal static class LobbyTestBotRuntime
         }
         bot.IsReady = true;
         bot.SpawnedReady = true;
-        for (var internalId = 0; internalId < registry._components.Length; internalId++)
+        var alreadyRegistered = registeredInternalId >= 0
+            && registeredInternalId < registry._components.Length
+            && registry._components[registeredInternalId] is { } registeredBot
+            && registeredBot.Pointer == bot.Pointer;
+        if (!alreadyRegistered)
         {
-            var registeredPlayer = registry._components[internalId];
-            if (internalId != registeredInternalId
-                && registeredPlayer is not null
-                && registeredPlayer.Pointer == bot.Pointer)
-            {
-                registry.ClearPlayer(internalId);
-            }
+            registry[registeredInternalId] = bot;
         }
-
-        registry[registeredInternalId] = bot;
     }
 
     private static int FindAvailablePlayerRefId(SceneSpawner sceneSpawner)
@@ -1159,6 +1370,14 @@ internal static class LobbyTestBotRuntime
         _managedPlayerPointer = player.Pointer;
         _managedNetworkObjectPointer = player.Object?.Pointer ?? IntPtr.Zero;
         _managedPlayerRefId = player.KinguinverseId;
+        _managedPrefabRefreshRequested = false;
+        _managedPrefabRefreshRequestedAt = -1f;
+        _managedDirectPrefabSpawnRequested = false;
+        if (!RefreshManagedBotOutfit(player))
+        {
+            _nextManagedOutfitRefreshAt = Time.unscaledTime + 0.25f;
+            _managedOutfitRefreshDeadline = Time.unscaledTime + 10f;
+        }
         var networkAnimator = FindNetworkAnimator(player);
         if (networkAnimator is not null)
         {
@@ -1169,6 +1388,8 @@ internal static class LobbyTestBotRuntime
         if (sceneSpawner is not null && sceneSpawner._gameState.GameStateType == GameStateType.Game)
         {
             _carryBotIntoMatch = false;
+            _diagnosticMatchCaptured = false;
+            _diagnosticMatchCaptureAt = Time.unscaledTime + 3f;
             _logger?.LogInfo(
                 $"Managed test bot registered in match: scene={sceneSpawner._gameState.CurrentScene}, mode={sceneSpawner._gameState.GameMode}");
         }
@@ -1179,7 +1400,261 @@ internal static class LobbyTestBotRuntime
             _diagnosticModeRequested = false;
             _diagnosticPrivateToggleRequested = false;
             _diagnosticPlayRequested = false;
+            _diagnosticRemoveRequested = false;
         }
+    }
+
+    private static bool RefreshManagedBotOutfit(SpookedNetworkPlayer player)
+    {
+        SynchronizeManagedBotCharacterData(player);
+        var refreshedControllers = RefreshCharacterControllers(
+            player,
+            player.GetComponentsInChildren<PlayerCharacterPrefabController>(true));
+
+        if (refreshedControllers == 0)
+        {
+            var allControllers = Resources.FindObjectsOfTypeAll<PlayerCharacterPrefabController>();
+            foreach (var controller in allControllers)
+            {
+                if (controller is null
+                    || controller.Pointer == IntPtr.Zero
+                    || controller.InternalId != player.InternalId)
+                {
+                    continue;
+                }
+
+                RefreshCharacterController(player, controller);
+                refreshedControllers++;
+            }
+        }
+
+        if (LoggingEnabled && refreshedControllers > 0)
+        {
+            _logger?.LogInfo($"Refreshed managed bot outfit on {refreshedControllers} character controller(s)");
+        }
+
+        return refreshedControllers > 0;
+    }
+
+    private static void SynchronizeManagedBotCharacterData(SpookedNetworkPlayer player)
+    {
+        var characterDataRegistry = player._spookedPlayerCharacterData;
+        if (characterDataRegistry is not null
+            && player.InternalId >= 0
+            && player.InternalId < characterDataRegistry._characterDatas.Length)
+        {
+            characterDataRegistry[player.InternalId] = player.CharacterData;
+        }
+    }
+
+    private static int RefreshCharacterControllers(
+        SpookedNetworkPlayer player,
+        Il2CppInterop.Runtime.InteropTypes.Arrays.Il2CppArrayBase<PlayerCharacterPrefabController> controllers)
+    {
+        var refreshedControllers = 0;
+        foreach (var controller in controllers)
+        {
+            if (controller is null || controller.Pointer == IntPtr.Zero)
+            {
+                continue;
+            }
+
+            RefreshCharacterController(player, controller);
+            refreshedControllers++;
+        }
+        return refreshedControllers;
+    }
+
+    private static void RefreshCharacterController(
+        SpookedNetworkPlayer player,
+        PlayerCharacterPrefabController controller)
+    {
+        // Prefabs ship with authored costume renderers. When the bot has no equipped pieces,
+        // Refresh alone has no previous "current" piece to turn off and those authored renderers
+        // can remain visible. Clear the visual state first, then apply the authoritative data.
+        controller.TurnOff();
+        controller.SetPlayer(player.InternalId);
+        controller.RefreshCharacterPreview(player.CharacterData);
+    }
+
+    private static void TryRefreshPendingManagedBotOutfit()
+    {
+        if (_nextManagedOutfitRefreshAt < 0f || Time.unscaledTime < _nextManagedOutfitRefreshAt)
+        {
+            return;
+        }
+
+        var bot = FindManagedBot();
+        if (bot is not null && TryScheduleManagedBotPrefabRepair(bot))
+        {
+            _nextManagedOutfitRefreshAt = Time.unscaledTime + 0.25f;
+            return;
+        }
+
+        if (bot is not null && TrySpawnManagedBotCharacterPrefab(bot))
+        {
+            _nextManagedOutfitRefreshAt = Time.unscaledTime + 0.25f;
+            return;
+        }
+
+        if (bot is not null && RefreshManagedBotOutfit(bot))
+        {
+            _nextManagedOutfitRefreshAt = -1f;
+            _managedOutfitRefreshDeadline = -1f;
+            return;
+        }
+
+        if (Time.unscaledTime >= _managedOutfitRefreshDeadline)
+        {
+            _nextManagedOutfitRefreshAt = -1f;
+            _managedOutfitRefreshDeadline = -1f;
+            _logger?.LogWarning("Managed bot outfit controller did not appear before the refresh deadline");
+            return;
+        }
+
+        _nextManagedOutfitRefreshAt = Time.unscaledTime + 0.25f;
+    }
+
+    private static bool TryScheduleManagedBotPrefabRepair(SpookedNetworkPlayer bot)
+    {
+        if (_managedPrefabRefreshRequested)
+        {
+            return false;
+        }
+
+        var sceneSpawner = ResolveAuthoritativeSpawner();
+        var underlyingPrefab = bot.UnderlyingPrefabComponent;
+        if (sceneSpawner is null
+            || sceneSpawner._gameState.GameStateType != GameStateType.Game
+            || underlyingPrefab is null
+            || !underlyingPrefab._isInitialized)
+        {
+            return false;
+        }
+
+        _managedPrefabRefreshRequested = true;
+        _managedPrefabRefreshRequestedAt = Time.unscaledTime;
+        if (LoggingEnabled)
+        {
+            _logger?.LogInfo("Scheduled managed bot character prefab orphan cleanup and repair");
+        }
+        return true;
+    }
+
+    private static bool TrySpawnManagedBotCharacterPrefab(SpookedNetworkPlayer bot)
+    {
+        if (_managedDirectPrefabSpawnRequested
+            || !_managedPrefabRefreshRequested
+            || Time.unscaledTime - _managedPrefabRefreshRequestedAt < 1f
+            || bot.EntityNetworkAnimatorComponent is not null)
+        {
+            return false;
+        }
+
+        var underlyingPrefab = bot.UnderlyingPrefabComponent;
+        var prefabCollection = underlyingPrefab?._spookedCharacterPrefabs;
+        var runner = bot.Runner;
+        if (underlyingPrefab is null || prefabCollection is null || runner is null)
+        {
+            return false;
+        }
+
+        _managedDirectPrefabSpawnRequested = true;
+        var prefab = prefabCollection.GetPrefab(bot.CharacterType, bot.SubCharacterType);
+        if (prefab is null)
+        {
+            _logger?.LogWarning(
+                $"Managed bot character prefab was unavailable for {bot.CharacterType}/{bot.SubCharacterType}");
+            return false;
+        }
+
+        DespawnOrphanedManagedBotCharacterPrefabs(bot, runner);
+
+        NetworkObject? spawnedPrefab = null;
+        _managedCharacterPrefabInitializer ??=
+            (NetworkRunner.OnBeforeSpawned)(Action<NetworkRunner, NetworkObject>)InitializeManagedBotCharacterPrefab;
+        _managedCharacterPrefabSpawnTarget = underlyingPrefab;
+        _managedCharacterPrefabSpawnScope = true;
+        try
+        {
+            spawnedPrefab = runner.Spawn(
+                prefab,
+                new Il2CppSystem.Nullable<Vector3>(underlyingPrefab.transform.position),
+                new Il2CppSystem.Nullable<Quaternion>(underlyingPrefab.transform.rotation),
+                new Il2CppSystem.Nullable<PlayerRef>(bot.PlayerRef),
+                _managedCharacterPrefabInitializer,
+                default);
+        }
+        finally
+        {
+            _managedCharacterPrefabSpawnScope = false;
+            _managedCharacterPrefabSpawnTarget = null;
+        }
+
+        if (spawnedPrefab is null || !spawnedPrefab.IsValid)
+        {
+            _logger?.LogWarning(
+                $"Direct stock character prefab spawn failed for {bot.CharacterType}/{bot.SubCharacterType}");
+            return false;
+        }
+
+        _logger?.LogInfo(
+            $"Spawned the missing managed bot character prefab through Fusion: object={spawnedPrefab.Id}, "
+            + $"character={bot.CharacterType}/{bot.SubCharacterType}");
+        return true;
+    }
+
+    private static void DespawnOrphanedManagedBotCharacterPrefabs(
+        SpookedNetworkPlayer bot,
+        NetworkRunner runner)
+    {
+        var removedObjectIds = new List<string>();
+        var botPosition = bot.UnderlyingPrefabComponent.transform.position;
+        foreach (var animator in Resources.FindObjectsOfTypeAll<EntityNetworkAnimatorComponent>())
+        {
+            if (animator is null
+                || animator.Pointer == IntPtr.Zero
+                || animator._spookedNetworkPlayer is not null
+                || !animator.gameObject.activeInHierarchy
+                || !animator.gameObject.name.Contains("_Kinguin_Base_prefab", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var networkObject = animator.Object;
+            if (networkObject is null
+                || !networkObject.IsValid
+                || !networkObject.IsInSimulation
+                || animator.Runner is null
+                || animator.Runner.Pointer != runner.Pointer
+                || (animator.transform.position - botPosition).sqrMagnitude > 4f)
+            {
+                continue;
+            }
+
+            removedObjectIds.Add(networkObject.Id.ToString());
+            runner.Despawn(networkObject);
+        }
+
+        if (removedObjectIds.Count > 0)
+        {
+            _logger?.LogInfo(
+                "Despawned orphaned managed bot character prefab(s): "
+                + string.Join(", ", removedObjectIds));
+        }
+    }
+
+    private static void InitializeManagedBotCharacterPrefab(
+        NetworkRunner runner,
+        NetworkObject spawnedPrefab)
+    {
+        var underlyingPrefab = _managedCharacterPrefabSpawnTarget;
+        if (underlyingPrefab is null)
+        {
+            throw new InvalidOperationException("Managed bot character prefab target was lost during Fusion spawn");
+        }
+
+        underlyingPrefab.PrefabSpawned(spawnedPrefab.gameObject);
     }
 
     private static void ForgetManagedBot(bool preserveMatchIntent)
@@ -1188,6 +1663,11 @@ internal static class LobbyTestBotRuntime
         _managedPlayerPointer = IntPtr.Zero;
         _managedNetworkObjectPointer = IntPtr.Zero;
         _managedPlayerRefId = 0;
+        _nextManagedOutfitRefreshAt = -1f;
+        _managedOutfitRefreshDeadline = -1f;
+        _managedPrefabRefreshRequested = false;
+        _managedPrefabRefreshRequestedAt = -1f;
+        _managedDirectPrefabSpawnRequested = false;
         if (!preserveMatchIntent)
         {
             _managedMatchJoinStarted = false;
@@ -1198,6 +1678,7 @@ internal static class LobbyTestBotRuntime
         _diagnosticModeRequested = false;
         _diagnosticPrivateToggleRequested = false;
         _diagnosticPlayRequested = false;
+        _diagnosticRemoveRequested = false;
         _managedMatchStartGuardScope = false;
     }
 
@@ -1237,8 +1718,10 @@ internal static class LobbyTestBotRuntime
     {
         if (_configuration is null
             || !_configuration.AutoAddBotWhenLobbyReady.Value
+            || _configuration.AutoRemoveBotWhenReady.Value
             || !_configuration.AutoStartPrivateMatchWhenBotReady.Value
             || _diagnosticPlayRequested
+            || _diagnosticPortalOpenedAt <= 0f
             || FindManagedBot() is null)
         {
             return;
@@ -1247,7 +1730,8 @@ internal static class LobbyTestBotRuntime
         var sceneSpawner = ResolveAuthoritativeLobbySpawner();
         if (sceneSpawner is null
             || sceneSpawner.Pointer != _diagnosticAutoStartSpawnerPointer
-            || Time.unscaledTime - _diagnosticBotReadyAt < Mathf.Max(0f, _configuration.AutoStartDelaySeconds.Value))
+            || Time.unscaledTime - Mathf.Max(_diagnosticBotReadyAt, _diagnosticPortalOpenedAt)
+                < Mathf.Max(0f, _configuration.AutoStartDelaySeconds.Value))
         {
             return;
         }
@@ -1257,10 +1741,11 @@ internal static class LobbyTestBotRuntime
         {
             var requestedMode = _configuration.AutoStartGameMode.Value;
             var requestedLabel = requestedMode == DiagnosticGameMode.Crown ? "CROWN" : "CLASSIC";
-            var modeButtonObject = view._playButton.transform
-                .Find("CodexPortalControls/CodexPortalModeButton")?.gameObject;
+            // Portal controls are siblings of PLAY so their pointer events cannot bubble into it.
+            // Resolve the diagnostic target by its unique scene name instead of the old child path.
+            var modeButtonObject = GameObject.Find("CodexPortalModeButton");
             var modeButton = modeButtonObject?.GetComponent<Button>();
-            var modeLabel = modeButtonObject?.GetComponentInChildren<Text>();
+            var modeLabel = modeButtonObject?.GetComponentInChildren<TMP_Text>();
             if (modeButton is not null
                 && !string.Equals(modeLabel?.text, requestedLabel, StringComparison.OrdinalIgnoreCase))
             {
@@ -1295,6 +1780,35 @@ internal static class LobbyTestBotRuntime
         _logger?.LogInfo(
             $"Diagnostic match automation invoking the stock PLAY callback: mode={sceneSpawner._gameState.GameMode}");
         view._playButton.onClick.Invoke();
+    }
+
+    private static void TryRunDiagnosticAutoRemove(PortalPlayView view)
+    {
+        if (_configuration is null
+            || !_configuration.AutoAddBotWhenLobbyReady.Value
+            || !_configuration.AutoRemoveBotWhenReady.Value
+            || _diagnosticRemoveRequested
+            || FindManagedBot() is null)
+        {
+            return;
+        }
+
+        var sceneSpawner = ResolveAuthoritativeLobbySpawner();
+        if (sceneSpawner is null
+            || sceneSpawner.Pointer != _diagnosticAutoStartSpawnerPointer
+            || Time.unscaledTime - _diagnosticBotReadyAt < Mathf.Max(0f, _configuration.AutoStartDelaySeconds.Value))
+        {
+            return;
+        }
+
+        if (!UiStateByView.TryGetValue(view.Pointer, out var state) || !state.IsAlive)
+        {
+            return;
+        }
+
+        _diagnosticRemoveRequested = true;
+        _logger?.LogInfo("Diagnostic bot removal invoking the real REMOVE BOT callback");
+        state.Button.onClick.Invoke();
     }
 
     private static void RefreshAllButtons()

@@ -100,7 +100,9 @@ test("noninteractive install selects stable defaults and uninstall restores clea
   }
 });
 
-test("install refuses to mutate the game while live Steam still needs a Proton override", async () => {
+test("install refuses to mutate the game while live Steam still needs a Proton override", {
+  skip: process.platform === "win32"
+}, async () => {
   const paths = await fixture();
   try {
     const originalLocalConfig = await readFile(paths.userdataConfig, "utf8");
@@ -126,7 +128,9 @@ test("install refuses to mutate the game while live Steam still needs a Proton o
   }
 });
 
-test("install repairs the unescaped Proton launch option written by version 0.1.0", async () => {
+test("install repairs the unescaped Proton launch option written by version 0.1.0", {
+  skip: process.platform === "win32"
+}, async () => {
   const paths = await fixture();
   try {
     const content = await readFile(paths.userdataConfig, "utf8");

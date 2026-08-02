@@ -18,9 +18,11 @@ async function fixture() {
   const gameDirectory = join(steamRoot, "steamapps", "common", "Sneak Out");
   const metadataDirectory = join(gameDirectory, "Sneak Out_Data", "il2cpp_data", "Metadata");
   const userdataConfig = join(steamRoot, "userdata", "123", "config", "localconfig.vdf");
+  const anonymousConfig = join(steamRoot, "userdata", "anonymous", "config", "localconfig.vdf");
   const bepinexRoot = join(root, "BepInExSource");
   await mkdir(metadataDirectory, { recursive: true });
   await mkdir(dirname(userdataConfig), { recursive: true });
+  await mkdir(dirname(anonymousConfig), { recursive: true });
   await mkdir(join(bepinexRoot, "BepInEx", "core"), { recursive: true });
   await Promise.all([
     writeFile(join(gameDirectory, "GameAssembly.dll"), "unsupported-game-assembly"),
@@ -35,6 +37,7 @@ async function fixture() {
       userdataConfig,
       '"UserLocalConfigStore"\n{\n\t"Software"\n\t{\n\t\t"Valve"\n\t\t{\n\t\t\t"Steam"\n\t\t\t{\n\t\t\t\t"apps"\n\t\t\t\t{\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n}\n'
     ),
+    writeFile(anonymousConfig, '"UserLocalConfigStore"\n{\n}\n'),
     writeFile(join(bepinexRoot, "BepInEx", "core", "BepInEx.Unity.IL2CPP.dll"), "core"),
     writeFile(join(bepinexRoot, "winhttp.dll"), "loader"),
     writeFile(join(bepinexRoot, "doorstop_config.ini"), "doorstop")

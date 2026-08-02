@@ -168,7 +168,7 @@ export async function steamLocalConfigPaths() {
     } catch {
       continue;
     }
-    for (const user of users.filter((entry) => entry.isDirectory())) {
+    for (const user of users.filter((entry) => entry.isDirectory() && /^\d+$/.test(entry.name))) {
       const path = join(userdata, user.name, "config", "localconfig.vdf");
       if (await exists(path)) {
         results.push(path);

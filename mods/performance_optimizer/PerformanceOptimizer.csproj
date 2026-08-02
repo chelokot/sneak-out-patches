@@ -20,6 +20,12 @@
     <Reference Include="UnityEngine.PhysicsModule">
       <HintPath>$(InteropDir)/UnityEngine.PhysicsModule.dll</HintPath>
     </Reference>
+    <Reference Include="UnityEngine.UI">
+      <HintPath>$(InteropDir)/UnityEngine.UI.dll</HintPath>
+    </Reference>
+    <Reference Include="Unity.TextMeshPro">
+      <HintPath>$(InteropDir)/Unity.TextMeshPro.dll</HintPath>
+    </Reference>
     <Reference Include="Unity.RenderPipelines.Core.Runtime">
       <HintPath>$(InteropDir)/Unity.RenderPipelines.Core.Runtime.dll</HintPath>
     </Reference>

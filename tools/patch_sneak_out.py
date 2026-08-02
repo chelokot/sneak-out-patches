@@ -642,7 +642,24 @@ def split_launch_option_prefix(existing_launch_options: str) -> tuple[str, str]:
 
 
 def merge_proton_launch_options(existing_launch_options: str) -> str:
-    existing_launch_options = existing_launch_options.strip()
+    # Remove the exact diagnostic display override used by the performance harness during
+    # development. It must never become a persistent user launch option: besides forcing
+    # 1280x720 windowed mode, it leaves the game's resolution dropdown without an exact match.
+    existing_launch_options = re.sub(
+        r"(?:^|\s)WINE_DISABLE_FULLSCREEN_HACK=1"
+        r"(?=\s|$)",
+        "",
+        existing_launch_options,
+    )
+    existing_launch_options = re.sub(
+        r"(?:^|\s)-screen-fullscreen\s+0"
+        r"\s+-screen-width\s+1280"
+        r"\s+-screen-height\s+720"
+        r"(?=\s|$)",
+        "",
+        existing_launch_options,
+    )
+    existing_launch_options = re.sub(r"\s+", " ", existing_launch_options).strip()
     if not existing_launch_options:
         return PROTON_LAUNCH_OPTIONS
 

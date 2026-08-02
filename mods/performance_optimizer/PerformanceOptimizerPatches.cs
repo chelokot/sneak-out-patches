@@ -2,6 +2,7 @@ using Gameplay.Enviro;
 using HarmonyLib;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using Networking.Photon;
+using UI.VideoSettings;
 using UnityEngine;
 
 namespace SneakOut.PerformanceOptimizer;
@@ -55,5 +56,62 @@ internal static class RoomNullLightsPatch
 
         __instance.Lights = filteredLights;
         PerformanceOptimizerRuntime.ReportSanitizedRoomLights(lights.Length - validLightCount);
+    }
+}
+
+[HarmonyPatch(typeof(ResolutionSelector), "RefreshShownValue")]
+internal static class ResolutionSelectorRefreshShownValuePatch
+{
+    [HarmonyPrefix]
+    private static bool Prefix(ResolutionSelector __instance)
+    {
+        var availableResolutions = __instance._availableResolutions;
+        var gameSettings = __instance._gameSettingsManager;
+        var dropdown = __instance._dropdown;
+        if (availableResolutions is null
+            || availableResolutions.Length == 0
+            || gameSettings is null
+            || dropdown is null)
+        {
+            return true;
+        }
+
+        var currentResolution = gameSettings.CurrentResolution;
+        var stockMatcher = new ResolutionSelector.__c__DisplayClass8_0
+        {
+            currentResolution = currentResolution,
+        };
+        for (var index = 0; index < availableResolutions.Length; index++)
+        {
+            if (stockMatcher._RefreshShownValue_b__0(availableResolutions[index]))
+            {
+                return true;
+            }
+        }
+
+        var closestIndex = 0;
+        var closestDistance = long.MaxValue;
+        for (var index = 0; index < availableResolutions.Length; index++)
+        {
+            var candidate = availableResolutions[index];
+            var widthDelta = (long)candidate.width - currentResolution.width;
+            var heightDelta = (long)candidate.height - currentResolution.height;
+            var distance = widthDelta * widthDelta + heightDelta * heightDelta;
+            if (distance < closestDistance)
+            {
+                closestDistance = distance;
+                closestIndex = index;
+            }
+        }
+
+        dropdown.SetValueWithoutNotify(closestIndex);
+        dropdown.RefreshShownValue();
+        var closestResolution = availableResolutions[closestIndex];
+        PerformanceOptimizerRuntime.ReportResolutionSelectorRecovery(
+            currentResolution.width,
+            currentResolution.height,
+            closestResolution.width,
+            closestResolution.height);
+        return false;
     }
 }

@@ -7,8 +7,8 @@ namespace SneakOut.StartDelayReducer;
 public sealed class StartDelayReducerPlugin : BasePlugin
 {
     public const string PluginGuid = "chelokot.sneakout.start-delay-reducer";
-    public const string PluginName = "Start Delay Reducer";
-    public const string PluginVersion = "0.1.0";
+    public const string PluginName = "Start Now";
+    public const string PluginVersion = "0.2.0";
 
     public override void Load()
     {

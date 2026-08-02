@@ -8,7 +8,7 @@ internal static class BeforeStartStateCalculateStateEndTickPatch
 {
     private static void Postfix(MatchStateMachine stateMachine, ref int __result)
     {
-        StartDelayReducerRuntime.ReduceBeforeStartDelay(stateMachine, ref __result);
+        StartDelayReducerRuntime.ApplyRequestedSkip(stateMachine, ref __result);
     }
 }
 
@@ -17,6 +17,15 @@ internal static class CountingToStartStateCalculateStateEndTickPatch
 {
     private static void Postfix(MatchStateMachine stateMachine, ref int __result)
     {
-        StartDelayReducerRuntime.ReduceCountingToStartDelay(stateMachine, ref __result);
+        StartDelayReducerRuntime.ApplyRequestedSkip(stateMachine, ref __result);
+    }
+}
+
+[HarmonyPatch(typeof(MatchStateMachine), nameof(MatchStateMachine.FixedUpdateNetwork))]
+internal static class MatchStateMachineCapturePatch
+{
+    private static void Prefix(MatchStateMachine __instance)
+    {
+        StartDelayReducerRuntime.CaptureStateMachine(__instance);
     }
 }

@@ -1,5 +1,10 @@
 # Documentation Index
 
+## installation
+
+- `installation/one-line-installer.md`
+  Cross-platform `npx` install/uninstall commands, release payloads, compatibility checks, and rollback ownership.
+
 ## performance
 
 - `performance/performance-overhaul.md`
@@ -26,6 +31,8 @@
   How the visible crown is wired and what is still missing.
 - `gameplay/locker-open-attack-cooldown.md`
   Why seekers cannot attack immediately after opening a locker.
+- `gameplay/locker-stun-after-seeker-open.md`
+  Why `IsOpen` cannot distinguish a normal exit from a seeker-forced exit, and how the stun fix tracks the actual opener event.
 - `gameplay/mummy-unlock-research.md`
   Runtime facts and entry points for restoring Mummy as a selectable hunter.
 

@@ -8,7 +8,7 @@ public sealed class LobbyTestBotPlugin : BasePlugin
 {
     public const string PluginGuid = "chelokot.sneakout.lobby-test-bot";
     public const string PluginName = "Lobby Test Bot";
-    public const string PluginVersion = "0.6.0";
+    public const string PluginVersion = "0.6.2";
 
     public override void Load()
     {

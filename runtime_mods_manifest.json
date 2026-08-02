@@ -1,5 +1,16 @@
 [
   {
+    "option_id": "performance-optimizer",
+    "label": "Performance Optimizer",
+    "details": "Reduces startup overhead and provides measured frame pacing, memory, loading, render, GC, and Fusion network optimization presets.",
+    "category": "performance",
+    "default_enabled": true,
+    "project_relative_path": "mods/performance_optimizer/PerformanceOptimizer.csproj",
+    "assembly_name": "SneakOut.PerformanceOptimizer",
+    "config_relative_path": "BepInEx/config/chelokot.sneakout.performance-optimizer.cfg",
+    "default_config_template_path": "config_templates/runtime_mods/performance-optimizer.cfg"
+  },
+  {
     "option_id": "uniform-seeker-random",
     "label": "Uniform Seeker Random",
     "details": "Builds and installs the BepInEx runtime mod that replaces the default seeker selection with a uniform random choice.",

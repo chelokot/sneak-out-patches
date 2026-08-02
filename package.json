@@ -13,6 +13,8 @@
     "patcher": "node scripts/run-python.mjs tools/patch_sneak_out.py",
     "runtime:session": "node scripts/runtime-session.mjs",
     "runtime:session:host": "node scripts/runtime-session.mjs --host-launch",
+    "performance:session": "node scripts/performance-session.mjs",
+    "performance:analyze": "node scripts/analyze-performance-session.mjs",
     "runtime:profiler:configure": "node scripts/configure-runtime-profiler.mjs",
     "runtime:profiler:off": "node scripts/configure-runtime-profiler.mjs off",
     "interop:inspect": "node scripts/run-dotnet.mjs run --project tools/interop_inspector/InteropInspector.csproj --",

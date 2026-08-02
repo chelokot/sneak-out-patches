@@ -115,6 +115,7 @@ async function main() {
     "global-metadata.dat"
   );
   const interopAssemblyPath = join(interopDirectory, supportedBuild.interop_assembly);
+  const interopCacheKeyPath = join(interopDirectory, supportedBuild.interop_cache_key_file);
 
   console.log(`game: ${gameDirectory}`);
   console.log(`interop: ${interopDirectory} (${interopSource})`);
@@ -123,24 +124,27 @@ async function main() {
     installedBuildId,
     gameAssemblySha256,
     globalMetadataSha256,
-    interopSha256
+    interopAssemblyExists,
+    interopCacheKey
   ] = await Promise.all([
     readSteamBuildId(gameDirectory),
     sha256File(gameAssemblyPath),
     sha256File(globalMetadataPath),
-    sha256File(interopAssemblyPath)
+    fileExists(interopAssemblyPath),
+    readFile(interopCacheKeyPath, "utf8").then((value) => value.trim())
   ]);
 
   const checks = [
     printFingerprint("Steam build", installedBuildId, supportedBuild.steam_build_id),
     printFingerprint("GameAssembly.dll sha256", gameAssemblySha256, supportedBuild.game_assembly_sha256),
     printFingerprint("global-metadata.dat sha256", globalMetadataSha256, supportedBuild.global_metadata_sha256),
-    printFingerprint(
-      `interop fingerprint (${supportedBuild.interop_assembly} sha256)`,
-      interopSha256,
-      supportedBuild.interop_sha256
-    )
+    interopAssemblyExists,
+    printFingerprint("BepInEx interop cache key", interopCacheKey, supportedBuild.interop_cache_key)
   ];
+
+  console.log(
+    `interop assembly (${supportedBuild.interop_assembly}): ${interopAssemblyExists ? "present" : "missing"}`
+  );
 
   if (checks.every(Boolean)) {
     console.log("Sneak Out build inputs are current.");

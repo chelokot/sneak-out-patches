@@ -14,6 +14,12 @@
     <Reference Include="UnityEngine.CoreModule">
       <HintPath>$(InteropDir)/UnityEngine.CoreModule.dll</HintPath>
     </Reference>
+    <Reference Include="UnityEngine.AnimationModule">
+      <HintPath>$(InteropDir)/UnityEngine.AnimationModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.ScreenCaptureModule">
+      <HintPath>$(InteropDir)/UnityEngine.ScreenCaptureModule.dll</HintPath>
+    </Reference>
     <Reference Include="UnityEngine.UI">
       <HintPath>$(InteropDir)/UnityEngine.UI.dll</HintPath>
     </Reference>

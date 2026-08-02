@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Reflection;
 using System.Text;
@@ -11,18 +10,22 @@ namespace SneakOut.RuntimeProfiler;
 
 internal static class RuntimeProfilerRuntime
 {
-    private static readonly ThreadLocal<Stack<ActiveFrame>> ThreadFrames = new(() => new Stack<ActiveFrame>());
-    private static readonly ConcurrentDictionary<MethodBase, string> MethodSignatures = new();
-    private static readonly ConcurrentDictionary<string, MethodStatistics> MethodStats = new(StringComparer.Ordinal);
-    private static readonly ConcurrentDictionary<string, EdgeStatistics> EdgeStats = new(StringComparer.Ordinal);
+    private static readonly ThreadLocal<Stack<ActiveFrame>> ThreadFrames = new(() => new Stack<ActiveFrame>(32));
+    private static readonly Dictionary<MethodBase, int> MethodIds = new();
+    private static MethodDescriptor[] _methods = Array.Empty<MethodDescriptor>();
+    private static MethodStatistics[] _methodStats = Array.Empty<MethodStatistics>();
+    private static long[] _edgeCalls = Array.Empty<long>();
+    private static long[] _edgeTotalTicks = Array.Empty<long>();
 
     private static ManualLogSource? _logger;
     private static RuntimeProfilerConfig? _configuration;
     private static Harmony? _harmony;
     private static string? _reportPath;
+    private static Timer? _reportTimer;
     private static int _initialized;
     private static int _reportWritten;
     private static int _patchedMethodCount;
+    private static long _profileStartTimestamp;
 
     public static void Initialize(ManualLogSource logger, RuntimeProfilerConfig configuration)
     {
@@ -41,6 +44,14 @@ internal static class RuntimeProfilerRuntime
 
         _harmony = new Harmony(RuntimeProfilerPlugin.PluginGuid);
         PatchConfiguredMethods();
+        _profileStartTimestamp = Stopwatch.GetTimestamp();
+        _reportTimer = new Timer(
+            _ => WriteReport(),
+            null,
+            TimeSpan.FromSeconds(
+                Math.Max(0, configuration.WarmupSeconds.Value)
+                + Math.Max(10, configuration.ReportAfterSeconds.Value)),
+            Timeout.InfiniteTimeSpan);
         Application.add_quitting(new Action(WriteReport));
         AppDomain.CurrentDomain.ProcessExit += OnProcessExit;
         LogInfo($"Patched {_patchedMethodCount} methods");
@@ -58,6 +69,24 @@ internal static class RuntimeProfilerRuntime
         var targetAssemblies = new HashSet<string>(
             SplitConfigList(_configuration!.TargetAssemblies.Value),
             StringComparer.Ordinal);
+        foreach (var targetAssembly in targetAssemblies)
+        {
+            if (AppDomain.CurrentDomain.GetAssemblies().Any(assembly =>
+                    string.Equals(assembly.GetName().Name, targetAssembly, StringComparison.Ordinal)))
+            {
+                continue;
+            }
+
+            try
+            {
+                Assembly.Load(new AssemblyName(targetAssembly));
+            }
+            catch (Exception exception)
+            {
+                LogInfo($"Target assembly {targetAssembly} could not be loaded: {exception.Message}");
+            }
+        }
+
         var includeNamespacePrefixes = SplitConfigList(_configuration.IncludeNamespacePrefixes.Value);
         var targetMethodPatterns = SplitConfigList(_configuration.TargetMethodPatterns.Value);
         var excludeNamespacePrefixes = SplitConfigList(_configuration.ExcludeNamespacePrefixes.Value);
@@ -94,15 +123,31 @@ internal static class RuntimeProfilerRuntime
             }
         }
 
-        foreach (var method in candidateMethods
-                     .OrderBy(method => method.DeclaringType?.FullName, StringComparer.Ordinal)
-                     .ThenBy(method => method.Name, StringComparer.Ordinal)
-                     .Take(_configuration.MaxPatchedMethods.Value))
+        var selectedMethods = candidateMethods
+            .OrderBy(method => method.DeclaringType?.FullName, StringComparer.Ordinal)
+            .ThenBy(method => method.Name, StringComparer.Ordinal)
+            .Take(_configuration.MaxPatchedMethods.Value)
+            .ToArray();
+        _methods = selectedMethods
+            .Select((method, methodId) => new MethodDescriptor(methodId, GetSignature(method), false))
+            .ToArray();
+        _methodStats = selectedMethods.Select(_ => new MethodStatistics()).ToArray();
+        _edgeCalls = new long[selectedMethods.Length * selectedMethods.Length];
+        _edgeTotalTicks = new long[selectedMethods.Length * selectedMethods.Length];
+        for (var methodId = 0; methodId < selectedMethods.Length; methodId++)
         {
+            MethodIds[selectedMethods[methodId]] = methodId;
+        }
+
+        for (var methodId = 0; methodId < selectedMethods.Length; methodId++)
+        {
+            var method = selectedMethods[methodId];
             try
             {
                 _harmony!.Patch(method, prefix: new HarmonyMethod(prefix), finalizer: new HarmonyMethod(finalizer));
+                _methods[methodId] = _methods[methodId] with { Patched = true };
                 _patchedMethodCount++;
+                LogInfo($"Patched [{methodId}] {_methods[methodId].Signature}");
             }
             catch (Exception exception)
             {
@@ -195,15 +240,34 @@ internal static class RuntimeProfilerRuntime
         }
     }
 
-    private static void ProfilePrefix(MethodBase __originalMethod)
+    private static void ProfilePrefix(MethodBase __originalMethod, out bool __state)
     {
+        __state = false;
+        var warmupSeconds = Math.Max(0, _configuration?.WarmupSeconds.Value ?? 0);
+        if (warmupSeconds > 0
+            && (Stopwatch.GetTimestamp() - _profileStartTimestamp) / (double)Stopwatch.Frequency < warmupSeconds)
+        {
+            return;
+        }
+
+        if (!MethodIds.TryGetValue(__originalMethod, out var methodId))
+        {
+            return;
+        }
+
         var stack = ThreadFrames.Value!;
-        var parentSignature = stack.Count > 0 ? stack.Peek().Signature : null;
-        stack.Push(new ActiveFrame(GetSignature(__originalMethod), parentSignature, Stopwatch.GetTimestamp()));
+        var parentMethodId = stack.Count > 0 ? stack.Peek().MethodId : -1;
+        stack.Push(new ActiveFrame(methodId, parentMethodId, Stopwatch.GetTimestamp()));
+        __state = true;
     }
 
-    private static Exception? ProfileFinalizer(Exception? __exception)
+    private static Exception? ProfileFinalizer(Exception? __exception, bool __state)
     {
+        if (!__state)
+        {
+            return __exception;
+        }
+
         var stack = ThreadFrames.Value!;
         if (stack.Count == 0)
         {
@@ -225,14 +289,13 @@ internal static class RuntimeProfilerRuntime
             stack.Push(parent);
         }
 
-        var methodStatistics = MethodStats.GetOrAdd(frame.Signature, _ => new MethodStatistics());
-        methodStatistics.Record(elapsedTicks, selfTicks, __exception is not null);
+        _methodStats[frame.MethodId].Record(elapsedTicks, selfTicks, __exception is not null);
 
-        if (frame.ParentSignature is not null)
+        if (frame.ParentMethodId >= 0)
         {
-            var edgeKey = $"{frame.ParentSignature} -> {frame.Signature}";
-            var edgeStatistics = EdgeStats.GetOrAdd(edgeKey, _ => new EdgeStatistics(frame.ParentSignature, frame.Signature));
-            edgeStatistics.Record(elapsedTicks);
+            var edgeIndex = frame.ParentMethodId * _methods.Length + frame.MethodId;
+            Interlocked.Increment(ref _edgeCalls[edgeIndex]);
+            Interlocked.Add(ref _edgeTotalTicks[edgeIndex], elapsedTicks);
         }
 
         return __exception;
@@ -240,15 +303,12 @@ internal static class RuntimeProfilerRuntime
 
     private static string GetSignature(MethodBase method)
     {
-        return MethodSignatures.GetOrAdd(method, static currentMethod =>
-        {
-            var parameters = string.Join(
-                ", ",
-                currentMethod.GetParameters().Select(parameter => $"{GetFriendlyTypeName(parameter.ParameterType)} {parameter.Name}"));
-            var returnType = currentMethod is MethodInfo info ? GetFriendlyTypeName(info.ReturnType) : "void";
-            var declaringType = currentMethod.DeclaringType?.FullName ?? "<global>";
-            return $"{returnType} {declaringType}.{currentMethod.Name}({parameters})";
-        });
+        var parameters = string.Join(
+            ", ",
+            method.GetParameters().Select(parameter => $"{GetFriendlyTypeName(parameter.ParameterType)} {parameter.Name}"));
+        var returnType = method is MethodInfo info ? GetFriendlyTypeName(info.ReturnType) : "void";
+        var declaringType = method.DeclaringType?.FullName ?? "<global>";
+        return $"{returnType} {declaringType}.{method.Name}({parameters})";
     }
 
     private static string GetFriendlyTypeName(Type type)
@@ -283,6 +343,8 @@ internal static class RuntimeProfilerRuntime
 
         try
         {
+            _reportTimer?.Dispose();
+            _reportTimer = null;
             var reportDirectory = Path.Combine(Paths.BepInExRootPath, "profile-reports");
             Directory.CreateDirectory(reportDirectory);
             _reportPath = Path.Combine(
@@ -293,6 +355,8 @@ internal static class RuntimeProfilerRuntime
             builder.AppendLine("SneakOut Runtime Profiler Report");
             builder.AppendLine($"GeneratedAtUtc: {DateTimeOffset.UtcNow:O}");
             builder.AppendLine($"PatchedMethods: {_patchedMethodCount}");
+            builder.AppendLine($"WarmupSeconds: {Math.Max(0, _configuration?.WarmupSeconds.Value ?? 0)}");
+            builder.AppendLine($"ProfileSeconds: {Math.Max(10, _configuration?.ReportAfterSeconds.Value ?? 60)}");
             builder.AppendLine();
 
             AppendMethodTable(builder);
@@ -313,8 +377,9 @@ internal static class RuntimeProfilerRuntime
         builder.AppendLine("Top Methods");
         builder.AppendLine("SelfMs\tTotalMs\tAvgMs\tMaxMs\tCalls\tExceptions\tMethod");
 
-        foreach (var item in MethodStats
-                     .Select(pair => new MethodReportRow(pair.Key, pair.Value.Snapshot()))
+        foreach (var item in _methods
+                     .Where(method => method.Patched)
+                     .Select(method => new MethodReportRow(method.Signature, _methodStats[method.MethodId].Snapshot()))
                      .OrderByDescending(row => row.Snapshot.SelfTicks)
                      .ThenByDescending(row => row.Snapshot.TotalTicks)
                      .Take(_configuration!.TopMethodCount.Value))
@@ -335,8 +400,7 @@ internal static class RuntimeProfilerRuntime
         builder.AppendLine("Top Caller -> Callee Edges");
         builder.AppendLine("TotalMs\tCalls\tAvgMs\tEdge");
 
-        foreach (var item in EdgeStats
-                     .Select(pair => pair.Value.Snapshot())
+        foreach (var item in EnumerateEdgeSnapshots()
                      .OrderByDescending(snapshot => snapshot.TotalTicks)
                      .Take(_configuration!.TopEdgeCount.Value))
         {
@@ -353,6 +417,30 @@ internal static class RuntimeProfilerRuntime
         return ticks * 1000d / Stopwatch.Frequency;
     }
 
+    private static IEnumerable<EdgeSnapshot> EnumerateEdgeSnapshots()
+    {
+        for (var parentMethodId = 0; parentMethodId < _methods.Length; parentMethodId++)
+        {
+            for (var childMethodId = 0; childMethodId < _methods.Length; childMethodId++)
+            {
+                var edgeIndex = parentMethodId * _methods.Length + childMethodId;
+                var calls = Interlocked.Read(ref _edgeCalls[edgeIndex]);
+                if (calls == 0)
+                {
+                    continue;
+                }
+
+                var totalTicks = Interlocked.Read(ref _edgeTotalTicks[edgeIndex]);
+                yield return new EdgeSnapshot(
+                    _methods[parentMethodId].Signature,
+                    _methods[childMethodId].Signature,
+                    calls,
+                    totalTicks,
+                    totalTicks / calls);
+            }
+        }
+    }
+
     private static void LogInfo(string message)
     {
         if (_configuration is null || !_configuration.EnableLogging.Value)
@@ -365,17 +453,17 @@ internal static class RuntimeProfilerRuntime
 
     private struct ActiveFrame
     {
-        public ActiveFrame(string signature, string? parentSignature, long startTimestamp)
+        public ActiveFrame(int methodId, int parentMethodId, long startTimestamp)
         {
-            Signature = signature;
-            ParentSignature = parentSignature;
+            MethodId = methodId;
+            ParentMethodId = parentMethodId;
             StartTimestamp = startTimestamp;
             ChildTicks = 0;
         }
 
-        public string Signature { get; }
+        public int MethodId { get; }
 
-        public string? ParentSignature { get; }
+        public int ParentMethodId { get; }
 
         public long StartTimestamp { get; }
 
@@ -384,7 +472,6 @@ internal static class RuntimeProfilerRuntime
 
     private sealed class MethodStatistics
     {
-        private readonly object _gate = new();
         private long _calls;
         private long _exceptions;
         private long _totalTicks;
@@ -393,77 +480,42 @@ internal static class RuntimeProfilerRuntime
 
         public void Record(long totalTicks, long selfTicks, bool threw)
         {
-            lock (_gate)
+            Interlocked.Increment(ref _calls);
+            Interlocked.Add(ref _totalTicks, totalTicks);
+            Interlocked.Add(ref _selfTicks, selfTicks);
+            if (threw)
             {
-                _calls++;
-                _totalTicks += totalTicks;
-                _selfTicks += selfTicks;
-                if (totalTicks > _maxTicks)
+                Interlocked.Increment(ref _exceptions);
+            }
+
+            var observedMax = Interlocked.Read(ref _maxTicks);
+            while (totalTicks > observedMax)
+            {
+                var previous = Interlocked.CompareExchange(ref _maxTicks, totalTicks, observedMax);
+                if (previous == observedMax)
                 {
-                    _maxTicks = totalTicks;
+                    break;
                 }
 
-                if (threw)
-                {
-                    _exceptions++;
-                }
+                observedMax = previous;
             }
         }
 
         public MethodSnapshot Snapshot()
         {
-            lock (_gate)
-            {
-                return new MethodSnapshot(
-                    _calls,
-                    _exceptions,
-                    _totalTicks,
-                    _selfTicks,
-                    _maxTicks,
-                    _calls == 0 ? 0 : _totalTicks / _calls);
-            }
+            var calls = Interlocked.Read(ref _calls);
+            var totalTicks = Interlocked.Read(ref _totalTicks);
+            return new MethodSnapshot(
+                calls,
+                Interlocked.Read(ref _exceptions),
+                totalTicks,
+                Interlocked.Read(ref _selfTicks),
+                Interlocked.Read(ref _maxTicks),
+                calls == 0 ? 0 : totalTicks / calls);
         }
     }
 
-    private sealed class EdgeStatistics
-    {
-        private readonly object _gate = new();
-        private long _calls;
-        private long _totalTicks;
-
-        public EdgeStatistics(string parentSignature, string childSignature)
-        {
-            ParentSignature = parentSignature;
-            ChildSignature = childSignature;
-        }
-
-        public string ParentSignature { get; }
-
-        public string ChildSignature { get; }
-
-        public void Record(long totalTicks)
-        {
-            lock (_gate)
-            {
-                _calls++;
-                _totalTicks += totalTicks;
-            }
-        }
-
-        public EdgeSnapshot Snapshot()
-        {
-            lock (_gate)
-            {
-                return new EdgeSnapshot(
-                    ParentSignature,
-                    ChildSignature,
-                    _calls,
-                    _totalTicks,
-                    _calls == 0 ? 0 : _totalTicks / _calls);
-            }
-        }
-    }
-
+    private readonly record struct MethodDescriptor(int MethodId, string Signature, bool Patched);
     private readonly record struct MethodReportRow(string Signature, MethodSnapshot Snapshot);
     private readonly record struct MethodSnapshot(long Calls, long Exceptions, long TotalTicks, long SelfTicks, long MaxTicks, long AverageTicks);
     private readonly record struct EdgeSnapshot(string ParentSignature, string ChildSignature, long Calls, long TotalTicks, long AverageTicks);

@@ -113,7 +113,8 @@ internal static class PortalModeSelectorRuntime
 
     public static void OpenPortal(PortalPlayView view)
     {
-        ClearActiveSelection();
+        // Portal views are recreated more than once during lobby-to-match transition. The next
+        // PLAY call replaces the active snapshot, so opening a view must not erase an in-flight one.
         if (TryEnsureControls(view))
         {
             _logger?.LogInfo("Portal controls opened with safe UI controls");
@@ -142,7 +143,7 @@ internal static class PortalModeSelectorRuntime
         }
 
         var rootObject = new GameObject("CodexPortalControls");
-        rootObject.transform.SetParent(playSection.parent, false);
+        rootObject.transform.SetParent(view._playButton.transform, false);
         var rootRect = rootObject.AddComponent<RectTransform>();
         rootRect.localScale = Vector3.one;
 
@@ -165,9 +166,6 @@ internal static class PortalModeSelectorRuntime
 
         var mapsClickAction = (UnityAction)(() => ToggleMapPanel(view.Pointer));
         mapsButton.Value.Button.onClick.AddListener(mapsClickAction);
-        var playClickAction = (UnityAction)(() => ActivateSelection(view));
-        view._playButton.onClick.AddListener(playClickAction);
-
         var mapOptions = new List<PortalMapOptionUiState>();
         foreach (var map in PreferredMapSelection.GetAvailableMaps(GameModeType.Default).OrderBy(GetMapDisplayOrder))
         {
@@ -198,7 +196,6 @@ internal static class PortalModeSelectorRuntime
             mapsButton.Value.Background,
             mapsButton.Value.Label,
             mapsClickAction,
-            playClickAction,
             mapOptions.ToArray());
         UiStateByView[view.Pointer] = state;
 
@@ -317,29 +314,34 @@ internal static class PortalModeSelectorRuntime
 
     private static void LayoutControls(PortalPlayView view, PortalModeUiState state)
     {
-        var playSection = view._playButton?.transform.parent?.GetComponent<RectTransform>();
+        var playButton = view._playButton;
+        var playSection = playButton?.transform.parent?.GetComponent<RectTransform>();
+        var playRect = playButton?.GetComponent<RectTransform>();
         var rootRect = state.RootObject.GetComponent<RectTransform>();
-        if (playSection is null || rootRect is null || playSection.parent is null)
+        if (playButton is null || playSection is null || playRect is null || rootRect is null)
         {
             return;
         }
 
-        if (state.RootObject.transform.parent != playSection.parent)
+        if (state.RootObject.transform.parent != playButton.transform)
         {
-            state.RootObject.transform.SetParent(playSection.parent, false);
+            state.RootObject.transform.SetParent(playButton.transform, false);
         }
 
-        rootRect.anchorMin = playSection.anchorMin;
-        rootRect.anchorMax = playSection.anchorMax;
-        rootRect.pivot = playSection.pivot;
-        rootRect.localScale = playSection.localScale;
-        rootRect.localRotation = playSection.localRotation;
-        rootRect.anchoredPosition = playSection.anchoredPosition;
-        rootRect.sizeDelta = playSection.sizeDelta;
+        // Use PLAY itself as the coordinate system. Its anchors stretch inside an animated parent,
+        // so copying those anchors onto siblings stretches the custom buttons across the modal.
+        rootRect.anchorMin = Vector2.zero;
+        rootRect.anchorMax = Vector2.one;
+        rootRect.pivot = new Vector2(0.5f, 0.5f);
+        rootRect.localScale = Vector3.one;
+        rootRect.localRotation = Quaternion.identity;
+        rootRect.anchoredPosition = Vector2.zero;
+        rootRect.sizeDelta = Vector2.zero;
         rootRect.SetAsLastSibling();
 
-        var playHeight = Mathf.Max(playSection.rect.height, playSection.sizeDelta.y);
-        var toolbarY = playHeight * 0.5f + ButtonHeight * 0.5f + 8f;
+        var playHeight = playRect.rect.height;
+        var toolbarY = playHeight * 0.5f + ButtonHeight * 0.5f + 12f
+            + (_mapPanelExpanded ? -8f : 0f);
         var modeRect = state.ModeButton.GetComponent<RectTransform>();
         if (modeRect is not null)
         {
@@ -487,12 +489,6 @@ internal static class PortalModeSelectorRuntime
         _logger?.LogInfo($"Portal play requested {_activeMode.Value}");
     }
 
-    public static void ClearActiveSelection()
-    {
-        _activeMode = null;
-        _activeMapSelection = null;
-    }
-
     public static void ReleasePortalView(PortalPlayView view)
     {
         if (!UiStateByView.Remove(view.Pointer, out var state))
@@ -502,12 +498,6 @@ internal static class PortalModeSelectorRuntime
 
         state.ModeButton.onClick.RemoveListener(state.ModeClickAction);
         state.MapsButton.onClick.RemoveListener(state.MapsClickAction);
-        if (state.View is not null
-            && state.View.Pointer != IntPtr.Zero
-            && state.View._playButton is not null)
-        {
-            state.View._playButton.onClick.RemoveListener(state.PlayClickAction);
-        }
         foreach (var option in state.MapOptions)
         {
             option.Button.onClick.RemoveListener(option.ClickAction);
@@ -543,6 +533,23 @@ internal static class PortalModeSelectorRuntime
         if (_activeMode.HasValue)
         {
             gameState.GameMode = _activeMode.Value;
+        }
+    }
+
+    public static void ApplyActiveModeToSessionProperties(Fusion.StartGameArgs args)
+    {
+        if (!_activeMode.HasValue || args.SessionProperties is null)
+        {
+            return;
+        }
+
+        // This is the final authoritative value consumed by Photon. The client recreates its
+        // GameState during the lobby-to-match transition, so changing only that earlier object is
+        // insufficient for Crown sessions.
+        const string key = "game_mode";
+        if (args.SessionProperties.ContainsKey(key))
+        {
+            args.SessionProperties[key] = _activeMode.Value.ToString();
         }
     }
 

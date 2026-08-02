@@ -63,6 +63,8 @@ External prerequisites:
 
 Core and gameplay mods:
 
+- `performance-optimizer`
+  Measured startup, adaptive frame-pacing and weak-PC presets with low-overhead FPS, memory, render, loading, GC and Fusion telemetry.
 - `uniform-seeker-random`
   Replaces the default seeker selection with a uniform random choice.
 - `portal-mode-selector`
@@ -193,11 +195,15 @@ Useful commands:
 ```bash
 npm run runtime:session
 npm run runtime:session:host
+npm run performance:session -- --duration-seconds 120 --session baseline
+npm run performance:analyze -- .tmp/performance-sessions/<session>
 npm run runtime:profiler:configure -- lobby-hotspots
 npm run runtime:profiler:off
 ```
 
-The runtime session tooling snapshots multiple real log channels because `BepInEx/LogOutput.log` is not always populated during automated launches.
+The performance runner samples the exact game PID, GPU and cgroup I/O, captures only newly changed in-game reports, restores temporary window-manager compatibility state, and closes the test client. The runtime session tooling snapshots multiple real log channels because `BepInEx/LogOutput.log` is not always populated during automated launches.
+
+See [the measured performance report](docs/performance/performance-overhaul.md) before enabling aggressive graphics overrides. The default `Auto` preset retains normal visuals until sustained low frame rate triggers the measured additional-shadow/vSync fallback; heavyweight scene census and experimental Unity recorders are opt-in.
 
 ## Interop inspection
 

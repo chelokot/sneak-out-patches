@@ -22,6 +22,7 @@ AssemblyLoadContext.Default.Resolving += (_, assemblyName) =>
 };
 
 var assembly = AssemblyLoadContext.Default.LoadFromAssemblyPath(assemblyPath);
+Console.WriteLine($"ASSEMBLY {assembly.GetName().Name}");
 IEnumerable<Type> types;
 
 try
@@ -37,8 +38,17 @@ catch (ReflectionTypeLoadException exception)
     }
 }
 
+static bool Matches(Type type, string searchPattern)
+{
+    const BindingFlags flags = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
+    return type.FullName?.Contains(searchPattern, StringComparison.OrdinalIgnoreCase) == true
+        || type.GetProperties(flags).Any(member => member.Name.Contains(searchPattern, StringComparison.OrdinalIgnoreCase))
+        || type.GetFields(flags).Any(member => member.Name.Contains(searchPattern, StringComparison.OrdinalIgnoreCase))
+        || type.GetMethods(flags).Any(member => member.Name.Contains(searchPattern, StringComparison.OrdinalIgnoreCase));
+}
+
 foreach (var type in types
-    .Where(type => type.FullName is not null && type.FullName.Contains(pattern, StringComparison.OrdinalIgnoreCase))
+    .Where(type => Matches(type, pattern))
     .OrderBy(type => type.FullName))
 {
     Console.WriteLine($"TYPE {type.FullName}");

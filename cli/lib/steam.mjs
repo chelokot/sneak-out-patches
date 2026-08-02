@@ -178,6 +178,35 @@ export async function steamLocalConfigPaths() {
   return unique(results);
 }
 
+export async function isSteamClientRunning() {
+  if (process.env.SNEAKOUT_STEAM_RUNNING !== undefined) {
+    return process.env.SNEAKOUT_STEAM_RUNNING === "1";
+  }
+  if (process.platform === "win32") {
+    return false;
+  }
+  let processes;
+  try {
+    processes = await readdir("/proc", { withFileTypes: true });
+  } catch {
+    return false;
+  }
+  for (const processEntry of processes) {
+    if (!processEntry.isDirectory() || !/^\d+$/.test(processEntry.name)) {
+      continue;
+    }
+    try {
+      const command = (await readFile(join("/proc", processEntry.name, "comm"), "utf8")).trim();
+      if (command === "steam" || command === "steamwebhelper") {
+        return true;
+      }
+    } catch {
+      // Processes can exit while /proc is being scanned.
+    }
+  }
+  return false;
+}
+
 export function isProtonInstall() {
   return process.platform !== "win32";
 }

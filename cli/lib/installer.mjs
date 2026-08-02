@@ -177,6 +177,68 @@ function mergeProtonLaunchOptions(current) {
   return `${protonLaunchOptions} ${current}`.trim();
 }
 
+function escapeVdfString(value) {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+function unescapeVdfString(value) {
+  return value.replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+}
+
+function appLaunchOptions(content) {
+  const stack = [];
+  let pendingKey = null;
+  for (const line of content.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    const keyValue = trimmed.match(/^"([^"]+)"\s+"((?:\\.|[^"])*)"/);
+    if (keyValue) {
+      if (
+        stack.join("/") === `UserLocalConfigStore/Software/Valve/Steam/apps/${STEAM_APP_ID}` &&
+        keyValue[1] === "LaunchOptions"
+      ) {
+        return unescapeVdfString(keyValue[2]);
+      }
+      pendingKey = null;
+      continue;
+    }
+    const keyOnly = trimmed.match(/^"([^"]+)"\s*$/);
+    if (keyOnly) {
+      pendingKey = keyOnly[1];
+    } else if (trimmed === "{") {
+      if (pendingKey !== null) {
+        stack.push(pendingKey);
+        pendingKey = null;
+      }
+    } else if (trimmed === "}") {
+      stack.pop();
+      pendingKey = null;
+    }
+  }
+  return null;
+}
+
+function hasRequiredProtonLaunchOptions(content) {
+  const value = appLaunchOptions(content);
+  return value !== null && value.includes("WINEDLLOVERRIDES") && value.includes("winhttp");
+}
+
+export async function protonLaunchConfigurationRequired() {
+  if (!isProtonInstall()) {
+    return false;
+  }
+  const paths = await steamLocalConfigPaths();
+  if (paths.length === 0) {
+    return true;
+  }
+  for (const path of paths) {
+    const content = await readFile(path, "utf8").catch(() => "");
+    if (!hasRequiredProtonLaunchOptions(content)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function updateLaunchOptions(content) {
   const lines = content.split(/\r?\n/);
   const stack = [];
@@ -226,12 +288,16 @@ function updateLaunchOptions(content) {
     if (!match) {
       return content;
     }
-    const current = match[2].replace(/\\"/g, '"').replace(/\\\\/g, "\\");
-    const updated = mergeProtonLaunchOptions(current).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    const current = unescapeVdfString(match[2]);
+    const updated = escapeVdfString(mergeProtonLaunchOptions(current));
     lines[launchOptionsIndex] = `${match[1]}"LaunchOptions"\t\t"${updated}"`;
   } else if (appClosingIndex !== null) {
     const indent = lines[appClosingIndex].match(/^\s*/)?.[0] ?? "";
-    lines.splice(appClosingIndex, 0, `${indent}\t"LaunchOptions"\t\t"${protonLaunchOptions}"`);
+    lines.splice(
+      appClosingIndex,
+      0,
+      `${indent}\t"LaunchOptions"\t\t"${escapeVdfString(protonLaunchOptions)}"`
+    );
   } else if (appsClosingIndex !== null) {
     const indent = lines[appsClosingIndex].match(/^\s*/)?.[0] ?? "";
     lines.splice(
@@ -239,7 +305,7 @@ function updateLaunchOptions(content) {
       0,
       `${indent}"${STEAM_APP_ID}"`,
       `${indent}{`,
-      `${indent}\t"LaunchOptions"\t\t"${protonLaunchOptions}"`,
+      `${indent}\t"LaunchOptions"\t\t"${escapeVdfString(protonLaunchOptions)}"`,
       `${indent}}`
     );
   } else {
@@ -249,7 +315,11 @@ function updateLaunchOptions(content) {
 }
 
 async function configureProton(gameDirectory, state) {
-  for (const path of await steamLocalConfigPaths()) {
+  const paths = await steamLocalConfigPaths();
+  if (paths.length === 0) {
+    throw new Error("Steam localconfig.vdf was not found; cannot activate the Proton BepInEx loader.");
+  }
+  for (const path of paths) {
     const original = await readFile(path);
     const updated = updateLaunchOptions(original.toString("utf8"));
     if (updated === original.toString("utf8")) {
@@ -428,6 +498,16 @@ export async function uninstall({ gameDirectory, manifest }) {
 
 export async function validateInstalled(gameDirectory, manifest, selectedIds, payloadRoot) {
   const problems = [];
+  for (const relativePath of [
+    "winhttp.dll",
+    "doorstop_config.ini",
+    "BepInEx/core/BepInEx.Unity.IL2CPP.dll"
+  ]) {
+    const installed = join(gameDirectory, ...relativePath.split("/"));
+    if (!(await exists(installed))) {
+      problems.push(`missing loader file ${installed}`);
+    }
+  }
   for (const mod of manifest.filter((entry) => selectedIds.includes(entry.option_id))) {
     const expected = join(payloadRoot, "artifacts", "runtime_mods", `${mod.assembly_name}.dll`);
     const installed = join(gameDirectory, "BepInEx", "plugins", `${mod.assembly_name}.dll`);
@@ -435,6 +515,18 @@ export async function validateInstalled(gameDirectory, manifest, selectedIds, pa
       problems.push(`missing ${installed}`);
     } else if (await sha256File(expected) !== await sha256File(installed)) {
       problems.push(`hash mismatch ${installed}`);
+    }
+  }
+  if (isProtonInstall()) {
+    const paths = await steamLocalConfigPaths();
+    if (paths.length === 0) {
+      problems.push("Steam localconfig.vdf was not found; Proton loader override is inactive");
+    }
+    for (const path of paths) {
+      const content = await readFile(path, "utf8").catch(() => "");
+      if (!hasRequiredProtonLaunchOptions(content)) {
+        problems.push(`Proton winhttp loader override is inactive in ${path}`);
+      }
     }
   }
   return problems;

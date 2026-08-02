@@ -2,9 +2,15 @@
 
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
-import { compatibilityIssues, install, uninstall, validateInstalled } from "./lib/installer.mjs";
+import {
+  compatibilityIssues,
+  install,
+  protonLaunchConfigurationRequired,
+  uninstall,
+  validateInstalled
+} from "./lib/installer.mjs";
 import { loadPayloadMetadata, resolveBepInEx, resolvePayload } from "./lib/payload.mjs";
-import { detectGameDirectories, resolveGameDirectory } from "./lib/steam.mjs";
+import { detectGameDirectories, isSteamClientRunning, resolveGameDirectory } from "./lib/steam.mjs";
 
 function usage() {
   return `Sneak Out patches installer
@@ -178,6 +184,12 @@ async function main() {
     const selectedIds = await chooseMods(options, manifest, readline);
     if (selectedIds.length === 0) {
       throw new Error("No mods were selected.");
+    }
+    if (await protonLaunchConfigurationRequired() && await isSteamClientRunning()) {
+      throw new Error(
+        "Steam is running and the Proton winhttp override is not active. " +
+        "Quit Steam completely and run the same install command again. No game files were changed."
+      );
     }
     const issues = await compatibilityIssues(gameDirectory, supportedBuild);
     if (issues.length) {

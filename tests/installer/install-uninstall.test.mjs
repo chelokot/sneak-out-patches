@@ -42,14 +42,16 @@ async function fixture() {
   return { root, steamRoot, gameDirectory, userdataConfig, bepinexRoot };
 }
 
-async function runCli(argumentsList, paths) {
+async function runCli(argumentsList, paths, environment = {}) {
   return execFileAsync(process.execPath, [cliPath, ...argumentsList], {
     cwd: repositoryRoot,
     env: {
       ...process.env,
       SNEAKOUT_PATCHES_PAYLOAD_DIR: repositoryRoot,
       SNEAKOUT_BEPINEX_DIR: paths.bepinexRoot,
-      SNEAKOUT_STEAM_ROOTS: paths.steamRoot
+      SNEAKOUT_STEAM_ROOTS: paths.steamRoot,
+      SNEAKOUT_STEAM_RUNNING: "0",
+      ...environment
     }
   });
 }
@@ -76,7 +78,9 @@ test("noninteractive install selects stable defaults and uninstall restores clea
       }
     }
     if (process.platform !== "win32") {
-      assert.match(await readFile(paths.userdataConfig, "utf8"), /WINEDLLOVERRIDES/);
+      const localConfig = await readFile(paths.userdataConfig, "utf8");
+      assert.match(localConfig, /WINEDLLOVERRIDES=\\"winhttp=n,b\\" %command%/);
+      assert.doesNotMatch(localConfig, /WINEDLLOVERRIDES="winhttp=n,b"/);
     }
     assert.equal(await readFile(join(paths.gameDirectory, "winhttp.dll"), "utf8"), "loader");
 
@@ -91,6 +95,65 @@ test("noninteractive install selects stable defaults and uninstall restores clea
       await readFile(join(paths.gameDirectory, ".sneakout-patches-install.json")).then(() => true, () => false),
       false
     );
+  } finally {
+    await rm(paths.root, { recursive: true, force: true });
+  }
+});
+
+test("install refuses to mutate the game while live Steam still needs a Proton override", async () => {
+  const paths = await fixture();
+  try {
+    const originalLocalConfig = await readFile(paths.userdataConfig, "utf8");
+    await assert.rejects(
+      runCli([
+        "install",
+        "--game-dir",
+        paths.gameDirectory,
+        "--mods",
+        "keyboard-layout-fix",
+        "--allow-unsupported-build",
+        "--offline"
+      ], paths, { SNEAKOUT_STEAM_RUNNING: "1" }),
+      /Quit Steam completely/
+    );
+    assert.equal(await readFile(paths.userdataConfig, "utf8"), originalLocalConfig);
+    assert.equal(
+      await readFile(join(paths.gameDirectory, "winhttp.dll")).then(() => true, () => false),
+      false
+    );
+  } finally {
+    await rm(paths.root, { recursive: true, force: true });
+  }
+});
+
+test("install repairs the unescaped Proton launch option written by version 0.1.0", async () => {
+  const paths = await fixture();
+  try {
+    const content = await readFile(paths.userdataConfig, "utf8");
+    await writeFile(
+      paths.userdataConfig,
+      content.replace(
+        '\t\t\t\t{\n\t\t\t\t}',
+        '\t\t\t\t{\n' +
+        '\t\t\t\t\t"2410490"\n' +
+        '\t\t\t\t\t{\n' +
+        '\t\t\t\t\t\t"LaunchOptions"\t\t"WINEDLLOVERRIDES="winhttp=n,b" %command%"\n' +
+        '\t\t\t\t\t}\n' +
+        '\t\t\t\t}'
+      )
+    );
+    await runCli([
+      "install",
+      "--game-dir",
+      paths.gameDirectory,
+      "--mods",
+      "keyboard-layout-fix",
+      "--allow-unsupported-build",
+      "--offline"
+    ], paths);
+    const repaired = await readFile(paths.userdataConfig, "utf8");
+    assert.match(repaired, /WINEDLLOVERRIDES=\\"winhttp=n,b\\" %command%/);
+    assert.doesNotMatch(repaired, /WINEDLLOVERRIDES="winhttp=n,b"/);
   } finally {
     await rm(paths.root, { recursive: true, force: true });
   }

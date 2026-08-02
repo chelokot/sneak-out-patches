@@ -1,5 +1,6 @@
 install:
 	npm install
+	npm run tooling:install
 
 doctor:
 	npm run doctor

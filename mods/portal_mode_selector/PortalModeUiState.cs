@@ -10,6 +10,8 @@ namespace SneakOut.PortalModeSelector;
 internal sealed record PortalModeUiState(
     PortalPlayView View,
     GameObject RootObject,
+    GameObject? StockPrivateGameSection,
+    bool StockPrivateGameSectionInitiallyActive,
     SpookedOutlineButton ModeButton,
     Image ModeBackground,
     TMP_Text ModeLabel,

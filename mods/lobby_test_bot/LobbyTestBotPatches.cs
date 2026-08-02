@@ -1,8 +1,10 @@
 using System.Reflection;
 using Fusion;
+using Gameplay.ArrowIndicators;
 using Gameplay.Match;
 using Gameplay.Player;
 using Gameplay.Player.Components;
+using Gameplay.Player.Customization;
 using Gameplay.Spawn;
 using HarmonyLib;
 using Il2CppInterop.Runtime;
@@ -16,6 +18,52 @@ using UI;
 using UnityEngine;
 
 namespace SneakOut.LobbyTestBot;
+
+[HarmonyPatch(typeof(PlayersPositionIndicator), nameof(PlayersPositionIndicator.ManagerAwake))]
+internal static class PlayersPositionIndicatorManagerAwakePatch
+{
+    [HarmonyPrefix]
+    private static bool Prefix(PlayersPositionIndicator __instance)
+    {
+        if (!LobbyTestBotRuntime.PreparePlayerIndicators(__instance))
+        {
+            return false;
+        }
+
+        var indicators = __instance._playerIndicators;
+        if (indicators is null)
+        {
+            __instance._playerIndicators = new Il2CppReferenceArray<PlayerIndicator>(0);
+            return true;
+        }
+
+        var validIndicators = indicators
+            .Where(indicator => indicator is not null && indicator.Pointer != IntPtr.Zero)
+            .ToArray();
+        if (validIndicators.Length == indicators.Length)
+        {
+            return true;
+        }
+
+        var compacted = new Il2CppReferenceArray<PlayerIndicator>(validIndicators.Length);
+        for (var index = 0; index < validIndicators.Length; index++)
+        {
+            compacted[index] = validIndicators[index];
+        }
+        __instance._playerIndicators = compacted;
+        return true;
+    }
+}
+
+[HarmonyPatch(typeof(PlayersPositionIndicator), "OnAfterMyCharacterChangedEvent")]
+internal static class PlayersPositionIndicatorCharacterChangedPatch
+{
+    [HarmonyPrefix]
+    private static bool Prefix(PlayersPositionIndicator __instance)
+    {
+        return LobbyTestBotRuntime.PlayerIndicatorsHaveDependencies(__instance);
+    }
+}
 
 [HarmonyPatch(typeof(GameUIManager), "OnAwake")]
 internal static class GameUiManagerOnAwakePatch
@@ -205,6 +253,36 @@ internal static class ManagedBotNetworkAnimatorCommandPatch
     private static bool Prefix(EntityNetworkAnimatorComponent __instance)
     {
         return LobbyTestBotRuntime.ShouldRunNetworkAnimator(__instance);
+    }
+}
+
+[HarmonyPatch(typeof(PlayerCharacterPrefabController), "OnAwake")]
+internal static class CharacterPrefabControllerAwakePatch
+{
+    [HarmonyPostfix]
+    private static void Postfix(PlayerCharacterPrefabController __instance)
+    {
+        LobbyTestBotRuntime.NormalizeCurrentCostumeRenderers(__instance);
+    }
+}
+
+[HarmonyPatch(typeof(PlayerCharacterPrefabController), nameof(PlayerCharacterPrefabController.RefreshCharacter))]
+internal static class CharacterPrefabControllerRefreshPatch
+{
+    [HarmonyPostfix]
+    private static void Postfix(PlayerCharacterPrefabController __instance)
+    {
+        LobbyTestBotRuntime.NormalizeCurrentCostumeRenderers(__instance);
+    }
+}
+
+[HarmonyPatch(typeof(PlayerCharacterPrefabController), nameof(PlayerCharacterPrefabController.RefreshCharacterPreview))]
+internal static class CharacterPrefabControllerPreviewPatch
+{
+    [HarmonyPostfix]
+    private static void Postfix(PlayerCharacterPrefabController __instance)
+    {
+        LobbyTestBotRuntime.NormalizeCurrentCostumeRenderers(__instance);
     }
 }
 

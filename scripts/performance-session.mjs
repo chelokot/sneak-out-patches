@@ -108,6 +108,27 @@ async function waitForSneakOutPid(timeoutSeconds = 60) {
   throw new Error("Sneak Out process did not appear within the startup timeout");
 }
 
+async function activateGameWindowOnce(timeoutSeconds = 30) {
+  const deadline = Date.now() + timeoutSeconds * 1000;
+  while (Date.now() < deadline) {
+    try {
+      const { stdout } = await runHost("wmctrl", ["-lx"]);
+      const gameWindow = stdout
+        .split("\n")
+        .find((line) => /(?:sneak out|steam_app_2410490)/i.test(line));
+      if (gameWindow) {
+        const windowId = gameWindow.trim().split(/\s+/, 1)[0];
+        await runHost("wmctrl", ["-i", "-a", windowId]);
+        return;
+      }
+    } catch {
+      // The game can render and be captured even if the host has no EWMH helper.
+      return;
+    }
+    await sleep(250);
+  }
+}
+
 async function getGameWindowId() {
   try {
     const { stdout } = await runAndCapture("xprop", ["-root", "_NET_CLIENT_LIST"]);
@@ -361,6 +382,7 @@ async function main() {
       await runHostDetached(`flatpak run --command=/app/bin/steam com.valvesoftware.Steam steam://rungameid/${steamAppId}`);
     }
     pid = await waitForSneakOutPid();
+    await activateGameWindowOnce();
     const { stdout: clockTicksText } = await runAndCapture("getconf", ["CLK_TCK"]);
     const clockTicks = Number.parseInt(clockTicksText.trim(), 10);
     const deadline = startedAt + options.durationSeconds * 1000;

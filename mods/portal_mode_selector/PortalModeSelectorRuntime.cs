@@ -22,10 +22,10 @@ namespace SneakOut.PortalModeSelector;
 
 internal static class PortalModeSelectorRuntime
 {
-    private const float ButtonHeight = 38f;
+    private const float ButtonHeight = 36f;
+    private const float MapButtonHeight = 32f;
     private const float ButtonGap = 6f;
-    private const float ToolbarButtonWidth = 108f;
-    private const float MapButtonWidth = 82f;
+    private const float InitialButtonWidth = 92f;
 
     private static readonly Dictionary<IntPtr, PortalModeUiState> UiStateByView = new();
     private static readonly PortalMapSelectionState PreferredMapSelection = new();
@@ -153,7 +153,7 @@ internal static class PortalModeSelectorRuntime
         var rootRect = rootObject.AddComponent<RectTransform>();
         rootRect.localScale = Vector3.one;
 
-        var modeButton = CreateTextButton(rootObject.transform, "Mode", view._playButton, ToolbarButtonWidth);
+        var modeButton = CreateTextButton(rootObject.transform, "Mode", view._playButton, InitialButtonWidth);
         if (modeButton is null)
         {
             UnityEngine.Object.Destroy(rootObject);
@@ -162,7 +162,7 @@ internal static class PortalModeSelectorRuntime
 
         var modeClickAction = (UnityAction)(() => ToggleMode(view.Pointer));
         modeButton.Value.Button.onClick.AddListener(modeClickAction);
-        var mapsButton = CreateTextButton(rootObject.transform, "Maps", view._playButton, ToolbarButtonWidth);
+        var mapsButton = CreateTextButton(rootObject.transform, "Maps", view._playButton, InitialButtonWidth);
         if (mapsButton is null)
         {
             modeButton.Value.Button.onClick.RemoveListener(modeClickAction);
@@ -191,9 +191,12 @@ internal static class PortalModeSelectorRuntime
             }
         }
 
+        var stockPrivateGameSection = FindStockPrivateGameSection(view, playSection);
         var state = new PortalModeUiState(
             view,
             rootObject,
+            stockPrivateGameSection,
+            stockPrivateGameSection?.activeSelf ?? true,
             modeButton.Value.Button,
             modeButton.Value.Background,
             modeButton.Value.Label,
@@ -245,8 +248,12 @@ internal static class PortalModeSelectorRuntime
                 throw new InvalidOperationException("The stock portal button clone had no color image");
             }
 
-            label.fontSize = 17f;
-            label.enableAutoSizing = false;
+            label.fontSize = 16f;
+            label.fontSizeMin = 11f;
+            label.fontSizeMax = 16f;
+            label.enableAutoSizing = true;
+            label.enableWordWrapping = false;
+            label.overflowMode = TextOverflowModes.Ellipsis;
             label.fontStyle = FontStyles.Bold;
             label.alignment = TextAlignmentOptions.Center;
             label.color = Color.white;
@@ -295,7 +302,7 @@ internal static class PortalModeSelectorRuntime
         SceneType sceneType,
         GameModeType gameModeType)
     {
-        var buttonParts = CreateTextButton(parent, $"Map_{gameModeType}_{sceneType}", styleSource, MapButtonWidth);
+        var buttonParts = CreateTextButton(parent, $"Map_{gameModeType}_{sceneType}", styleSource, InitialButtonWidth);
         if (buttonParts is null)
         {
             return null;
@@ -304,7 +311,9 @@ internal static class PortalModeSelectorRuntime
         var clickAction = (UnityAction)(() => ToggleMap(viewPointer, sceneType, gameModeType));
         buttonParts.Value.Button.onClick.AddListener(clickAction);
         buttonParts.Value.Label.text = FormatMapName(sceneType);
-        buttonParts.Value.Label.fontSize = 13;
+        buttonParts.Value.Label.fontSize = 13f;
+        buttonParts.Value.Label.fontSizeMin = 10f;
+        buttonParts.Value.Label.fontSizeMax = 13f;
         return new PortalMapOptionUiState(
             sceneType,
             gameModeType,
@@ -343,16 +352,17 @@ internal static class PortalModeSelectorRuntime
         rootRect.SetAsLastSibling();
 
         var playHeight = playRect.rect.height;
-        var toolbarY = playHeight * 0.5f + ButtonHeight * 0.5f + 12f
-            + (_mapPanelExpanded ? -8f : 0f);
+        var playWidth = playRect.rect.width;
+        var toolbarButtonWidth = Mathf.Max(72f, (playWidth - ButtonGap * 2f) / 3f);
+        var toolbarY = playHeight * 0.5f + ButtonHeight * 0.5f + 10f;
         var modeRect = state.ModeButton.GetComponent<RectTransform>();
         if (modeRect is not null)
         {
             modeRect.anchorMin = new Vector2(0.5f, 0.5f);
             modeRect.anchorMax = new Vector2(0.5f, 0.5f);
             modeRect.pivot = new Vector2(0.5f, 0.5f);
-            modeRect.sizeDelta = new Vector2(ToolbarButtonWidth, ButtonHeight);
-            modeRect.anchoredPosition = new Vector2(-114f, toolbarY);
+            modeRect.sizeDelta = new Vector2(toolbarButtonWidth, ButtonHeight);
+            modeRect.anchoredPosition = new Vector2(-(toolbarButtonWidth + ButtonGap), toolbarY);
         }
 
         var mapsRect = state.MapsButton.GetComponent<RectTransform>();
@@ -361,12 +371,13 @@ internal static class PortalModeSelectorRuntime
             mapsRect.anchorMin = new Vector2(0.5f, 0.5f);
             mapsRect.anchorMax = new Vector2(0.5f, 0.5f);
             mapsRect.pivot = new Vector2(0.5f, 0.5f);
-            mapsRect.sizeDelta = new Vector2(ToolbarButtonWidth, ButtonHeight);
+            mapsRect.sizeDelta = new Vector2(toolbarButtonWidth, ButtonHeight);
             mapsRect.anchoredPosition = new Vector2(0f, toolbarY);
         }
 
         var visibleIndex = 0;
         var visibleCount = PreferredMapSelection.GetAvailableMaps(_preferredMode).Count;
+        var mapButtonWidth = Mathf.Max(56f, (playWidth - ButtonGap * 3f) / 4f);
         foreach (var option in state.MapOptions)
         {
             if (option.GameModeType != _preferredMode)
@@ -383,18 +394,35 @@ internal static class PortalModeSelectorRuntime
             rect.anchorMin = new Vector2(0.5f, 0.5f);
             rect.anchorMax = new Vector2(0.5f, 0.5f);
             rect.pivot = new Vector2(0.5f, 0.5f);
-            rect.sizeDelta = new Vector2(MapButtonWidth, ButtonHeight);
+            rect.sizeDelta = new Vector2(mapButtonWidth, MapButtonHeight);
             var column = visibleIndex % 4;
             var row = visibleIndex / 4;
             var rowCount = Mathf.CeilToInt(visibleCount / 4f);
             var visualRow = rowCount - row - 1;
             var itemsInRow = Mathf.Min(4, visibleCount - row * 4);
             rect.anchoredPosition = new Vector2(
-                -(itemsInRow - 1) * (MapButtonWidth + ButtonGap) * 0.5f
-                    + column * (MapButtonWidth + ButtonGap),
-                toolbarY + ButtonHeight + ButtonGap + visualRow * (ButtonHeight + ButtonGap));
+                -(itemsInRow - 1) * (mapButtonWidth + ButtonGap) * 0.5f
+                    + column * (mapButtonWidth + ButtonGap),
+                toolbarY + ButtonHeight * 0.5f + ButtonGap + MapButtonHeight * 0.5f
+                    + visualRow * (MapButtonHeight + ButtonGap));
             visibleIndex++;
         }
+    }
+
+    private static GameObject? FindStockPrivateGameSection(PortalPlayView view, RectTransform playSection)
+    {
+        var current = view._privateGameButton?.transform;
+        if (current is null)
+        {
+            return null;
+        }
+
+        while (current.parent is { } parent && parent.Pointer != playSection.Pointer)
+        {
+            current = parent;
+        }
+
+        return current.gameObject;
     }
 
     private static void RefreshControls(PortalModeUiState state)
@@ -411,12 +439,10 @@ internal static class PortalModeSelectorRuntime
         state.MapsBackground.color = _mapPanelExpanded
             ? classic ? ClassicModeColor : CrownModeColor
             : MapDisabledColor;
-        var publicGamePanel = state.View is { } portalView && portalView.Pointer != IntPtr.Zero
-            ? portalView._privateGameButton?.transform.parent?.gameObject
-            : null;
-        if (publicGamePanel is not null)
+        if (state.StockPrivateGameSection is not null
+            && state.StockPrivateGameSection.Pointer != IntPtr.Zero)
         {
-            publicGamePanel.SetActive(!_mapPanelExpanded);
+            state.StockPrivateGameSection.SetActive(!_mapPanelExpanded);
         }
         foreach (var option in state.MapOptions)
         {
@@ -509,12 +535,10 @@ internal static class PortalModeSelectorRuntime
             option.Button.onClick.RemoveListener(option.ClickAction);
         }
 
-        var publicGamePanel = state.View is { } portalView && portalView.Pointer != IntPtr.Zero
-            ? portalView._privateGameButton?.transform.parent?.gameObject
-            : null;
-        if (publicGamePanel is not null)
+        if (state.StockPrivateGameSection is not null
+            && state.StockPrivateGameSection.Pointer != IntPtr.Zero)
         {
-            publicGamePanel.SetActive(true);
+            state.StockPrivateGameSection.SetActive(state.StockPrivateGameSectionInitiallyActive);
         }
 
         if (state.RootObject is not null && state.RootObject.Pointer != IntPtr.Zero)

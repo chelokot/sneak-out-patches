@@ -52,14 +52,25 @@
   },
   {
     "option_id": "start-delay-reducer",
-    "label": "Start Delay Reducer",
-    "details": "Builds and installs the BepInEx runtime mod that reduces host-side pre-match startup delays.",
+    "label": "Start Now",
+    "details": "Keeps the full stock connection wait and gives the authoritative host a button to start immediately.",
     "category": "quality-of-life",
     "default_enabled": true,
     "project_relative_path": "mods/start_delay_reducer/StartDelayReducer.csproj",
     "assembly_name": "SneakOut.StartDelayReducer",
     "config_relative_path": "BepInEx/config/chelokot.sneakout.start-delay-reducer.cfg",
     "default_config_template_path": "config_templates/runtime_mods/start-delay-reducer.cfg"
+  },
+  {
+    "option_id": "locker-stun-fix",
+    "label": "Locker Stun Fix",
+    "details": "Prevents a penguin from stunning nearby seekers after a seeker has already opened that locker.",
+    "category": "gameplay",
+    "default_enabled": true,
+    "project_relative_path": "mods/locker_stun_fix/LockerStunFix.csproj",
+    "assembly_name": "SneakOut.LockerStunFix",
+    "config_relative_path": "BepInEx/config/chelokot.sneakout.locker-stun-fix.cfg",
+    "default_config_template_path": "config_templates/runtime_mods/locker-stun-fix.cfg"
   },
   {
     "option_id": "background-loading-guard",

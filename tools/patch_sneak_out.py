@@ -806,7 +806,7 @@ def ensure_local_bepinex_bundle() -> None:
         return
     raise SystemExit(
         f"Missing local BepInEx bundle: {LOCAL_BEPINEX_DIR}\n"
-        "Run npm install first so the repo can bootstrap its local BepInEx runtime files."
+        "Run npm run tooling:install first so the repo can bootstrap its local BepInEx runtime files."
     )
 
 

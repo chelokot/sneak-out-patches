@@ -90,7 +90,7 @@ async function main() {
 
   const bepinexCorePath = join(localBepInExDirectory, "BepInEx", "core", "BepInEx.Unity.IL2CPP.dll");
   if (!(await fileExists(bepinexCorePath))) {
-    throw new Error(`BepInEx build references are missing: ${bepinexCorePath}. Run npm install.`);
+    throw new Error(`BepInEx build references are missing: ${bepinexCorePath}. Run npm run tooling:install.`);
   }
   console.log(`BepInEx build references: ${bepinexCorePath}`);
 

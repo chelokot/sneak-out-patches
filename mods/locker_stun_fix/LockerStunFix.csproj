@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>SneakOut.LockerStunFix</AssemblyName>
+    <RootNamespace>SneakOut.LockerStunFix</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="Fusion.Runtime">
+      <HintPath>$(InteropDir)/Fusion.Runtime.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(InteropDir)/UnityEngine.CoreModule.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+</Project>

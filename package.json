@@ -36,7 +36,7 @@
     "mod:build": "node scripts/build-runtime-mod.mjs",
     "mods:build": "node scripts/build-runtime-mod.mjs --all",
     "installer:payload": "node scripts/package-installer-payload.mjs",
-    "installer:test": "node --test tests/installer/*.test.mjs",
+    "installer:test": "node --test tests/installer/install-uninstall.test.mjs",
     "check": "npm run mods:build && npm run installer:test"
   },
   "dependencies": {

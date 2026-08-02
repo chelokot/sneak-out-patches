@@ -5,6 +5,7 @@ using Il2CppInterop.Runtime.Injection;
 using Kinguinverse.DataUtils.Events;
 using UI.InputBinding;
 using Gameplay.Player;
+using TMPro;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.LowLevel;
@@ -25,8 +26,9 @@ internal static class KeyboardLayoutFixRuntime
         };
     private const float LayoutPollInterval = 0.25f;
     private const float BindingRefreshDelay = 0.12f;
-    private const float DiagnosticCycleDelay = 95f;
-    private const float DiagnosticRussianDuration = 12f;
+    private const float DiagnosticPromptProbeDelay = 45f;
+    private const float DiagnosticPromptProbeInterval = 0.5f;
+    private const float DiagnosticRussianDuration = 6f;
     private const uint KlfActivate = 0x00000001;
     private const uint KlfSetForProcess = 0x00000100;
 
@@ -37,6 +39,7 @@ internal static class KeyboardLayoutFixRuntime
     private static float _nextLayoutPollAt;
     private static float _bindingRefreshAt = -1f;
     private static float _diagnosticCycleStartedAt;
+    private static float _nextDiagnosticPromptProbeAt;
     private static int _diagnosticCycleState;
 
     public static void Initialize(ManualLogSource logger, KeyboardLayoutFixConfig configuration)
@@ -176,6 +179,7 @@ internal static class KeyboardLayoutFixRuntime
         // Gameplay interaction, equipment, skill, and settings views already listen to this
         // stock event. Publishing it avoids hard-coding every UI implementation in the mod.
         GameEventsManager.Publish<AfterControlsOverrideEvent>(null, new AfterControlsOverrideEvent());
+        var refreshedPrompts = RefreshActivePromptLabels(IsRussianLayout(_lastKeyboardLayout));
 
         var keyboard = Keyboard.current;
         Log(
@@ -183,6 +187,7 @@ internal static class KeyboardLayoutFixRuntime
             + $"unity={keyboard?.keyboardLayout ?? "unavailable"}, "
             + $"W={keyboard?.wKey?.displayName ?? "?"}, E={keyboard?.eKey?.displayName ?? "?"}, "
             + $"bindingViews={refreshedViews}, controllerReady={keyBindingController is not null}, "
+            + $"activePrompts={refreshedPrompts}, "
             + $"move={keyBindingController?.MoveActionPcKey ?? "?"}, "
             + $"primary={keyBindingController?.PrimaryActionPcKey ?? "?"}, "
             + $"sprint={keyBindingController?.SprintActionPcKey ?? "?"}");
@@ -220,6 +225,40 @@ internal static class KeyboardLayoutFixRuntime
         return lowWord == 0x0419 || highWord == 0x0419;
     }
 
+    private static int RefreshActivePromptLabels(bool useRussianLabels)
+    {
+        var refreshed = 0;
+        foreach (var label in Resources.FindObjectsOfTypeAll<TMP_Text>())
+        {
+            if (label is null
+                || label.Pointer == IntPtr.Zero
+                || !label.isActiveAndEnabled
+                || !label.text.Contains("Press", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var rewritten = label.text;
+            foreach (var physicalKey in RussianPhysicalKeyLabels)
+            {
+                var source = useRussianLabels ? physicalKey.Key.ToString() : physicalKey.Value;
+                var target = useRussianLabels ? physicalKey.Value : physicalKey.Key.ToString();
+                rewritten = rewritten.Replace($">{source}<", $">{target}<", StringComparison.Ordinal);
+                rewritten = rewritten.Replace($" {source} ", $" {target} ", StringComparison.Ordinal);
+            }
+
+            if (string.Equals(rewritten, label.text, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            label.text = rewritten;
+            refreshed++;
+        }
+
+        return refreshed;
+    }
+
     private static string LocalizePhysicalKeys(string label)
     {
         if (string.IsNullOrWhiteSpace(label))
@@ -248,9 +287,20 @@ internal static class KeyboardLayoutFixRuntime
             return;
         }
 
-        if (_diagnosticCycleState == 0
-            && now - _diagnosticCycleStartedAt >= DiagnosticCycleDelay)
+        if (_diagnosticCycleState == 0)
         {
+            if (now - _diagnosticCycleStartedAt < DiagnosticPromptProbeDelay
+                || now < _nextDiagnosticPromptProbeAt)
+            {
+                return;
+            }
+
+            _nextDiagnosticPromptProbeAt = now + DiagnosticPromptProbeInterval;
+            if (!IsEnglishSelectionPromptVisible())
+            {
+                return;
+            }
+
             ActivateDiagnosticLayout("00000419", "Russian");
             _diagnosticCycleState = 1;
             _diagnosticCycleStartedAt = now;
@@ -263,6 +313,23 @@ internal static class KeyboardLayoutFixRuntime
             ActivateDiagnosticLayout("00000409", "English");
             _diagnosticCycleState = 2;
         }
+    }
+
+    private static bool IsEnglishSelectionPromptVisible()
+    {
+        foreach (var label in Resources.FindObjectsOfTypeAll<TMP_Text>())
+        {
+            if (label is not null
+                && label.Pointer != IntPtr.Zero
+                && label.isActiveAndEnabled
+                && label.text.Contains("Press", StringComparison.OrdinalIgnoreCase)
+                && label.text.Contains("to confirm", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static void ActivateDiagnosticLayout(string layoutIdentifier, string label)

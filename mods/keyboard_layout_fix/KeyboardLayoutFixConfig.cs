@@ -36,7 +36,7 @@ internal sealed class KeyboardLayoutFixConfig
             "diagnostics",
             "CycleLayoutsForFlow",
             false,
-            "Activate the Russian Windows layout after 95 seconds and restore English 12 seconds later. Intended only for unattended visual regression testing.");
+            "Switch the visible selection prompt to Russian and restore English six seconds later. Intended only for unattended visual regression testing.");
         return new KeyboardLayoutFixConfig(enableMod, cycleLayoutsForFlow, enableLogging);
     }
 }

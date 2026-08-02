@@ -1,14 +1,28 @@
 {
-  "name": "sneak-out-patches",
-  "private": true,
+  "name": "@chelokot/sneak-out-patches",
   "version": "0.1.0",
   "description": "Sneak Out reverse-engineering, patching, and runtime mod tooling.",
+  "type": "module",
+  "bin": {
+    "sneakout-patches": "cli/sneakout-patches.mjs"
+  },
+  "files": [
+    "cli/",
+    "artifacts/runtime_mods/",
+    "config_templates/runtime_mods/",
+    "runtime_mods_manifest.json",
+    "supported_game_build.json",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "packageManager": "npm@10.9.0",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
-    "install": "node scripts/install.mjs",
+    "tooling:install": "node scripts/install.mjs",
     "doctor": "node scripts/doctor.mjs",
     "patcher": "node scripts/run-python.mjs tools/patch_sneak_out.py",
     "runtime:session": "node scripts/runtime-session.mjs",
@@ -21,6 +35,11 @@
     "mod:list": "node scripts/build-runtime-mod.mjs --list",
     "mod:build": "node scripts/build-runtime-mod.mjs",
     "mods:build": "node scripts/build-runtime-mod.mjs --all",
-    "check": "npm run mods:build"
+    "installer:payload": "node scripts/package-installer-payload.mjs",
+    "installer:test": "node --test tests/installer/*.test.mjs",
+    "check": "npm run mods:build && npm run installer:test"
+  },
+  "dependencies": {
+    "fflate": "0.8.2"
   }
 }

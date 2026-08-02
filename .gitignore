@@ -3,6 +3,8 @@
 *.log
 *.tmp
 .tmp/
+dist/
+node_modules/
 **/bin/
 **/obj/
 __pycache__/

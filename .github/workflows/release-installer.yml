@@ -1,0 +1,56 @@
+name: Release installer
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      publish_npm:
+        description: Publish the npm package (requires npm trusted publishing or NPM_TOKEN)
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+          cache: npm
+
+      - run: npm ci --ignore-scripts
+      - run: npm run installer:test
+      - run: npm run installer:payload
+      - run: npm pack --dry-run
+
+      - name: Create GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "${GITHUB_REF_NAME}"
+          dist/sneakout-patches-payload.zip
+          dist/sneakout-patches-payload.zip.sha256
+          --generate-notes
+          --verify-tag
+
+      - name: Publish npm package from tag
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public --provenance
+
+      - name: Publish npm package manually
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public --provenance

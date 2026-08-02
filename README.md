@@ -8,10 +8,43 @@ The repository is runtime-mod first:
 - the patcher installs `BepInEx IL2CPP` and selected runtime mods
 - committed DLL artifacts in `artifacts/runtime_mods/` let other people install with `--nobuild`
 
+## One-line installation
+
+The same commands work in Windows PowerShell, Command Prompt, and Linux shells. They require Node.js 20 or newer, but do not require Git, Python, .NET, a repository checkout, or local mod compilation.
+
+Install the current stable default set into an automatically detected Steam installation:
+
+```bash
+npx -y @chelokot/sneak-out-patches install
+```
+
+Remove everything managed by the installer and restore replaced files:
+
+```bash
+npx -y @chelokot/sneak-out-patches uninstall
+```
+
+Confirm or change the detected path and choose every mod individually:
+
+```bash
+npx -y @chelokot/sneak-out-patches install --interactive
+```
+
+The CLI downloads the latest payload from GitHub Releases, verifies its SHA-256, checks the installed Steam build and native game fingerprints, installs the pinned BepInEx IL2CPP loader, and validates every selected plugin. Experimental and debug mods remain opt-in; use `--all` to include them in a noninteractive install.
+
+Useful overrides:
+
+```bash
+npx -y @chelokot/sneak-out-patches install --game-dir "C:\path\to\Sneak Out"
+npx -y @chelokot/sneak-out-patches install --mods keyboard-layout-fix,portal-mode-selector
+npx -y @chelokot/sneak-out-patches install --allow-unsupported-build
+```
+
 ## Tooling bootstrap
 
 ```bash
 npm install
+npm run tooling:install
 ```
 
 On Linux you can use:
@@ -20,7 +53,7 @@ On Linux you can use:
 make install
 ```
 
-That bootstraps into `.tmp/`:
+The second command bootstraps into `.tmp/`:
 
 - a repo-managed `.NET SDK`
 - a repo-managed `BepInEx Unity.IL2CPP x64` bundle

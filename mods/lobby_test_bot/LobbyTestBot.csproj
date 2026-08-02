@@ -17,5 +17,8 @@
     <Reference Include="UnityEngine.UI">
       <HintPath>$(InteropDir)/UnityEngine.UI.dll</HintPath>
     </Reference>
+    <Reference Include="UnityEngine.TextRenderingModule">
+      <HintPath>$(InteropDir)/UnityEngine.TextRenderingModule.dll</HintPath>
+    </Reference>
   </ItemGroup>
 </Project>

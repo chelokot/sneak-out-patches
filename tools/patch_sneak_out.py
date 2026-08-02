@@ -734,6 +734,34 @@ def install_runtime_loader(game_dir: Path) -> None:
     plugins_dir.mkdir(parents=True, exist_ok=True)
 
 
+def configure_bepinex_for_proton(game_dir: Path) -> None:
+    config_path = game_dir / "BepInEx" / "config" / "BepInEx.cfg"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    original_text = config_path.read_text(encoding="utf-8") if config_path.is_file() else ""
+    section_pattern = re.compile(
+        r"(?ms)^\[Logging\.Console\]\s*\n(?P<body>.*?)(?=^\[|\Z)"
+    )
+    section_match = section_pattern.search(original_text)
+    if section_match is None:
+        separator = "" if not original_text or original_text.endswith("\n\n") else "\n"
+        updated_text = original_text + separator + "[Logging.Console]\n\nEnabled = false\n"
+    else:
+        section_text = section_match.group(0)
+        enabled_pattern = re.compile(r"(?m)^Enabled\s*=.*$")
+        if enabled_pattern.search(section_text):
+            updated_section = enabled_pattern.sub("Enabled = false", section_text, count=1)
+        else:
+            header_end = section_text.find("\n") + 1
+            updated_section = section_text[:header_end] + "\nEnabled = false\n" + section_text[header_end:]
+        updated_text = original_text[: section_match.start()] + updated_section + original_text[section_match.end() :]
+
+    if updated_text == original_text:
+        print(f"unchanged: {config_path}")
+        return
+    config_path.write_text(updated_text, encoding="utf-8")
+    print(f"updated:   {config_path} (Wine console disabled)")
+
+
 def resolve_runtime_mod_config_path(game_dir: Path, runtime_mod: RuntimeModOption) -> Path | None:
     if runtime_mod.config_relative_path is None:
         return None
@@ -905,6 +933,7 @@ def install_selected_runtime_mods(
         install_runtime_loader(game_dir)
         if is_proton_game_install(game_dir):
             configure_proton_launch_options()
+            configure_bepinex_for_proton(game_dir)
     for option_id in selected_runtime_mod_option_ids:
         runtime_mod = RUNTIME_MOD_OPTION_BY_ID[option_id]
         install_runtime_mod(game_dir, runtime_mod, source_dll_paths[option_id])

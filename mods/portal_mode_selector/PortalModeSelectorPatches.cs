@@ -1,81 +1,34 @@
 using Gameplay.Match;
 using Gameplay.Match.MatchState;
 using Gameplay.Player.Components;
+using Gameplay.Spawn;
 using HarmonyLib;
+using Il2CppInterop.Runtime;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
+using Kinguinverse.DataUtils.Events;
 using Networking.Matchmaking;
 using Networking.Photon;
 using Types;
-using UI.Views.Lobby;
+using UI;
 
 namespace SneakOut.PortalModeSelector;
 
-[HarmonyPatch(typeof(PortalPlayView), nameof(PortalPlayView.Open))]
-internal static class PortalPlayViewOpenPatch
+[HarmonyPatch(typeof(GameUIManager), "OnAwake")]
+internal static class GameUiManagerOnAwakePatch
 {
-    private static void Postfix(PortalPlayView __instance)
+    private static void Postfix(GameUIManager __instance)
     {
-        try
-        {
-            PortalModeSelectorRuntime.OpenPortal(__instance);
-        }
-        catch (Exception exception)
-        {
-            PortalModeSelectorRuntime.LogError("Portal selector Open postfix failed", exception);
-        }
+        PortalModeSelectorRuntime.BindPortalManager(__instance);
     }
 }
 
-[HarmonyPatch(typeof(PortalPlayView), nameof(PortalPlayView.Close))]
-internal static class PortalPlayViewClosePatch
+[HarmonyPatch(typeof(SceneSpawner), nameof(SceneSpawner.Spawn))]
+internal static class SceneSpawnerSpawnPatch
 {
-    private static void Postfix(PortalPlayView __instance)
+    [HarmonyPrefix]
+    private static void Prefix(SceneSpawner __instance)
     {
-        PortalModeSelectorRuntime.ReleasePortalView(__instance);
-    }
-}
-
-[HarmonyPatch(typeof(PortalPlayView), nameof(PortalPlayView.ManagerDispose))]
-internal static class PortalPlayViewManagerDisposePatch
-{
-    private static void Postfix(PortalPlayView __instance)
-    {
-        PortalModeSelectorRuntime.ReleasePortalView(__instance);
-    }
-}
-
-[HarmonyPatch(typeof(PortalPlayView), nameof(PortalPlayView.OnChangeRoleButton))]
-internal static class PortalPlayViewOnChangeRoleButtonPatch
-{
-    private static bool Prefix(PortalPlayView __instance)
-    {
-        try
-        {
-            return !PortalModeSelectorRuntime.TryHandleModeToggle(__instance);
-        }
-        catch (Exception exception)
-        {
-            PortalModeSelectorRuntime.LogError("Portal selector role-button prefix failed", exception);
-            return true;
-        }
-    }
-}
-
-[HarmonyPatch(typeof(PortalPlayView), nameof(PortalPlayView.OnPlay))]
-internal static class PortalPlayViewOnPlayPatch
-{
-    private static void Prefix(PortalPlayView __instance)
-    {
-        PortalModeSelectorRuntime.ActivateSelection(__instance);
-    }
-}
-
-[HarmonyPatch(typeof(Matchmaker), "OnStartMatchmaking")]
-internal static class MatchmakerOnStartMatchmakingPatch
-{
-    private static void Prefix(Il2CppSystem.EventArgs? args)
-    {
-        PortalModeSelectorRuntime.TryOverrideStartMatchmakingArgs(args);
+        PortalModeSelectorRuntime.ApplyActiveMode(__instance._gameState);
     }
 }
 
@@ -88,12 +41,19 @@ internal static class MatchmakerPrepareMatchPatch
     }
 }
 
-[HarmonyPatch(typeof(Matchmaker), "OnCancelMatchmakingEvent")]
-internal static class MatchmakerOnCancelMatchmakingEventPatch
+[HarmonyPatch(typeof(Matchmaker), "OnStartMatchmaking")]
+internal static class MatchmakerOnStartMatchmakingPatch
 {
-    private static void Postfix()
+    [HarmonyPrefix]
+    [HarmonyPriority(Priority.First)]
+    private static void Prefix(Il2CppSystem.EventArgs args)
     {
-        PortalModeSelectorRuntime.ClearActiveSelection();
+        var startEvent = args.Cast<Events.StartMatchmakingEvent>();
+        var gameModeType = startEvent.GameModeType;
+        if (PortalModeSelectorRuntime.TryOverrideMatchMode(ref gameModeType))
+        {
+            startEvent.GameModeType = gameModeType;
+        }
     }
 }
 
@@ -103,15 +63,6 @@ internal static class SceneTypeExtensionGetRandomScenePatch
     private static bool Prefix(Il2CppStructArray<SceneType> mapsToPlayOn, GameModeType gameModeType, ref SceneType __result)
     {
         return !PortalModeSelectorRuntime.TryOverrideRandomScene(mapsToPlayOn, gameModeType, ref __result);
-    }
-}
-
-[HarmonyPatch(typeof(PhotonPlayFabLobbyController), "OnHostChooseGameModeEvent")]
-internal static class PhotonPlayFabLobbyControllerOnHostChooseGameModeEventPatch
-{
-    private static void Prefix(Il2CppSystem.EventArgs? args)
-    {
-        PortalModeSelectorRuntime.TryOverrideRequestChangeGameModeArgs(args);
     }
 }
 
@@ -133,15 +84,6 @@ internal static class PhotonPlayFabLobbyControllerRpcRequestChangeGameModePatch
     }
 }
 
-[HarmonyPatch(typeof(PhotonPlayFabLobbyController), "OnBroadcastMatchSessionToOtherLobbyMembers")]
-internal static class PhotonPlayFabLobbyControllerOnBroadcastMatchSessionPatch
-{
-    private static void Prefix(Il2CppSystem.EventArgs? args)
-    {
-        PortalModeSelectorRuntime.TryOverrideBroadcastMatchArgs(args);
-    }
-}
-
 [HarmonyPatch(typeof(PhotonPlayFabLobbyController), "RPC_SendMatchInfoToTeam")]
 internal static class PhotonPlayFabLobbyControllerRpcSendMatchInfoToTeamPatch
 {
@@ -157,6 +99,16 @@ internal static class BeforeSelectionStateTickPatch
     private static void Prefix(BeforeSelectionState __instance)
     {
         PortalModeSelectorRuntime.ApplyActiveMode(__instance._gameState);
+    }
+}
+
+[HarmonyPatch(typeof(MatchStateMachine), nameof(MatchStateMachine.FixedUpdateNetwork))]
+internal static class MatchStateMachineFixedUpdateNetworkPatch
+{
+    [HarmonyPrefix]
+    private static void Prefix(MatchStateMachine __instance)
+    {
+        PortalModeSelectorRuntime.ApplyActiveModeForMatchTick(__instance._gameState);
     }
 }
 
@@ -194,23 +146,5 @@ internal static class SpookedNetworkPlayerAssignComponentsPatch
     private static void Postfix(SpookedNetworkPlayer __instance)
     {
         PortalModeSelectorRuntime.WirePlayerBerekComponent(__instance);
-    }
-}
-
-[HarmonyPatch(typeof(MatchStateHelper), nameof(MatchStateHelper.FinishMatch))]
-internal static class MatchStateHelperFinishMatchPatch
-{
-    private static void Postfix()
-    {
-        PortalModeSelectorRuntime.ClearActiveSelection();
-    }
-}
-
-[HarmonyPatch(typeof(MatchStateHelper), nameof(MatchStateHelper.BerekFinishMatch))]
-internal static class MatchStateHelperBerekFinishMatchPatch
-{
-    private static void Postfix()
-    {
-        PortalModeSelectorRuntime.ClearActiveSelection();
     }
 }

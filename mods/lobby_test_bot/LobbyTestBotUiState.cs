@@ -10,14 +10,12 @@ internal sealed class LobbyTestBotUiState
         GameObject rootObject,
         Button button,
         UnityAction clickAction,
-        Image verticalSign,
-        Image[] iconImages)
+        Text label)
     {
         RootObject = rootObject;
         Button = button;
         ClickAction = clickAction;
-        VerticalSign = verticalSign;
-        IconImages = iconImages;
+        Label = label;
     }
 
     public GameObject RootObject { get; }
@@ -26,9 +24,7 @@ internal sealed class LobbyTestBotUiState
 
     public UnityAction ClickAction { get; }
 
-    public Image VerticalSign { get; }
-
-    public Image[] IconImages { get; }
+    public Text Label { get; }
 
     public float NextRefreshTime { get; set; }
 
@@ -36,5 +32,7 @@ internal sealed class LobbyTestBotUiState
         RootObject is not null
         && RootObject.Pointer != IntPtr.Zero
         && Button is not null
-        && Button.Pointer != IntPtr.Zero;
+        && Button.Pointer != IntPtr.Zero
+        && Label is not null
+        && Label.Pointer != IntPtr.Zero;
 }

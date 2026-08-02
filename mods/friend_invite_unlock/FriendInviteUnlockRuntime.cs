@@ -1,6 +1,6 @@
 using BepInEx.Logging;
-using Events;
 using HarmonyLib;
+using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using Networking.Friends;
 using Networking.Party;
 using Steamworks;
@@ -9,7 +9,6 @@ using System.Linq;
 using System.Reflection;
 using UnityEngine;
 using UI.Views.Lobby.People;
-using Il2CppFriends = Il2CppSystem.Collections.Generic;
 
 namespace SneakOut.FriendInviteUnlock;
 
@@ -208,18 +207,23 @@ internal static class FriendInviteUnlockRuntime
         }
     }
 
-    private static void MergeAllSteamFriends(Il2CppFriends.List<SpookedFriend> friends)
+    private static Il2CppReferenceArray<SpookedFriend> MergeAllSteamFriends(Il2CppReferenceArray<SpookedFriend> friends)
     {
-        if (!Enabled)
+        if (!Enabled || !SteamAPI.IsSteamRunning())
         {
-            return;
+            return friends;
         }
 
         var mergedFriends = new List<SpookedFriend>();
         var existingSteamIds = new HashSet<ulong>();
-        for (var index = 0; index < friends.Count; index++)
+        for (var index = 0; index < friends.Length; index++)
         {
             var friend = friends[index];
+            if (friend is null)
+            {
+                continue;
+            }
+
             mergedFriends.Add(friend);
             if (friend.SteamId.m_SteamID != 0)
             {
@@ -257,16 +261,18 @@ internal static class FriendInviteUnlockRuntime
             .ThenBy(friend => friend.Nickname, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        friends.Clear();
-        foreach (var friend in orderedFriends)
+        var result = new Il2CppReferenceArray<SpookedFriend>(orderedFriends.Count);
+        for (var index = 0; index < orderedFriends.Count; index++)
         {
-            friends.Add(friend);
+            result[index] = orderedFriends[index];
         }
 
         if (_configuration!.EnableLogging.Value)
         {
             _logger?.LogInfo($"Merged Steam friends into list: {orderedFriends.Count} visible friends");
         }
+
+        return result;
     }
 
     private static bool HasClassicActiveState(SpookedFriend friend)
@@ -274,13 +280,13 @@ internal static class FriendInviteUnlockRuntime
         return friend.Online && !string.IsNullOrWhiteSpace(friend.PgosId);
     }
 
-    [HarmonyPatch(typeof(SpookedFriendsRefreshedFullEvent), "get_Friends")]
-    private static class SpookedFriendsRefreshedFullEventGetFriendsPatch
+    [HarmonyPatch(typeof(FriendsView), nameof(FriendsView.RefreshFriends))]
+    private static class FriendsViewRefreshFriendsPatch
     {
-        [HarmonyPostfix]
-        private static void Postfix(Il2CppFriends.List<SpookedFriend> __result)
+        [HarmonyPrefix]
+        private static void Prefix(ref Il2CppReferenceArray<SpookedFriend> friends)
         {
-            MergeAllSteamFriends(__result);
+            friends = MergeAllSteamFriends(friends);
         }
     }
 

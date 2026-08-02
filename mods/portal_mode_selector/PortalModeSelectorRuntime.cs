@@ -439,11 +439,6 @@ internal static class PortalModeSelectorRuntime
         state.MapsBackground.color = _mapPanelExpanded
             ? classic ? ClassicModeColor : CrownModeColor
             : MapDisabledColor;
-        if (state.StockPrivateGameSection is not null
-            && state.StockPrivateGameSection.Pointer != IntPtr.Zero)
-        {
-            state.StockPrivateGameSection.SetActive(!_mapPanelExpanded);
-        }
         foreach (var option in state.MapOptions)
         {
             var visible = _mapPanelExpanded && option.GameModeType == _preferredMode;
@@ -474,6 +469,7 @@ internal static class PortalModeSelectorRuntime
     private static void ToggleMapPanel(IntPtr viewPointer)
     {
         _mapPanelExpanded = !_mapPanelExpanded;
+        _logger?.LogInfo($"Portal map panel {(_mapPanelExpanded ? "opened" : "closed")}");
         if (UiStateByView.TryGetValue(viewPointer, out var state) && state.IsAlive)
         {
             RefreshControls(state);

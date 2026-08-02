@@ -112,19 +112,19 @@ Core and gameplay mods:
   Keeps the game responsive during scene loading without changing the normal background-running preference.
 - `friend-invite-unlock`
   Keeps offline friends inviteable from the lobby list.
+- `lobby-test-bot`
+  Host-only portal button that adds or removes one inert network player for solo match-start testing.
 
 Experimental and debug mods:
 
 - `lobby-skill-sandbox`
   Opt-in lobby-only penguin skill sandbox. Slide is supported; prop-change runs only when explicitly enabled and backed by initialized gameplay room data.
-- `lobby-test-bot`
-  Host-only portal button that adds or removes one inert network player for solo match-start testing.
 - `free-fly`
   Vertical free-fly debugging controls.
 - `runtime-profiler`
   Managed method profiler for narrow runtime investigations.
 
-The patcher enables stable gameplay mods by default. Experimental and debug mods are opt-in.
+The patcher enables stable gameplay mods, including the lobby test bot, by default. Experimental and debug mods are opt-in.
 
 ## Common commands
 

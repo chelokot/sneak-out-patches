@@ -4,7 +4,6 @@ using Events;
 using Il2CppInterop.Runtime.Injection;
 using Kinguinverse.DataUtils.Events;
 using UI.InputBinding;
-using Gameplay.Player;
 using TMPro;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -14,6 +13,18 @@ namespace SneakOut.KeyboardLayoutFix;
 
 internal static class KeyboardLayoutFixRuntime
 {
+    private static readonly (Key Key, int VirtualKey)[] PhysicalLetterKeys =
+    {
+        (Key.A, 0x41), (Key.B, 0x42), (Key.C, 0x43), (Key.D, 0x44),
+        (Key.E, 0x45), (Key.F, 0x46), (Key.G, 0x47), (Key.H, 0x48),
+        (Key.I, 0x49), (Key.J, 0x4A), (Key.K, 0x4B), (Key.L, 0x4C),
+        (Key.M, 0x4D), (Key.N, 0x4E), (Key.O, 0x4F), (Key.P, 0x50),
+        (Key.Q, 0x51), (Key.R, 0x52), (Key.S, 0x53), (Key.T, 0x54),
+        (Key.U, 0x55), (Key.V, 0x56), (Key.W, 0x57), (Key.X, 0x58),
+        (Key.Y, 0x59), (Key.Z, 0x5A)
+    };
+    private static readonly HashSet<Key> ManagedPhysicalKeys =
+        PhysicalLetterKeys.Select(entry => entry.Key).ToHashSet();
     private static readonly IReadOnlyDictionary<char, string> RussianPhysicalKeyLabels =
         new Dictionary<char, string>
         {
@@ -41,6 +52,7 @@ internal static class KeyboardLayoutFixRuntime
     private static float _diagnosticCycleStartedAt;
     private static float _nextDiagnosticPromptProbeAt;
     private static int _diagnosticCycleState;
+    private static uint _lastPhysicalLetterMask;
 
     public static void Initialize(ManualLogSource logger, KeyboardLayoutFixConfig configuration)
     {
@@ -77,6 +89,7 @@ internal static class KeyboardLayoutFixRuntime
         }
 
         var now = Time.unscaledTime;
+        SynchronizePhysicalLetterState();
         RunDiagnosticLayoutCycle(now);
         if (now >= _nextLayoutPollAt)
         {
@@ -99,27 +112,51 @@ internal static class KeyboardLayoutFixRuntime
         }
     }
 
-    public static void ApplyPhysicalMovement(PlayerInputController inputController)
+    private static void SynchronizePhysicalLetterState()
     {
-        if (_configuration is null || !_configuration.EnableMod.Value)
-        {
-            return;
-        }
-
         var keyboard = Keyboard.current;
         if (keyboard is null)
         {
             return;
         }
 
-        var horizontal = (keyboard.dKey.isPressed ? 1f : 0f) - (keyboard.aKey.isPressed ? 1f : 0f);
-        var vertical = (keyboard.wKey.isPressed ? 1f : 0f) - (keyboard.sKey.isPressed ? 1f : 0f);
-        if (horizontal == 0f && vertical == 0f)
+        uint physicalMask = 0;
+        for (var index = 0; index < PhysicalLetterKeys.Length; index++)
+        {
+            if ((GetAsyncKeyState(PhysicalLetterKeys[index].VirtualKey) & 0x8000) != 0)
+            {
+                physicalMask |= 1u << index;
+            }
+        }
+
+        if (physicalMask == _lastPhysicalLetterMask)
         {
             return;
         }
 
-        inputController._moveDirection = new Vector2(horizontal, vertical).normalized;
+        _lastPhysicalLetterMask = physicalMask;
+        var pressedKeys = new List<Key>();
+        var allKeys = keyboard.allKeys;
+        for (var index = 0; index < allKeys.Count; index++)
+        {
+            var control = allKeys[index];
+            if (control.isPressed && !ManagedPhysicalKeys.Contains(control.keyCode))
+            {
+                pressedKeys.Add(control.keyCode);
+            }
+        }
+        for (var index = 0; index < PhysicalLetterKeys.Length; index++)
+        {
+            if ((physicalMask & (1u << index)) != 0)
+            {
+                pressedKeys.Add(PhysicalLetterKeys[index].Key);
+            }
+        }
+
+        InputSystem.QueueStateEvent(
+            keyboard,
+            new KeyboardState(pressedKeys.ToArray()),
+            InputState.currentTime);
     }
 
     private static void DetectLayoutChange(bool force, string source)
@@ -139,12 +176,9 @@ internal static class KeyboardLayoutFixRuntime
             return;
         }
 
-        // Wine/XWayland does not reliably forward WM_INPUTLANGCHANGE to Unity's Input System.
-        // A configuration event makes it re-query the OS layout and re-resolve physical controls.
-        InputSystem.QueueConfigChangeEvent(keyboard, InputState.currentTime);
         _bindingRefreshAt = Time.unscaledTime + BindingRefreshDelay;
         Log(
-            $"Keyboard layout change queued ({source}): hkl=0x{keyboardLayout:X}, "
+            $"Keyboard layout change detected ({source}): hkl=0x{keyboardLayout:X}, "
             + $"unity={keyboard.keyboardLayout}, W={keyboard.wKey.displayName}, E={keyboard.eKey.displayName}");
     }
 
@@ -357,6 +391,9 @@ internal static class KeyboardLayoutFixRuntime
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetKeyboardLayout(uint threadId);
+
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int virtualKey);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern IntPtr LoadKeyboardLayout(string layoutIdentifier, uint flags);

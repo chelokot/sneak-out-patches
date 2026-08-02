@@ -16,7 +16,7 @@ End users do not build mods and do not need Python, .NET, Git, or an interop cac
 
 ## Defaults and compatibility
 
-`install` is deliberately noninteractive. It finds Steam library folders, chooses the detected Sneak Out installation, and installs every manifest entry with `default_enabled: true`. Experimental and debug plugins are not stable defaults. `--all`, `--mods`, and `--interactive` provide explicit opt-in paths.
+`install` is deliberately noninteractive. It finds Steam library folders, chooses the detected Sneak Out installation, and installs every manifest entry with `default_enabled: true`, including the host-only lobby test bot. Experimental and debug plugins are not stable defaults. `--all`, `--mods`, and `--interactive` provide explicit opt-in paths.
 
 Before writing anything, the installer compares the Steam build id, `GameAssembly.dll`, and `global-metadata.dat` with the release metadata. An unsupported client is rejected unless the user explicitly passes `--allow-unsupported-build` or confirms the override interactively.
 

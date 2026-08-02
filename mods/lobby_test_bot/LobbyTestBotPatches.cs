@@ -3,49 +3,21 @@ using Fusion;
 using Gameplay.Player.Components;
 using Gameplay.Spawn;
 using HarmonyLib;
-using UI.Views.Lobby;
+using Il2CppInterop.Runtime;
+using Networking;
+using Networking.Matchmaking;
+using Networking.Party;
+using UI;
 
 namespace SneakOut.LobbyTestBot;
 
-[HarmonyPatch(typeof(PortalPlayView), nameof(PortalPlayView.Open))]
-[HarmonyAfter("chelokot.sneakout.portal-mode-selector")]
-internal static class PortalPlayViewOpenPatch
+[HarmonyPatch(typeof(GameUIManager), "OnAwake")]
+internal static class GameUiManagerOnAwakePatch
 {
     [HarmonyPostfix]
-    [HarmonyPriority(Priority.Last)]
-    private static void Postfix(PortalPlayView __instance)
+    private static void Postfix(GameUIManager __instance)
     {
-        LobbyTestBotRuntime.OpenPortal(__instance);
-    }
-}
-
-[HarmonyPatch(typeof(PortalPlayView), nameof(PortalPlayView.Update))]
-internal static class PortalPlayViewUpdatePatch
-{
-    [HarmonyPostfix]
-    private static void Postfix(PortalPlayView __instance)
-    {
-        LobbyTestBotRuntime.TickPortal(__instance);
-    }
-}
-
-[HarmonyPatch(typeof(PortalPlayView), nameof(PortalPlayView.Close))]
-internal static class PortalPlayViewClosePatch
-{
-    [HarmonyPostfix]
-    private static void Postfix(PortalPlayView __instance)
-    {
-        LobbyTestBotRuntime.ReleasePortal(__instance);
-    }
-}
-
-[HarmonyPatch(typeof(PortalPlayView), nameof(PortalPlayView.ManagerDispose))]
-internal static class PortalPlayViewManagerDisposePatch
-{
-    [HarmonyPostfix]
-    private static void Postfix(PortalPlayView __instance)
-    {
-        LobbyTestBotRuntime.ReleasePortal(__instance);
+        LobbyTestBotRuntime.BindPortalManager(__instance);
     }
 }
 
@@ -56,6 +28,49 @@ internal static class SpookedNetworkPlayerDespawnedPatch
     private static void Postfix(SpookedNetworkPlayer __instance)
     {
         LobbyTestBotRuntime.ObservePlayerDespawned(__instance);
+    }
+}
+
+[HarmonyPatch(typeof(PgosLobby), nameof(PgosLobby.TeamCount), MethodType.Getter)]
+internal static class PgosLobbyTeamCountPatch
+{
+    [HarmonyPostfix]
+    private static void Postfix(ref int __result)
+    {
+        LobbyTestBotRuntime.IncludeManagedBotInPartyCount(ref __result);
+    }
+}
+
+[HarmonyPatch(typeof(Matchmaker), "OnStartMatchmaking")]
+internal static class MatchmakerOnStartMatchmakingPatch
+{
+    [HarmonyPrefix]
+    private static void Prefix(Matchmaker __instance, Il2CppSystem.EventArgs args, out bool __state)
+    {
+        var startEvent = args.Cast<Events.StartMatchmakingEvent>();
+        __state = LobbyTestBotRuntime.BeginManagedBotMatchStart(__instance, startEvent.GameModeType);
+    }
+
+    [HarmonyPostfix]
+    private static void Postfix(Matchmaker __instance, bool __state)
+    {
+        LobbyTestBotRuntime.FinishManagedBotMatchStart(__instance, __state);
+    }
+
+    [HarmonyFinalizer]
+    private static void Finalizer()
+    {
+        LobbyTestBotRuntime.EndManagedBotMatchStartScope();
+    }
+}
+
+[HarmonyPatch(typeof(GameState), nameof(GameState.CurrentStateBlock))]
+internal static class GameStateCurrentStateBlockPatch
+{
+    [HarmonyPostfix]
+    private static void Postfix(ref bool __result)
+    {
+        LobbyTestBotRuntime.AllowManagedBotMatchStart(ref __result);
     }
 }
 

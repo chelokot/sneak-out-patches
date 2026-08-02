@@ -1,8 +1,8 @@
 {
   "steam_app_id": "2410490",
-  "steam_build_id": "24284568",
-  "game_assembly_sha256": "cabc98721f67236a8c9d1bf4ed0e0e9d9155050864f1325c2a8c01b436b3ddc5",
-  "global_metadata_sha256": "5394deac015b04283b1990ad382a21f69a2207671196b20589f15be666bddb2d",
+  "steam_build_id": "24488474",
+  "game_assembly_sha256": "98ceda86f3b8f39b45f78fc54a0f8b9756888001c18f6f75c85632740832a1fc",
+  "global_metadata_sha256": "65690a8c5b03cd8759a059166907f6d877f070ace2d5e5b73b12c474f0a9c247",
   "interop_assembly": "Assembly-CSharp.dll",
-  "interop_sha256": "1c79df28cbced40c1a048e8722cd8f09ce0e0993257215f6df58cb77309b1deb"
+  "interop_sha256": "bd508cd6e43dcf656e69a89bb48f1420a0cdea1b2560026c1512f07dcf828835"
 }

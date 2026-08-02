@@ -86,7 +86,7 @@
   {
     "option_id": "lobby-test-bot",
     "label": "Lobby Test Bot",
-    "details": "Builds the opt-in host-only lobby tool that spawns one inert network player through the game's native SceneSpawner path.",
+    "details": "Builds the opt-in host-only portal tool that spawns one inert Fusion player through the game's native bot initializer and starts private test matches with it.",
     "category": "experimental",
     "default_enabled": false,
     "project_relative_path": "mods/lobby_test_bot/LobbyTestBot.csproj",

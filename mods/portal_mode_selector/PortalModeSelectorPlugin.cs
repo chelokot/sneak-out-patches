@@ -8,7 +8,7 @@ public sealed class PortalModeSelectorPlugin : BasePlugin
 {
     public const string PluginGuid = "chelokot.sneakout.portal-mode-selector";
     public const string PluginName = "Portal Mode Selector";
-    public const string PluginVersion = "0.2.0";
+    public const string PluginVersion = "0.3.0";
 
     public override void Load()
     {

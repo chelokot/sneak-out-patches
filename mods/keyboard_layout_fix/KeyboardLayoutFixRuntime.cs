@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using BepInEx.Logging;
 using Events;
+using Gameplay.Player;
 using Il2CppInterop.Runtime.Injection;
 using Kinguinverse.DataUtils.Events;
 using UI.InputBinding;
@@ -39,6 +40,7 @@ internal static class KeyboardLayoutFixRuntime
     private static float _diagnosticCycleStartedAt;
     private static float _nextDiagnosticPromptProbeAt;
     private static int _diagnosticCycleState;
+    private static readonly HashSet<IntPtr> NativeMovementOwners = new();
 
     public static void Initialize(ManualLogSource logger, KeyboardLayoutFixConfig configuration)
     {
@@ -96,6 +98,52 @@ internal static class KeyboardLayoutFixRuntime
         {
             DetectLayoutChange(force: true, source: "focus");
         }
+    }
+
+    public static void ApplyNativePhysicalMovement(PlayerInputController inputController)
+    {
+        if (_configuration?.EnableMod.Value != true
+            || inputController is null
+            || inputController.Pointer == IntPtr.Zero)
+        {
+            return;
+        }
+
+        var pointer = inputController.Pointer;
+        var decision = NativeMovementPolicy.Resolve(
+            IsRussianLayout(_lastKeyboardLayout),
+            IsNativeKeyDown(0x57),
+            IsNativeKeyDown(0x41),
+            IsNativeKeyDown(0x53),
+            IsNativeKeyDown(0x44),
+            NativeMovementOwners.Contains(pointer));
+        if (!decision.ShouldOverride)
+        {
+            // ResolveLocalInputs has already restored the stock value for this frame. Forget our
+            // ownership without writing anything so English layout and gamepads remain untouched.
+            NativeMovementOwners.Remove(pointer);
+            return;
+        }
+
+        // Under Wine/XWayland, Unity's translated Input System state can lose the physical WASD
+        // keys on a Cyrillic layout. Windows virtual letter keys remain physical-layout-neutral,
+        // so read only those four keys and repair the already resolved movement vector directly.
+        // Unlike the removed whole-keyboard QueueStateEvent implementation, this never injects
+        // keyboard state and explicitly writes zero on release, preventing stuck movement.
+        if (decision.OwnsMovement)
+        {
+            inputController._moveDirection = new Vector2(decision.Horizontal, decision.Vertical).normalized;
+            NativeMovementOwners.Add(pointer);
+            return;
+        }
+
+        NativeMovementOwners.Remove(pointer);
+        inputController._moveDirection = Vector2.zero;
+    }
+
+    private static bool IsNativeKeyDown(int virtualKey)
+    {
+        return (GetAsyncKeyState(virtualKey) & 0x8000) != 0;
     }
 
     private static void DetectLayoutChange(bool force, string source)
@@ -203,30 +251,46 @@ internal static class KeyboardLayoutFixRuntime
         var refreshed = 0;
         foreach (var label in Resources.FindObjectsOfTypeAll<TMP_Text>())
         {
-            if (label is null
-                || label.Pointer == IntPtr.Zero
-                || !label.isActiveAndEnabled
-                || !label.text.Contains("Press", StringComparison.OrdinalIgnoreCase))
+            try
             {
-                continue;
-            }
+                if (label is null
+                    || label.Pointer == IntPtr.Zero
+                    || !label.isActiveAndEnabled)
+                {
+                    continue;
+                }
 
-            var rewritten = label.text;
-            foreach (var physicalKey in RussianPhysicalKeyLabels)
+                // IL2CPP can expose an active TMP wrapper while its native text value is null,
+                // especially while EndMatchScene is replacing prompt objects. Cache the value
+                // once and isolate stale wrappers so a label refresh cannot break the watcher.
+                var original = label.text;
+                if (string.IsNullOrEmpty(original)
+                    || !original.Contains("Press", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var rewritten = original;
+                foreach (var physicalKey in RussianPhysicalKeyLabels)
+                {
+                    var source = useRussianLabels ? physicalKey.Key.ToString() : physicalKey.Value;
+                    var target = useRussianLabels ? physicalKey.Value : physicalKey.Key.ToString();
+                    rewritten = rewritten.Replace($">{source}<", $">{target}<", StringComparison.Ordinal);
+                    rewritten = rewritten.Replace($" {source} ", $" {target} ", StringComparison.Ordinal);
+                }
+
+                if (string.Equals(rewritten, original, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                label.text = rewritten;
+                refreshed++;
+            }
+            catch (Exception exception)
             {
-                var source = useRussianLabels ? physicalKey.Key.ToString() : physicalKey.Value;
-                var target = useRussianLabels ? physicalKey.Value : physicalKey.Key.ToString();
-                rewritten = rewritten.Replace($">{source}<", $">{target}<", StringComparison.Ordinal);
-                rewritten = rewritten.Replace($" {source} ", $" {target} ", StringComparison.Ordinal);
+                Log($"Skipped stale TMP prompt during layout refresh: {exception.GetType().Name}");
             }
-
-            if (string.Equals(rewritten, label.text, StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            label.text = rewritten;
-            refreshed++;
         }
 
         return refreshed;
@@ -292,13 +356,24 @@ internal static class KeyboardLayoutFixRuntime
     {
         foreach (var label in Resources.FindObjectsOfTypeAll<TMP_Text>())
         {
-            if (label is not null
-                && label.Pointer != IntPtr.Zero
-                && label.isActiveAndEnabled
-                && label.text.Contains("Press", StringComparison.OrdinalIgnoreCase)
-                && label.text.Contains("to confirm", StringComparison.OrdinalIgnoreCase))
+            try
             {
-                return true;
+                if (label is null || label.Pointer == IntPtr.Zero || !label.isActiveAndEnabled)
+                {
+                    continue;
+                }
+
+                var text = label.text;
+                if (!string.IsNullOrEmpty(text)
+                    && text.Contains("Press", StringComparison.OrdinalIgnoreCase)
+                    && text.Contains("to confirm", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+            catch
+            {
+                // A diagnostic-only visual probe must never affect gameplay.
             }
         }
 
@@ -330,6 +405,9 @@ internal static class KeyboardLayoutFixRuntime
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetKeyboardLayout(uint threadId);
+
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int virtualKey);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern IntPtr LoadKeyboardLayout(string layoutIdentifier, uint flags);

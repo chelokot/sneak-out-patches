@@ -16,7 +16,6 @@ internal static class LobbySkillSandboxRuntime
     private static Harmony? _harmony;
     private static LobbySkillSandboxConfig? _configuration;
     private static bool _lobbyUiActive;
-    private static EntitySkillsComponent? _activeLobbyPropOwner;
     private static readonly Dictionary<IntPtr, LobbyPropVisualState> LobbyPropVisuals = [];
 
     public static void Initialize(ManualLogSource logger, LobbySkillSandboxConfig configuration)
@@ -114,9 +113,21 @@ internal static class LobbySkillSandboxRuntime
             return false;
         }
 
-        viewModel._canBeVisible = true;
-        viewModel.RefreshSkills();
-        return true;
+        try
+        {
+            // ActivateLobby runs before the local network player and its skill registries are
+            // initialized. RefreshSkills at that point throws inside IL2CPP and aborts the whole
+            // lobby UI activation. The Init postfix retries this path once authoritative player
+            // data exists; an unavailable view now fails closed without escaping Harmony.
+            viewModel._canBeVisible = true;
+            viewModel.RefreshSkills();
+            return true;
+        }
+        catch (Exception exception)
+        {
+            Log($"TryPreparePlayerActionsView: refreshUnavailable={exception.GetType().Name}");
+            return false;
+        }
     }
 
     public static bool TryHandleLobbySkillUse(EntitySkillsComponent entitySkillsComponent, bool secondSkill)
@@ -181,48 +192,13 @@ internal static class LobbySkillSandboxRuntime
             return true;
         }
 
-        if (HasLobbyPropVisual(entitySkillsComponent))
-        {
-            try
-            {
-                RestoreLobbyPropVisual(entitySkillsComponent);
-                entitySkillsComponent.RPC_VictimPropUnChange();
-                Log("TryHandleLobbyPropChange: restored");
-            }
-            catch (Exception exception)
-            {
-                Warn($"Lobby prop restore failed: {exception.GetType().Name}");
-            }
-            finally
-            {
-                _activeLobbyPropOwner = null;
-            }
-
-            return true;
-        }
-
-        var propType = LobbyPropPool.ChooseRandomType();
-        if (propType == PlayerPropType.None)
-        {
-            Log("TryHandleLobbyPropChange: noAvailableProp");
-            return true;
-        }
-
-        try
-        {
-            ApplyLobbyPropVisual(entitySkillsComponent, propType);
-            entitySkillsComponent.RPC_VictimPropChange(propType);
-            _activeLobbyPropOwner = entitySkillsComponent;
-            Log($"TryHandleLobbyPropChange: visualNetworkChanged type={propType}, internalId={playerInternalId}");
-        }
-        catch (Exception exception)
-        {
-            RestoreLobbyPropVisual(entitySkillsComponent);
-            _activeLobbyPropOwner = null;
-            Warn($"Lobby prop change failed: {exception.GetType().Name}");
-        }
-
+        // The stock RPC also drives match-only prop state which is not initialized in Lobby.
+        // Calling it can stall while resolving the gameplay prop pool and leave the penguin
+        // collider below the lobby floor. Until a dedicated replicated lobby protocol exists,
+        // consume this skill locally without mutating gameplay/Fusion state.
+        Warn("Lobby prop change is disabled because the stock match RPC is unsafe in Lobby");
         return true;
+
     }
 
     private static void RestoreLobbyProp()
@@ -233,7 +209,6 @@ internal static class LobbySkillSandboxRuntime
         }
 
         LobbyPropVisuals.Clear();
-        _activeLobbyPropOwner = null;
     }
 
     public static bool TryApplyLobbyPropVisual(EntitySkillsComponent entitySkillsComponent, PlayerPropType propType)

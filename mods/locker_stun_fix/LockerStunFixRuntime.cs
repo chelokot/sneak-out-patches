@@ -24,8 +24,7 @@ internal static class LockerStunFixRuntime
     {
         if (_configuration?.EnableMod.Value != true
             || locker.Pointer == IntPtr.Zero
-            || locker.IsOpen
-            || locker._duringInteraction)
+            || locker.IsOpen)
         {
             return;
         }

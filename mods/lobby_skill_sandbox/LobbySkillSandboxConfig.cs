@@ -48,8 +48,8 @@ internal sealed class LobbySkillSandboxConfig
         var enableLobbyPropChange = configFile.Bind(
             "general",
             "EnableLobbyPropChange",
-            true,
-            "Allow networked lobby prop-change using lobby scenery. Every lobby participant must run this mod.");
+            false,
+            "Reserved for a future lobby-safe replication protocol. The stock match prop RPC is unsafe in Lobby.");
         var enableLogging = configFile.Bind(
             "general",
             "EnableLogging",

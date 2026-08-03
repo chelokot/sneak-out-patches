@@ -141,7 +141,7 @@
   {
     "option_id": "keyboard-layout-fix",
     "label": "Keyboard Layout Fix",
-    "details": "Keeps physical controls usable without synthetic keyboard-state injection and refreshes displayed labels when the layout changes or the game regains focus.",
+    "details": "Repairs physical WASD on Wine Cyrillic layouts without synthetic keyboard-state injection and refreshes displayed labels when the layout changes or the game regains focus.",
     "category": "quality-of-life",
     "default_enabled": true,
     "project_relative_path": "mods/keyboard_layout_fix/KeyboardLayoutFix.csproj",
@@ -174,7 +174,7 @@
   {
     "option_id": "lobby-skill-sandbox",
     "label": "Lobby Skill Sandbox",
-    "details": "Enables the lobby penguin skill panel, slide, and networked prop-change backed by lobby scenery. Prop-change requires the mod on every participant.",
+    "details": "Enables the lobby penguin skill panel and lobby-safe slide handling. Match-only prop-change stays suppressed because its stock RPC corrupts lobby movement state.",
     "category": "gameplay",
     "default_enabled": true,
     "project_relative_path": "mods/lobby_skill_sandbox/LobbySkillSandbox.csproj",

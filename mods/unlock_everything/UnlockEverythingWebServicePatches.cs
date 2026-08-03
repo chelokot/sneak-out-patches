@@ -113,6 +113,22 @@ internal static class KinguinverseWebServicePutOnCharacterDancePatch
     }
 }
 
+[HarmonyPatch(typeof(KinguinverseWebService), nameof(KinguinverseWebService.PutOnEmotion))]
+internal static class KinguinverseWebServicePutOnEmotionPatch
+{
+    private static bool Prefix(int characterId, EmoteType emoteType, int wheelSlotId, ref Il2CppTasks.Task<Result<bool>> __result)
+    {
+        if (!UnlockEverythingRuntime.UsePersistentSelections
+            || !UnlockEverythingSelections.ApplyEmotionSelection(characterId, emoteType, wheelSlotId))
+        {
+            return true;
+        }
+
+        __result = UnlockEverythingStub.SuccessBoolean();
+        return false;
+    }
+}
+
 [HarmonyPatch(typeof(KinguinverseWebService), nameof(KinguinverseWebService.PutOnSkinPart))]
 internal static class KinguinverseWebServicePutOnSkinPartPatch
 {

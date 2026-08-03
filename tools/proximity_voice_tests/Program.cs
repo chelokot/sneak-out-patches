@@ -27,6 +27,17 @@ static VoicePacket Packet(
         payload);
 }
 
+var admission = new VoicePeerAdmission();
+const ulong peerSteamId = 76561198000000001;
+admission.Allow(peerSteamId);
+Require(!admission.IsAccepted(peerSteamId), "allowing a voice peer prematurely marked its Steam session accepted");
+Require(admission.CanAcceptRequest(peerSteamId, currentlyAllowed: true), "real Steam session request was rejected after peer discovery");
+admission.MarkAccepted(peerSteamId);
+Require(admission.IsAccepted(peerSteamId), "successful Steam session request was not recorded");
+admission.MarkDisconnected(peerSteamId);
+Require(!admission.IsAccepted(peerSteamId), "failed Steam session remained accepted");
+Require(admission.CanAcceptRequest(peerSteamId, currentlyAllowed: true), "failed Steam session could not retry");
+
 var encodedPacket = Packet(42, 0, 1, 1, 2, 3, 4);
 var encoded = VoiceProtocol.Encode(encodedPacket);
 Require(VoiceProtocol.TryDecode(encoded, out var decoded), "valid voice packet did not decode");

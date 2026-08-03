@@ -36,12 +36,10 @@ internal static class SharedCornerPolicy
                 continue;
             }
 
-            if (blocker.Layer != intersectionLayer)
-            {
-                return false;
-            }
-
-            foundIntersection = true;
+            // ReaperHelloThere already defines which ordinary geometry its wall blink may cross.
+            // This patch only removes the dedicated Intersections junction strip; another
+            // RaycastAll hit must not make the custom preflight stricter than the perk itself.
+            foundIntersection |= blocker.Layer == intersectionLayer;
         }
 
         return foundIntersection;

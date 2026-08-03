@@ -12,6 +12,8 @@ internal static class GameUIManagerActivateLobbyPatch
     private static void Postfix(GameUIManager __instance)
     {
         LobbySkillSandboxRuntime.SetLobbyUiActive(true);
+        // Try immediately for reconnects where player data already exists. The guarded refresh
+        // fails closed if lobby activation won the race; SpookedNetworkPlayer.Init retries later.
         LobbySkillSandboxRuntime.EnableLobbySkillView(__instance);
     }
 }
@@ -70,8 +72,8 @@ internal static class EntitySkillsComponentLobbyChangeFromPropPatch
     }
 }
 
-[HarmonyPatch(typeof(SpookedNetworkPlayer), nameof(SpookedNetworkPlayer.Spawned))]
-internal static class SpookedNetworkPlayerSpawnedPatch
+[HarmonyPatch(typeof(SpookedNetworkPlayer), nameof(SpookedNetworkPlayer.Init))]
+internal static class SpookedNetworkPlayerInitializedPatch
 {
     private static void Postfix(SpookedNetworkPlayer __instance)
     {

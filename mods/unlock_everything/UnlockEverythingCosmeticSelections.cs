@@ -416,6 +416,67 @@ internal static partial class UnlockEverythingSelections
         return true;
     }
 
+    public static bool ApplyEmotionSelection(int characterId, EmoteType emoteType, int wheelSlotId)
+    {
+        if (!UnlockEverythingRuntime.UsePersistentSelections || wheelSlotId is < 1 or > 6)
+        {
+            return false;
+        }
+
+        var player = GetPlayer();
+        var character = GetCharacterById(characterId);
+        if (player is null || character is null || emoteType == EmoteType.None)
+        {
+            return false;
+        }
+
+        player.Emotions ??= new PlayerEmotions(new Il2CppCollections.List<Emote>());
+        player.Emotions.AllEmotions ??= new Il2CppCollections.List<Emote>();
+        Emote? selectedEmote = null;
+        foreach (var emote in player.Emotions.AllEmotions)
+        {
+            if (emote is null || emote.EmoteType != emoteType)
+            {
+                continue;
+            }
+
+            selectedEmote = emote;
+            break;
+        }
+
+        if (selectedEmote is null)
+        {
+            selectedEmote = new Emote(UnlockEverythingStub.GetEmoteId(emoteType), emoteType);
+            player.Emotions.AllEmotions.Add(selectedEmote);
+        }
+
+        character.Emotions ??= new CharacterEmotions();
+        switch (wheelSlotId)
+        {
+            case 1:
+                character.Emotions.Emotion1 = selectedEmote;
+                break;
+            case 2:
+                character.Emotions.Emotion2 = selectedEmote;
+                break;
+            case 3:
+                character.Emotions.Emotion3 = selectedEmote;
+                break;
+            case 4:
+                character.Emotions.Emotion4 = selectedEmote;
+                break;
+            case 5:
+                character.Emotions.Emotion5 = selectedEmote;
+                break;
+            case 6:
+                character.Emotions.Emotion6 = selectedEmote;
+                break;
+        }
+
+        SaveSelection(character);
+        return true;
+    }
+
     public static bool ApplyCharacterSkinSelection(int characterId, int characterSkinTypeId)
     {
         if (!UnlockEverythingRuntime.UsePersistentSelections)

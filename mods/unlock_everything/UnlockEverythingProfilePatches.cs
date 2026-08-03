@@ -88,7 +88,7 @@ internal static class ClientCacheRefreshPlayerPatch
 
             if (__result.IsCompletedSuccessfully)
             {
-                UnlockEverythingStub.ApplyProfileOverlay(__instance);
+                ApplyProfileOverlayAndLiveSelections(__instance);
                 UnlockEverythingRuntime.LogClientCacheState("ClientCache.RefreshPlayer:completed", __instance);
                 return;
             }
@@ -97,7 +97,7 @@ internal static class ClientCacheRefreshPlayerPatch
                 __result,
                 () =>
                 {
-                    UnlockEverythingStub.ApplyProfileOverlay(__instance);
+                    ApplyProfileOverlayAndLiveSelections(__instance);
                     UnlockEverythingRuntime.LogClientCacheState("ClientCache.RefreshPlayer:completed", __instance);
                 },
                 "Unlock Everything ClientCache.RefreshPlayer completion overlay failed");
@@ -106,5 +106,15 @@ internal static class ClientCacheRefreshPlayerPatch
         {
             UnlockEverythingRuntime.LogError("Unlock Everything ClientCache.RefreshPlayer completion overlay failed", exception);
         }
+    }
+
+    private static void ApplyProfileOverlayAndLiveSelections(ClientCache clientCache)
+    {
+        UnlockEverythingStub.ApplyProfileOverlay(clientCache);
+        // RefreshPlayer replaces the backend-owned profile after a round. Persistent selections
+        // are reapplied to that model by the overlay; immediately mirror the local penguin outfit
+        // back into the existing lobby/network player as well, because returning to the lobby does
+        // not guarantee another SpawnedReady callback.
+        UnlockEverythingSelections.ApplyStartupSkinSelectionsToLivePreview();
     }
 }

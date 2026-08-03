@@ -187,7 +187,7 @@ async function main() {
     }
     if (await protonLaunchConfigurationRequired() && await isSteamClientRunning()) {
       throw new Error(
-        "Steam is running and the Proton winhttp override is not active. " +
+        "Steam is running and the required Proton loader/input environment is not active. " +
         "Quit Steam completely and run the same install command again. No game files were changed."
       );
     }

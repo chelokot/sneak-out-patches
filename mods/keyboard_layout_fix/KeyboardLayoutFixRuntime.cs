@@ -7,24 +7,11 @@ using UI.InputBinding;
 using TMPro;
 using UnityEngine;
 using UnityEngine.InputSystem;
-using UnityEngine.InputSystem.LowLevel;
 
 namespace SneakOut.KeyboardLayoutFix;
 
 internal static class KeyboardLayoutFixRuntime
 {
-    private static readonly (Key Key, int VirtualKey)[] PhysicalLetterKeys =
-    {
-        (Key.A, 0x41), (Key.B, 0x42), (Key.C, 0x43), (Key.D, 0x44),
-        (Key.E, 0x45), (Key.F, 0x46), (Key.G, 0x47), (Key.H, 0x48),
-        (Key.I, 0x49), (Key.J, 0x4A), (Key.K, 0x4B), (Key.L, 0x4C),
-        (Key.M, 0x4D), (Key.N, 0x4E), (Key.O, 0x4F), (Key.P, 0x50),
-        (Key.Q, 0x51), (Key.R, 0x52), (Key.S, 0x53), (Key.T, 0x54),
-        (Key.U, 0x55), (Key.V, 0x56), (Key.W, 0x57), (Key.X, 0x58),
-        (Key.Y, 0x59), (Key.Z, 0x5A)
-    };
-    private static readonly HashSet<Key> ManagedPhysicalKeys =
-        PhysicalLetterKeys.Select(entry => entry.Key).ToHashSet();
     private static readonly IReadOnlyDictionary<char, string> RussianPhysicalKeyLabels =
         new Dictionary<char, string>
         {
@@ -52,9 +39,6 @@ internal static class KeyboardLayoutFixRuntime
     private static float _diagnosticCycleStartedAt;
     private static float _nextDiagnosticPromptProbeAt;
     private static int _diagnosticCycleState;
-    private static uint _lastPhysicalLetterMask;
-    private static float _retryPhysicalSyncAt;
-    private static bool _loggedPhysicalSyncFailure;
 
     public static void Initialize(ManualLogSource logger, KeyboardLayoutFixConfig configuration)
     {
@@ -104,12 +88,6 @@ internal static class KeyboardLayoutFixRuntime
             RefreshBindingLabels();
         }
 
-        // Input repair is deliberately last and isolated. A Wine/InputSystem failure must never
-        // prevent layout polling or flood the IL2CPP trampoline with one exception per frame.
-        if (now >= _retryPhysicalSyncAt)
-        {
-            TrySynchronizePhysicalLetterState(now);
-        }
     }
 
     private static void HandleFocus(bool hasFocus)
@@ -118,84 +96,6 @@ internal static class KeyboardLayoutFixRuntime
         {
             DetectLayoutChange(force: true, source: "focus");
         }
-    }
-
-    private static void TrySynchronizePhysicalLetterState(float now)
-    {
-        try
-        {
-            SynchronizePhysicalLetterState();
-            _loggedPhysicalSyncFailure = false;
-        }
-        catch (Exception exception)
-        {
-            _lastPhysicalLetterMask = 0;
-            _retryPhysicalSyncAt = now + 5f;
-            if (!_loggedPhysicalSyncFailure)
-            {
-                _loggedPhysicalSyncFailure = true;
-                _logger?.LogWarning(
-                    $"Physical keyboard synchronization paused for 5 seconds: {exception.GetType().Name}: {exception.Message}");
-            }
-        }
-    }
-
-    private static void SynchronizePhysicalLetterState()
-    {
-        var keyboard = Keyboard.current;
-        if (keyboard is null)
-        {
-            return;
-        }
-
-        uint physicalMask = 0;
-        for (var index = 0; index < PhysicalLetterKeys.Length; index++)
-        {
-            if ((GetAsyncKeyState(PhysicalLetterKeys[index].VirtualKey) & 0x8000) != 0)
-            {
-                physicalMask |= 1u << index;
-            }
-        }
-
-        // Wine's translated keyboard event can overwrite our physical state on the next Input
-        // System update. Reassert held letters every frame; an edge-only event made WASD work for
-        // a single frame and then stop until the key was released and pressed again. Once every
-        // managed letter is released, one zero-state event is enough.
-        if (physicalMask == 0 && _lastPhysicalLetterMask == 0)
-        {
-            return;
-        }
-
-        var pressedKeys = new List<Key>();
-        foreach (var key in System.Enum.GetValues<Key>())
-        {
-            if (key == Key.None || ManagedPhysicalKeys.Contains(key))
-            {
-                continue;
-            }
-
-            // Do not enumerate Keyboard.allKeys here. Its IL2CPP projection contains a null entry
-            // on Wine and was the source of the previous per-frame NullReferenceException.
-            var control = keyboard[key];
-            if (control is not null && control.isPressed)
-            {
-                pressedKeys.Add(key);
-            }
-        }
-
-        for (var index = 0; index < PhysicalLetterKeys.Length; index++)
-        {
-            if ((physicalMask & (1u << index)) != 0)
-            {
-                pressedKeys.Add(PhysicalLetterKeys[index].Key);
-            }
-        }
-
-        InputSystem.QueueStateEvent(
-            keyboard,
-            new KeyboardState(pressedKeys.ToArray()),
-            InputState.currentTime);
-        _lastPhysicalLetterMask = physicalMask;
     }
 
     private static void DetectLayoutChange(bool force, string source)
@@ -430,9 +330,6 @@ internal static class KeyboardLayoutFixRuntime
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetKeyboardLayout(uint threadId);
-
-    [DllImport("user32.dll")]
-    private static extern short GetAsyncKeyState(int virtualKey);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern IntPtr LoadKeyboardLayout(string layoutIdentifier, uint flags);

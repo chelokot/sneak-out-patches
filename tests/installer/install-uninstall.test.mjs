@@ -82,7 +82,7 @@ test("noninteractive install selects stable defaults and uninstall restores clea
     }
     if (process.platform !== "win32") {
       const localConfig = await readFile(paths.userdataConfig, "utf8");
-      assert.match(localConfig, /WINEDLLOVERRIDES=\\"winhttp=n,b\\" %command%/);
+      assert.match(localConfig, /XMODIFIERS=@im=none WINEDLLOVERRIDES=\\"winhttp=n,b\\" %command%/);
       assert.doesNotMatch(localConfig, /WINEDLLOVERRIDES="winhttp=n,b"/);
     }
     assert.equal(await readFile(join(paths.gameDirectory, "winhttp.dll"), "utf8"), "loader");
@@ -159,7 +159,7 @@ test("install repairs the unescaped Proton launch option written by version 0.1.
       "--offline"
     ], paths);
     const repaired = await readFile(paths.userdataConfig, "utf8");
-    assert.match(repaired, /WINEDLLOVERRIDES=\\"winhttp=n,b\\" %command%/);
+    assert.match(repaired, /XMODIFIERS=@im=none WINEDLLOVERRIDES=\\"winhttp=n,b\\" %command%/);
     assert.doesNotMatch(repaired, /WINEDLLOVERRIDES="winhttp=n,b"/);
   } finally {
     await rm(paths.root, { recursive: true, force: true });

@@ -30,7 +30,8 @@ RUNTIME_MOD_DOTNET = REPO_ROOT / ".tmp/runtime-mod/dotnet" / ("dotnet.exe" if os
 LOCAL_BEPINEX_DIR = REPO_ROOT / ".tmp/runtime-mod/bepinex"
 RUNTIME_MOD_ARTIFACTS_DIR = REPO_ROOT / "artifacts/runtime_mods"
 SUPPORTED_GAME_BUILD_PATH = REPO_ROOT / "supported_game_build.json"
-PROTON_LAUNCH_OPTIONS = 'WINEDLLOVERRIDES="winhttp=n,b" %command%'
+PROTON_INPUT_ENVIRONMENT = "XMODIFIERS=@im=none"
+PROTON_LAUNCH_OPTIONS = f'{PROTON_INPUT_ENVIRONMENT} WINEDLLOVERRIDES="winhttp=n,b" %command%'
 RUNTIME_LOADER_ENTRY_NAMES: tuple[str, ...] = (
     "BepInEx",
     "dotnet",
@@ -666,22 +667,26 @@ def merge_proton_launch_options(existing_launch_options: str) -> str:
     wine_match = re.search(r'WINEDLLOVERRIDES=(["\']?)([^"\']*)(\1)', existing_launch_options)
     if wine_match is not None:
         current_overrides = wine_match.group(2).strip()
-        if "winhttp=" in current_overrides:
-            return existing_launch_options
-        merged_overrides = f"{current_overrides};winhttp=n,b" if current_overrides else "winhttp=n,b"
-        return (
-            existing_launch_options[:wine_match.start(2)]
-            + merged_overrides
-            + existing_launch_options[wine_match.end(2):]
-        )
+        if "winhttp=" not in current_overrides:
+            merged_overrides = f"{current_overrides};winhttp=n,b" if current_overrides else "winhttp=n,b"
+            existing_launch_options = (
+                existing_launch_options[:wine_match.start(2)]
+                + merged_overrides
+                + existing_launch_options[wine_match.end(2):]
+            )
+    else:
+        prefix, remainder = split_launch_option_prefix(existing_launch_options)
+        env_prefix = 'WINEDLLOVERRIDES="winhttp=n,b"'
+        if "%command%" in existing_launch_options:
+            existing_launch_options = f"{env_prefix} {existing_launch_options}".strip()
+        elif prefix:
+            existing_launch_options = f"{prefix} {env_prefix} %command% {remainder}".strip()
+        else:
+            existing_launch_options = f"{env_prefix} %command% {existing_launch_options}".strip()
 
-    prefix, remainder = split_launch_option_prefix(existing_launch_options)
-    env_prefix = 'WINEDLLOVERRIDES="winhttp=n,b"'
-    if "%command%" in existing_launch_options:
-        return f"{env_prefix} {existing_launch_options}".strip()
-    if prefix:
-        return f"{prefix} {env_prefix} %command% {remainder}".strip()
-    return f"{env_prefix} %command% {existing_launch_options}".strip()
+    if not re.search(r"(?:^|\s)XMODIFIERS=", existing_launch_options):
+        existing_launch_options = f"{PROTON_INPUT_ENVIRONMENT} {existing_launch_options}".strip()
+    return existing_launch_options
 
 
 def unescape_vdf_string(value: str) -> str:

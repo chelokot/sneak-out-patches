@@ -15,7 +15,9 @@ const stateFileName = ".sneakout-patches-install.json";
 const backupDirectoryName = ".sneakout-patches-backup";
 const legacyBackupSuffix = ".codex-sneak-out.bak";
 const legacyAbsentSuffix = ".codex-sneak-out.absent";
-const protonLaunchOptions = 'WINEDLLOVERRIDES="winhttp=n,b" %command%';
+const protonInputEnvironment = "XMODIFIERS=@im=none";
+const protonLoaderEnvironment = 'WINEDLLOVERRIDES="winhttp=n,b"';
+const protonLaunchOptions = `${protonInputEnvironment} ${protonLoaderEnvironment} %command%`;
 const loaderRootNames = [
   "BepInEx",
   "dotnet",
@@ -168,13 +170,18 @@ export async function compatibilityIssues(gameDirectory, supportedBuild) {
 }
 
 function mergeProtonLaunchOptions(current) {
-  if (current.includes("WINEDLLOVERRIDES") && current.includes("winhttp")) {
-    return current;
+  let updated = current.trim();
+  if (!(updated.includes("WINEDLLOVERRIDES") && updated.includes("winhttp"))) {
+    if (updated.includes("%command%")) {
+      updated = `${protonLoaderEnvironment} ${updated}`.trim();
+    } else {
+      updated = `${protonLoaderEnvironment} %command% ${updated}`.trim();
+    }
   }
-  if (current.includes("%command%")) {
-    return `${protonLaunchOptions.replace(" %command%", "")} ${current}`.trim();
+  if (!/(?:^|\s)XMODIFIERS=/.test(updated)) {
+    updated = `${protonInputEnvironment} ${updated}`.trim();
   }
-  return `${protonLaunchOptions} ${current}`.trim();
+  return updated;
 }
 
 function escapeVdfString(value) {
@@ -219,7 +226,10 @@ function appLaunchOptions(content) {
 
 function hasRequiredProtonLaunchOptions(content) {
   const value = appLaunchOptions(content);
-  return value !== null && value.includes("WINEDLLOVERRIDES") && value.includes("winhttp");
+  return value !== null
+    && value.includes("WINEDLLOVERRIDES")
+    && value.includes("winhttp")
+    && value.includes(protonInputEnvironment);
 }
 
 export async function protonLaunchConfigurationRequired() {
@@ -525,7 +535,7 @@ export async function validateInstalled(gameDirectory, manifest, selectedIds, pa
     for (const path of paths) {
       const content = await readFile(path, "utf8").catch(() => "");
       if (!hasRequiredProtonLaunchOptions(content)) {
-        problems.push(`Proton winhttp loader override is inactive in ${path}`);
+        problems.push(`Proton loader/input environment is inactive in ${path}`);
       }
     }
   }

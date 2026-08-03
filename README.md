@@ -102,6 +102,8 @@ Core and gameplay mods:
   Replaces the default seeker selection with a uniform random choice.
 - `portal-mode-selector`
   Runtime portal mode and map selector hooks.
+- `network-host-selector`
+  Lets the party leader choose the actual Fusion match host before PLAY. It arms only after every real participant confirms the same protocol version; bots are excluded and any mismatch falls back to the stock automatic host.
 - `mummy-unlock`
   Restores Mummy-related selection hooks.
 - `unlock-everything`
@@ -109,7 +111,9 @@ Core and gameplay mods:
 - `start-delay-reducer`
   Keeps the stock connection grace period and adds an authoritative host-only `Start now` action.
 - `locker-stun-fix`
-  Prevents post-open locker stuns and cancels stale locker-exit movement after a Butcher hook.
+  Prevents post-open stuns from ordinary hiding lockers.
+- `magic-wardrobe-hook-fix`
+  Stops an interrupted magic-wardrobe entry from moving a Butcher-hooked player back to the wardrobe.
 - `chair-wall-throw-fix`
   Clears a small release overlap so held chairs remain throwable beside level geometry.
 - `pumpkin-radius-indicator-fix`
@@ -119,7 +123,7 @@ Core and gameplay mods:
 - `background-loading-guard`
   Keeps the game responsive during scene loading without changing the normal background-running preference.
 - `keyboard-layout-fix`
-  Keeps physical controls usable and refreshes displayed key labels across keyboard-layout changes.
+  Keeps physical controls usable without synthetic key injection and refreshes displayed labels across keyboard-layout changes.
 - `proximity-voice-chat`
   Adds Steam-relayed spatial voice with push-to-talk, activation modes, occlusion, and living/ghost channels.
 - `friend-invite-unlock`
@@ -228,10 +232,10 @@ The interactive selector is runtime-mod oriented and keyboard driven:
 When the target install is the Proton Windows build, BepInEx also needs:
 
 ```text
-WINEDLLOVERRIDES="winhttp=n,b" %command%
+XMODIFIERS=@im=none WINEDLLOVERRIDES="winhttp=n,b" %command%
 ```
 
-The patcher configures that launch option automatically on Linux Steam installs by updating Steam `localconfig.vdf` for app `2410490`.
+The patcher configures that launch option automatically on Linux Steam installs by updating Steam `localconfig.vdf` for app `2410490`. Disabling XIM only for the game keeps GNOME/IBus character translation from swallowing physical gameplay bindings; it does not change the desktop input sources.
 
 ## Runtime automation
 

@@ -31,6 +31,17 @@
     "assembly_name": "SneakOut.PortalModeSelector"
   },
   {
+    "option_id": "network-host-selector",
+    "label": "Network Host Selector",
+    "details": "Lets the party leader choose the actual Fusion match host before PLAY, but only after every real participant confirms the same mod protocol.",
+    "category": "quality-of-life",
+    "default_enabled": true,
+    "project_relative_path": "mods/network_host_selector/NetworkHostSelector.csproj",
+    "assembly_name": "SneakOut.NetworkHostSelector",
+    "config_relative_path": "BepInEx/config/chelokot.sneakout.network-host-selector.cfg",
+    "default_config_template_path": "config_templates/runtime_mods/network-host-selector.cfg"
+  },
+  {
     "option_id": "mummy-unlock",
     "label": "Mummy Unlock",
     "details": "Builds and installs the BepInEx runtime mod used for restoring Mummy as a selectable hunter.",
@@ -64,13 +75,24 @@
   {
     "option_id": "locker-stun-fix",
     "label": "Locker Stun Fix",
-    "details": "Prevents post-open locker stuns and stops an unfinished locker exit from snapping a Butcher-hooked player back.",
+    "details": "Prevents a penguin from stunning a nearby hunter after the hunter has already opened that penguin's hiding locker.",
     "category": "gameplay",
     "default_enabled": true,
     "project_relative_path": "mods/locker_stun_fix/LockerStunFix.csproj",
     "assembly_name": "SneakOut.LockerStunFix",
     "config_relative_path": "BepInEx/config/chelokot.sneakout.locker-stun-fix.cfg",
     "default_config_template_path": "config_templates/runtime_mods/locker-stun-fix.cfg"
+  },
+  {
+    "option_id": "magic-wardrobe-hook-fix",
+    "label": "Magic Wardrobe Hook Fix",
+    "details": "Cancels an interrupted magic-wardrobe entry so a Butcher hook does not pull the player away and then snap them back to the wardrobe.",
+    "category": "gameplay",
+    "default_enabled": true,
+    "project_relative_path": "mods/magic_wardrobe_hook_fix/MagicWardrobeHookFix.csproj",
+    "assembly_name": "SneakOut.MagicWardrobeHookFix",
+    "config_relative_path": "BepInEx/config/chelokot.sneakout.magic-wardrobe-hook-fix.cfg",
+    "default_config_template_path": "config_templates/runtime_mods/magic-wardrobe-hook-fix.cfg"
   },
   {
     "option_id": "chair-wall-throw-fix",
@@ -119,7 +141,7 @@
   {
     "option_id": "keyboard-layout-fix",
     "label": "Keyboard Layout Fix",
-    "details": "Keeps physical controls and their displayed key labels synchronized when the Windows keyboard layout changes or the game regains focus.",
+    "details": "Keeps physical controls usable without synthetic keyboard-state injection and refreshes displayed labels when the layout changes or the game regains focus.",
     "category": "quality-of-life",
     "default_enabled": true,
     "project_relative_path": "mods/keyboard_layout_fix/KeyboardLayoutFix.csproj",

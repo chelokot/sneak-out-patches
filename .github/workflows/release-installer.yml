@@ -19,13 +19,16 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 24
           registry-url: https://registry.npmjs.org
-          cache: npm
+          package-manager-cache: false
+
+      - name: Use an npm CLI with trusted publishing support
+        run: npm install --global npm@11.15.0
 
       - run: npm ci --ignore-scripts
       - run: npm run installer:test
@@ -45,12 +48,8 @@ jobs:
 
       - name: Publish npm package from tag
         if: startsWith(github.ref, 'refs/tags/')
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public --provenance
+        run: npm publish --access public
 
       - name: Publish npm package manually
         if: github.event_name == 'workflow_dispatch' && inputs.publish_npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public --provenance
+        run: npm publish --access public

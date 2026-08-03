@@ -1,10 +1,8 @@
 using BepInEx.Logging;
 using Fusion;
-using Fusion.Sockets;
 using Gameplay.Player.Components;
 using HarmonyLib;
 using Il2CppInterop.Runtime.Injection;
-using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using Networking.Lobby;
 using Networking.Party;
 using TMPro;
@@ -26,21 +24,16 @@ internal static class NetworkHostSelectorRuntime
     private const string PropertyMembers = "sohs_m";
     private const string PropertyCompatible = "sohs_c";
     private const string PropertyReady = "sohs_y";
+    private const string PropertyRequest = "sohs_q";
+    private const string PropertyHelloPrefix = "sohs_h";
+    private const string PropertyAckPrefix = "sohs_a";
     private const float NetworkTickInterval = 0.25f;
     private const float HelloInterval = 1f;
-    private const float HelloTimeout = 4f;
     private const float AckInterval = 0.5f;
     private const float ButtonHeight = 36f;
     private const float ButtonGap = 6f;
 
-    private static readonly ReliableKey MessageKey = ReliableKey.FromInts(
-        0x534F4853,
-        HostSelectionProtocol.Version,
-        0x4D4F4444,
-        0x484F5354);
     private static readonly Dictionary<IntPtr, NetworkHostSelectorUiState> UiStateByView = new();
-    private static readonly Dictionary<int, float> HelloSeenAtByPlayer = new();
-    private static readonly HashSet<int> ProposalAcks = new();
 
     private static ManualLogSource? _logger;
     private static NetworkHostSelectorConfig? _configuration;
@@ -71,6 +64,8 @@ internal static class NetworkHostSelectorRuntime
     private static bool _observedValid;
     private static int _lastAckedRevision = -1;
     private static int _pendingRequestedRaw = int.MinValue;
+    private static int _requestSequence;
+    private static string _lastHandledRequest = string.Empty;
 
     public static void Initialize(ManualLogSource logger, NetworkHostSelectorConfig configuration)
     {
@@ -158,17 +153,18 @@ internal static class NetworkHostSelectorRuntime
         }
 
         var localRaw = runner.LocalPlayer.RawEncoded;
-        HelloSeenAtByPlayer[localRaw] = now;
+        var membership = ComputeMembership(participants);
         if (now >= _nextHelloAt)
         {
             _nextHelloAt = now + HelloInterval;
-            Broadcast(runner, HostSelectionMessageType.Hello);
+            PublishHello(runner, participants, membership);
         }
 
         ReadObservedState(runner, participants);
         if (IsCoordinator(runner))
         {
-            TickCoordinator(runner, participants, now);
+            ReadSelectionRequest(runner, participants, membership);
+            TickCoordinator(runner, participants);
         }
 
         if (_observedValid
@@ -180,18 +176,11 @@ internal static class NetworkHostSelectorRuntime
         {
             _nextAckAt = now + AckInterval;
             _lastAckedRevision = _observedRevision;
-            if (IsCoordinator(runner))
-            {
-                ProposalAcks.Add(localRaw);
-            }
-            else
-            {
-                Broadcast(runner, HostSelectionMessageType.ProposalAck, _observedRevision);
-            }
+            PublishAck(runner, localRaw);
         }
     }
 
-    private static void TickCoordinator(NetworkRunner runner, IReadOnlyList<Participant> participants, float now)
+    private static void TickCoordinator(NetworkRunner runner, IReadOnlyList<Participant> participants)
     {
         var membership = ComputeMembership(participants);
         if (!string.Equals(membership, _coordinatorMembership, StringComparison.Ordinal))
@@ -200,30 +189,22 @@ internal static class NetworkHostSelectorRuntime
             _coordinatorTargetRaw = 0;
             _coordinatorTargetUserId = string.Empty;
             _coordinatorRevision++;
-            ProposalAcks.Clear();
-            ProposalAcks.Add(runner.LocalPlayer.RawEncoded);
             _pendingRequestedRaw = int.MinValue;
+            _lastHandledRequest = string.Empty;
             LogInfo("Lobby membership changed; network host selection returned to Automatic");
         }
 
-        var participantRaws = participants.Select(participant => participant.Raw).ToHashSet();
-        foreach (var stale in HelloSeenAtByPlayer
-                     .Where(pair => !participantRaws.Contains(pair.Key) || now - pair.Value > HelloTimeout)
-                     .Select(pair => pair.Key)
-                     .ToArray())
-        {
-            HelloSeenAtByPlayer.Remove(stale);
-        }
-
-        var compatible = participants.All(participant =>
-            HelloSeenAtByPlayer.TryGetValue(participant.Raw, out var seenAt)
-            && now - seenAt <= HelloTimeout);
+        var properties = runner.SessionInfo.Properties;
+        var compatible = properties is not null && participants.All(participant =>
+            TryReadString(properties, HelloProperty(participant.Raw), out var hello)
+            && string.Equals(
+                hello,
+                HostSelectionProtocol.CreateHello(_coordinatorMembership, participant.UserId),
+                StringComparison.Ordinal));
         if (compatible != _coordinatorCompatible)
         {
             _coordinatorCompatible = compatible;
             _coordinatorRevision++;
-            ProposalAcks.Clear();
-            ProposalAcks.Add(runner.LocalPlayer.RawEncoded);
             _lastAckedRevision = -1;
             LogInfo(compatible
                 ? "Every real lobby participant confirmed Network Host Selector compatibility"
@@ -236,12 +217,17 @@ internal static class NetworkHostSelectorRuntime
             _coordinatorTargetRaw = 0;
             _coordinatorTargetUserId = string.Empty;
             _coordinatorRevision++;
-            ProposalAcks.Clear();
-            ProposalAcks.Add(runner.LocalPlayer.RawEncoded);
         }
 
+        var expectedAck = HostSelectionProtocol.CreateAck(
+            _coordinatorRevision,
+            _coordinatorMembership,
+            _coordinatorTargetRaw,
+            _coordinatorTargetUserId);
         var ready = compatible && (_coordinatorTargetRaw == 0
-            || participants.All(participant => ProposalAcks.Contains(participant.Raw)));
+            || properties is not null && participants.All(participant =>
+                TryReadString(properties, AckProperty(participant.Raw), out var ack)
+                && string.Equals(ack, expectedAck, StringComparison.Ordinal)));
         PublishState(runner, ready);
     }
 
@@ -351,45 +337,97 @@ internal static class NetworkHostSelectorRuntime
         _observedValid = valid;
     }
 
-    public static void ReceiveMessage(
+    private static void PublishHello(
         NetworkRunner runner,
-        PlayerRef sender,
-        ReliableKey key,
-        Il2CppSystem.ArraySegment<byte> segment)
+        IReadOnlyList<Participant> participants,
+        string membership)
     {
-        if (!Enabled || runner is null || runner.Pointer != _runnerPointer || !IsMessageKey(key))
+        var localRaw = runner.LocalPlayer.RawEncoded;
+        var local = participants.FirstOrDefault(participant => participant.Raw == localRaw);
+        if (local is null || string.IsNullOrWhiteSpace(local.UserId))
         {
             return;
         }
 
-        var payload = CopyPayload(segment);
-        if (!HostSelectionProtocol.TryDecode(payload, out var message))
+        UpdateProperty(
+            runner,
+            HelloProperty(localRaw),
+            HostSelectionProtocol.CreateHello(membership, local.UserId));
+    }
+
+    private static void PublishAck(NetworkRunner runner, int localRaw)
+    {
+        UpdateProperty(
+            runner,
+            AckProperty(localRaw),
+            HostSelectionProtocol.CreateAck(
+                _observedRevision,
+                _observedMembership,
+                _observedTargetRaw,
+                _observedTargetUserId));
+    }
+
+    private static void PublishSelectionRequest(
+        NetworkRunner runner,
+        string membership,
+        int targetRaw,
+        string targetUserId)
+    {
+        _requestSequence++;
+        UpdateProperty(
+            runner,
+            PropertyRequest,
+            HostSelectionProtocol.CreateRequest(
+                membership,
+                _requestSequence,
+                targetRaw,
+                targetUserId));
+    }
+
+    private static void ReadSelectionRequest(
+        NetworkRunner runner,
+        IReadOnlyList<Participant> participants,
+        string membership)
+    {
+        var properties = runner.SessionInfo.Properties;
+        if (properties is null
+            || !TryReadString(properties, PropertyRequest, out var encoded)
+            || string.Equals(encoded, _lastHandledRequest, StringComparison.Ordinal)
+            || !HostSelectionProtocol.TryParseRequest(encoded, out var request)
+            || !string.Equals(request.Membership, membership, StringComparison.Ordinal))
         {
             return;
         }
+        _lastHandledRequest = encoded;
 
-        var participants = GetParticipants(runner);
-        if (participants.All(participant => participant.Raw != sender.RawEncoded))
+        var requested = participants.FirstOrDefault(participant =>
+            participant.Raw == request.TargetPlayerRaw
+            && string.Equals(participant.UserId, request.TargetUserId, StringComparison.Ordinal));
+        if (request.TargetPlayerRaw != 0 && requested is null)
         {
             return;
         }
+        AcceptSelectionRequest(runner, participants, request.TargetPlayerRaw);
+    }
 
-        switch (message.Type)
+    private static bool UpdateProperty(NetworkRunner runner, string key, string value)
+    {
+        try
         {
-            case HostSelectionMessageType.Hello:
-                HelloSeenAtByPlayer[sender.RawEncoded] = Time.unscaledTime;
-                break;
-            case HostSelectionMessageType.SelectRequest when IsCoordinator(runner):
-                AcceptSelectionRequest(runner, participants, message.TargetPlayerRaw);
-                break;
-            case HostSelectionMessageType.ProposalAck when IsCoordinator(runner):
-                if (message.Revision == _coordinatorRevision)
-                {
-                    ProposalAcks.Add(sender.RawEncoded);
-                }
-                break;
+            var properties = new Il2CppSystem.Collections.Generic.Dictionary<string, SessionProperty>();
+            properties[key] = value;
+            return runner.SessionInfo.UpdateCustomProperties(properties);
+        }
+        catch (Exception exception)
+        {
+            LogError($"Publishing session property {key} failed", exception);
+            return false;
         }
     }
+
+    private static string HelloProperty(int playerRaw) => $"{PropertyHelloPrefix}{playerRaw}";
+
+    private static string AckProperty(int playerRaw) => $"{PropertyAckPrefix}{playerRaw}";
 
     private static void AcceptSelectionRequest(
         NetworkRunner runner,
@@ -421,59 +459,12 @@ internal static class NetworkHostSelectorRuntime
         _coordinatorTargetRaw = targetRaw;
         _coordinatorTargetUserId = targetUserId;
         _coordinatorRevision++;
-        ProposalAcks.Clear();
-        ProposalAcks.Add(runner.LocalPlayer.RawEncoded);
         _lastAckedRevision = -1;
         _pendingRequestedRaw = targetRaw;
         LogInfo(target is null
             ? "Party leader selected Automatic network host"
             : $"Party leader proposed network host {target.Name} ({target.UserId})");
         PublishState(runner, ready: targetRaw == 0);
-    }
-
-    private static void Broadcast(
-        NetworkRunner runner,
-        HostSelectionMessageType type,
-        int revision = 0,
-        int targetRaw = 0)
-    {
-        var encoded = HostSelectionProtocol.Encode(type, revision, targetRaw);
-        var payload = new Il2CppStructArray<byte>(encoded.Length);
-        for (var index = 0; index < encoded.Length; index++)
-        {
-            payload[index] = encoded[index];
-        }
-
-        var localRaw = runner.LocalPlayer.RawEncoded;
-        foreach (var player in GetActivePlayers(runner))
-        {
-            if (player.IsRealPlayer && player.RawEncoded != localRaw)
-            {
-                runner.SendReliableDataToPlayer(player, MessageKey, payload);
-            }
-        }
-    }
-
-    private static IReadOnlyList<byte> CopyPayload(Il2CppSystem.ArraySegment<byte> segment)
-    {
-        var result = new byte[segment.Count];
-        var source = segment.Array;
-        if (source is null)
-        {
-            return Array.Empty<byte>();
-        }
-        for (var index = 0; index < segment.Count; index++)
-        {
-            result[index] = source[segment.Offset + index];
-        }
-        return result;
-    }
-
-    private static bool IsMessageKey(ReliableKey key)
-    {
-        key.GetInts(out var key0, out var key1, out var key2, out var key3);
-        MessageKey.GetInts(out var expected0, out var expected1, out var expected2, out var expected3);
-        return key0 == expected0 && key1 == expected1 && key2 == expected2 && key3 == expected3;
     }
 
     private static List<Participant> GetParticipants(NetworkRunner runner)
@@ -562,8 +553,6 @@ internal static class NetworkHostSelectorRuntime
         _runnerPointer = runnerPointer;
         _nextHelloAt = 0f;
         _nextAckAt = 0f;
-        HelloSeenAtByPlayer.Clear();
-        ProposalAcks.Clear();
         _coordinatorMembership = string.Empty;
         _coordinatorCompatible = false;
         _coordinatorRevision = 1;
@@ -584,6 +573,8 @@ internal static class NetworkHostSelectorRuntime
         _observedValid = false;
         _lastAckedRevision = -1;
         _pendingRequestedRaw = int.MinValue;
+        _requestSequence = 0;
+        _lastHandledRequest = string.Empty;
     }
 
     public static bool AllowPortalPlay()
@@ -741,7 +732,16 @@ internal static class NetworkHostSelectorRuntime
         }
 
         var participants = GetParticipants(runner);
-        var confirmed = participants.Count(participant => HelloSeenAtByPlayer.ContainsKey(participant.Raw));
+        var membership = ComputeMembership(participants);
+        var properties = runner.SessionInfo.Properties;
+        var confirmed = properties is null
+            ? 0
+            : participants.Count(participant =>
+                TryReadString(properties, HelloProperty(participant.Raw), out var hello)
+                && string.Equals(
+                    hello,
+                    HostSelectionProtocol.CreateHello(membership, participant.UserId),
+                    StringComparison.Ordinal));
         var leader = PgosLobby.Instance is { } pgosLobby && pgosLobby.AmITeamLeader;
         var canSelect = leader && participants.Count > 0 && _observedValid && _observedCompatible;
         state.Button.interactable = canSelect;
@@ -800,7 +800,12 @@ internal static class NetworkHostSelectorRuntime
         }
         else
         {
-            Broadcast(runner, HostSelectionMessageType.SelectRequest, targetRaw: targetRaw);
+            var selected = participants.FirstOrDefault(participant => participant.Raw == targetRaw);
+            PublishSelectionRequest(
+                runner,
+                ComputeMembership(participants),
+                targetRaw,
+                selected?.UserId ?? string.Empty);
         }
         RefreshAllButtons();
     }

@@ -1,4 +1,5 @@
 using Gameplay.Interactions;
+using Gameplay.Skills;
 using HarmonyLib;
 
 namespace SneakOut.LockerStunFix;
@@ -45,5 +46,29 @@ internal static class LockerHideFastPatch
     private static void Prefix(Locker __instance)
     {
         LockerStunFixRuntime.ClearCycle(__instance);
+    }
+}
+
+[HarmonyPatch(typeof(ButcherHook), "OnTriggerEnter")]
+internal static class ButcherHookTriggerPatch
+{
+    private static void Postfix(ButcherHook __instance)
+    {
+        LockerStunFixRuntime.MarkHookedPlayer(__instance);
+    }
+}
+
+[HarmonyPatch(typeof(Locker._ComeOutLerp_d__29), nameof(Locker._ComeOutLerp_d__29.MoveNext))]
+internal static class LockerComeOutLerpPatch
+{
+    private static bool Prefix(Locker._ComeOutLerp_d__29 __instance, ref bool __result)
+    {
+        if (!LockerStunFixRuntime.ShouldCancelExitLerp(__instance.playerId))
+        {
+            return true;
+        }
+
+        __result = false;
+        return false;
     }
 }

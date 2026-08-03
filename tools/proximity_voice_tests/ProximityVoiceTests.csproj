@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="../../mods/proximity_voice_chat/AdaptiveJitterBuffer.cs" Link="AdaptiveJitterBuffer.cs" />
+    <Compile Include="../../mods/proximity_voice_chat/VoiceAudibilityPolicy.cs" Link="VoiceAudibilityPolicy.cs" />
+    <Compile Include="../../mods/proximity_voice_chat/VoiceFragmentAssembler.cs" Link="VoiceFragmentAssembler.cs" />
+    <Compile Include="../../mods/proximity_voice_chat/VoiceProtocol.cs" Link="VoiceProtocol.cs" />
+  </ItemGroup>
+</Project>

@@ -5,6 +5,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Reference Include="EasyPerformantOutline">
+      <HintPath>$(InteropDir)/EasyPerformantOutline.dll</HintPath>
+    </Reference>
     <Reference Include="Fusion.Runtime">
       <HintPath>$(InteropDir)/Fusion.Runtime.dll</HintPath>
     </Reference>

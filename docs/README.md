@@ -19,6 +19,10 @@
 
 ## gameplay
 
+- `gameplay/proximity-voice-chat.md`
+  Architecture, privacy model, Steam transport, adaptive playback, and release validation status for proximity voice.
+- `gameplay/geometry-fixes.md`
+  Exact client paths and safety constraints for chair release, pumpkin radius, and Ripper shared-corner blink fixes.
 - `gameplay/tasks-and-task-steps.md`
   Why the end-of-match task stats look strange.
 - `gameplay/hunters-modes-and-berek.md`

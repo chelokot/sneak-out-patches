@@ -51,6 +51,24 @@ internal static class EntitySkillsComponentHostValidateAndUseSkillPatch
     }
 }
 
+[HarmonyPatch(typeof(EntitySkillsComponent), "RPC_VictimPropChange")]
+internal static class EntitySkillsComponentLobbyPropChangeRpcPatch
+{
+    private static bool Prefix(EntitySkillsComponent __instance)
+    {
+        return LobbySkillSandboxRuntime.PrepareLobbyPropRpc(__instance);
+    }
+}
+
+[HarmonyPatch(typeof(EntitySkillsComponent), "RPC_VictimPropUnChange")]
+internal static class EntitySkillsComponentLobbyPropUnChangeRpcPatch
+{
+    private static bool Prefix(EntitySkillsComponent __instance)
+    {
+        return LobbySkillSandboxRuntime.PrepareLobbyPropRpc(__instance);
+    }
+}
+
 [HarmonyPatch(typeof(SpookedNetworkPlayer), nameof(SpookedNetworkPlayer.Spawned))]
 internal static class SpookedNetworkPlayerSpawnedPatch
 {

@@ -1,6 +1,6 @@
 {
   "name": "@chelokot/sneak-out-patches",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "description": "Sneak Out reverse-engineering, patching, and runtime mod tooling.",
   "type": "module",
   "bin": {
@@ -37,7 +37,9 @@
     "mods:build": "node scripts/build-runtime-mod.mjs --all",
     "installer:payload": "node scripts/package-installer-payload.mjs",
     "installer:test": "node --test tests/installer/install-uninstall.test.mjs",
-    "check": "npm run mods:build && npm run installer:test"
+    "voice:test": "node scripts/run-dotnet.mjs run --project tools/proximity_voice_tests/ProximityVoiceTests.csproj --",
+    "gameplay-fixes:test": "node scripts/run-dotnet.mjs run --project tools/gameplay_fixes_tests/GameplayFixesTests.csproj --",
+    "check": "npm run mods:build && npm run voice:test && npm run gameplay-fixes:test && npm run installer:test"
   },
   "dependencies": {
     "fflate": "0.8.2"

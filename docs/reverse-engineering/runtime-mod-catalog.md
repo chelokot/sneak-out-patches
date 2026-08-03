@@ -42,20 +42,19 @@ This is the broadest mod in the repo. It touches:
 
 It keeps one install identity because those layers share profile state and must be enabled or rolled back together. Its implementation is split by responsibility into profile, skill, cosmetic, web-service, and live-player-sync modules.
 
-## Experimental and debug groups
+## Sandbox and debug groups
 
 - `lobby-skill-sandbox`
 - `lobby-test-bot`
 - `free-fly`
 - `runtime-profiler`
 
-These are intentionally not enabled together with the same confidence level as the core install set.
+The lobby skill panel, slide, and networked prop-change are part of the default install. The test bot, free-fly, and profiler are not enabled by default.
 
 They stay separate because:
 
-- `lobby-skill-sandbox` is a sandbox feature, not a normal progression fix
-- lobby slide use is the supported sandbox scope
-- lobby prop-change remains off unless explicitly enabled and a real room plus initialized gameplay prop pool are available
+- `lobby-skill-sandbox` is a sandbox feature, not a normal progression fix, but its lobby-only skill use is an isolated default feature
+- lobby prop-change builds the missing pool from real lobby scenery on every modded client before using the stock prop RPC; every participant must run the mod
 - the lobby skill panel reuses an existing view model and stays unavailable when the normal UI graph is not initialized
 - `lobby-test-bot` is a host-only match-start tool that uses the authoritative Fusion runner and the stock `SceneSpawner` bot initializer instead of faking player counts
 - `free-fly` is a debugging tool

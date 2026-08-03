@@ -1,7 +1,5 @@
 using BepInEx.Logging;
-using Gameplay.Enviro;
 using Gameplay.Player.Components;
-using Gameplay.Player.Gameplay;
 using HarmonyLib;
 using UI;
 using UI.Views;
@@ -18,6 +16,7 @@ internal static class LobbySkillSandboxRuntime
     private static Harmony? _harmony;
     private static LobbySkillSandboxConfig? _configuration;
     private static bool _lobbyUiActive;
+    private static EntitySkillsComponent? _activeLobbyPropOwner;
 
     public static void Initialize(ManualLogSource logger, LobbySkillSandboxConfig configuration)
     {
@@ -31,6 +30,12 @@ internal static class LobbySkillSandboxRuntime
 
     public static void SetLobbyUiActive(bool active)
     {
+        if (_lobbyUiActive && !active)
+        {
+            RestoreLobbyProp();
+            LobbyPropPool.Dispose();
+        }
+
         _lobbyUiActive = active;
         Log($"SetLobbyUiActive: active={active}");
     }
@@ -177,63 +182,104 @@ internal static class LobbySkillSandboxRuntime
 
         if (entitySkillsComponent.DuringPropChange)
         {
-            Log("TryHandleLobbyPropChange: alreadyChanging");
+            try
+            {
+                entitySkillsComponent.ChangeFromProp();
+                entitySkillsComponent.RPC_VictimPropUnChange();
+                Log("TryHandleLobbyPropChange: restored");
+            }
+            catch (Exception exception)
+            {
+                Warn($"Lobby prop restore failed: {exception.GetType().Name}");
+            }
+            finally
+            {
+                entitySkillsComponent._duringPropChange = false;
+                _activeLobbyPropOwner = null;
+            }
+
             return true;
         }
 
-        if (!HasInitializedPropPool(entitySkillsComponent))
+        if (!LobbyPropPool.EnsureInitialized(entitySkillsComponent))
         {
             Log("TryHandleLobbyPropChange: propPoolUnavailable");
             return true;
         }
 
-        if (!HasAvailableLobbyProp(entitySkillsComponent._playerRoomRegistry, playerInternalId))
+        var propType = LobbyPropPool.ChooseRandomType();
+        if (propType == PlayerPropType.None)
         {
-            Log("TryHandleLobbyPropChange: roomPropsUnavailable");
+            Log("TryHandleLobbyPropChange: noAvailableProp");
             return true;
         }
 
-        entitySkillsComponent.OnVictimPropChange();
-        Log("TryHandleLobbyPropChange: invoked");
+        try
+        {
+            entitySkillsComponent.ChangeToProp(propType);
+            entitySkillsComponent.RPC_VictimPropChange(propType);
+            entitySkillsComponent._duringPropChange = true;
+            _activeLobbyPropOwner = entitySkillsComponent;
+            Log($"TryHandleLobbyPropChange: networkChanged type={propType}, internalId={playerInternalId}");
+        }
+        catch (Exception exception)
+        {
+            try
+            {
+                entitySkillsComponent.ChangeFromProp();
+            }
+            catch
+            {
+                // The initial change may have failed before registering a prop instance.
+            }
+
+            entitySkillsComponent._duringPropChange = false;
+            _activeLobbyPropOwner = null;
+            Warn($"Lobby prop change failed: {exception.GetType().Name}");
+        }
+
         return true;
     }
 
-    private static bool HasInitializedPropPool(EntitySkillsComponent entitySkillsComponent)
+    private static void RestoreLobbyProp()
     {
-        var propPool = entitySkillsComponent._propPool;
-        return propPool is not null
-            && propPool._propPoolInitialization is not null
-            && propPool._pool is not null
-            && propPool._poolTransform is not null;
-    }
-
-    private static bool HasAvailableLobbyProp(PlayerRoomRegistry? playerRoomRegistry, int playerInternalId)
-    {
-        if (playerRoomRegistry is null)
+        if (_activeLobbyPropOwner is not EntitySkillsComponent entitySkillsComponent)
         {
-            return false;
+            return;
         }
 
-        var room = playerRoomRegistry[playerInternalId];
-        if (room is null)
+        try
         {
-            return false;
-        }
-
-        var availableProps = room.AvailableProps;
-        if (availableProps is null)
-        {
-            return false;
-        }
-
-        foreach (var availableProp in availableProps)
-        {
-            if (availableProp != PlayerPropType.None)
+            if (entitySkillsComponent.DuringPropChange)
             {
-                return true;
+                entitySkillsComponent.ChangeFromProp();
+                entitySkillsComponent.RPC_VictimPropUnChange();
             }
         }
+        catch (Exception exception)
+        {
+            Warn($"Lobby prop cleanup failed: {exception.GetType().Name}");
+        }
+        finally
+        {
+            entitySkillsComponent._duringPropChange = false;
+            _activeLobbyPropOwner = null;
+        }
+    }
 
+    public static bool PrepareLobbyPropRpc(EntitySkillsComponent entitySkillsComponent)
+    {
+        if (!Enabled || !_lobbyUiActive || !_configuration!.EnableLobbyPropChange.Value)
+        {
+            return true;
+        }
+
+        if (LobbyPropPool.EnsureInitialized(entitySkillsComponent))
+        {
+            return true;
+        }
+
+        Warn("Suppressed lobby prop RPC because this client could not initialize its lobby prop pool.");
         return false;
     }
 
@@ -274,5 +320,10 @@ internal static class LobbySkillSandboxRuntime
         }
 
         _logger?.LogInfo(message);
+    }
+
+    internal static void Warn(string message)
+    {
+        _logger?.LogWarning(message);
     }
 }

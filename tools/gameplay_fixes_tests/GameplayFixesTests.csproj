@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="../../mods/chair_wall_throw_fix/ChairReleasePolicy.cs" Link="ChairReleasePolicy.cs" />
+    <Compile Include="../../mods/pumpkin_radius_indicator_fix/PumpkinIndicatorScalePolicy.cs" Link="PumpkinIndicatorScalePolicy.cs" />
+    <Compile Include="../../mods/ripper_corner_blink_fix/SharedCornerPolicy.cs" Link="SharedCornerPolicy.cs" />
+  </ItemGroup>
+</Project>

@@ -4,13 +4,19 @@ namespace SneakOut.LockerStunFix;
 
 internal sealed class LockerStunFixConfig
 {
-    private LockerStunFixConfig(ConfigEntry<bool> enableMod, ConfigEntry<bool> enableLogging)
+    private LockerStunFixConfig(
+        ConfigEntry<bool> enableMod,
+        ConfigEntry<bool> fixHookExitSnap,
+        ConfigEntry<bool> enableLogging)
     {
         EnableMod = enableMod;
+        FixHookExitSnap = fixHookExitSnap;
         EnableLogging = enableLogging;
     }
 
     public ConfigEntry<bool> EnableMod { get; }
+
+    public ConfigEntry<bool> FixHookExitSnap { get; }
 
     public ConfigEntry<bool> EnableLogging { get; }
 
@@ -25,8 +31,14 @@ internal sealed class LockerStunFixConfig
             "general",
             "EnableLogging",
             false,
-            "Log seeker-opened locker tracking and suppressed locker stuns.");
+            "Log seeker-opened locker tracking, suppressed locker stuns, and cancelled stale exit movement.");
 
-        return new LockerStunFixConfig(enableMod, enableLogging);
+        var fixHookExitSnap = configFile.Bind(
+            "general",
+            "FixHookExitSnap",
+            true,
+            "Stop an unfinished locker-exit lerp from teleporting a player back after a Butcher hook pulls them away.");
+
+        return new LockerStunFixConfig(enableMod, fixHookExitSnap, enableLogging);
     }
 }

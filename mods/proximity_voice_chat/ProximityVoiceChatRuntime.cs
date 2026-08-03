@@ -265,7 +265,7 @@ internal static class ProximityVoiceChatRuntime
         }
         foreach (var steamId in allowed)
         {
-            _transport!.AcceptPeer(steamId);
+            _transport!.AllowPeer(steamId);
             ConnectedPeers.Add(steamId);
         }
         BroadcastControl(VoicePacketKind.Hello, reliable: false, confirmedOnly: false);

@@ -131,6 +131,44 @@ test("install refuses to mutate the game while live Steam still needs a Proton o
   }
 });
 
+test("install continues with running Steam when the active account is already configured", {
+  skip: process.platform === "win32"
+}, async () => {
+  const paths = await fixture();
+  try {
+    const inactiveConfig = join(paths.steamRoot, "userdata", "456", "config", "localconfig.vdf");
+    const loginUsers = join(paths.steamRoot, "config", "loginusers.vdf");
+    await mkdir(dirname(inactiveConfig), { recursive: true });
+    await mkdir(dirname(loginUsers), { recursive: true });
+    await writeFile(
+      paths.userdataConfig,
+      '"UserLocalConfigStore"\n{\n\t"Software"\n\t{\n\t\t"Valve"\n\t\t{\n\t\t\t"Steam"\n\t\t\t{\n\t\t\t\t"apps"\n\t\t\t\t{\n\t\t\t\t\t"2410490"\n\t\t\t\t\t{\n\t\t\t\t\t\t"LaunchOptions" "XMODIFIERS=@im=none WINEDLLOVERRIDES=\\"winhttp=n,b\\" %command%"\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n}\n'
+    );
+    await writeFile(inactiveConfig, '"UserLocalConfigStore"\n{\n}\n');
+    await writeFile(
+      loginUsers,
+      '"users"\n{\n' +
+      '\t"76561197960265851"\n\t{\n\t\t"AutoLogin" "1"\n\t}\n' +
+      '\t"76561197960266184"\n\t{\n\t\t"AutoLogin" "0"\n\t}\n' +
+      '}\n'
+    );
+
+    const { stdout } = await runCli([
+      "install",
+      "--game-dir",
+      paths.gameDirectory,
+      "--mods",
+      "keyboard-layout-fix",
+      "--allow-unsupported-build",
+      "--offline"
+    ], paths, { SNEAKOUT_STEAM_RUNNING: "1" });
+    assert.match(stdout, /Installation complete/);
+    assert.equal(await readFile(inactiveConfig, "utf8"), '"UserLocalConfigStore"\n{\n}\n');
+  } finally {
+    await rm(paths.root, { recursive: true, force: true });
+  }
+});
+
 test("install repairs the unescaped Proton launch option written by version 0.1.0", {
   skip: process.platform === "win32"
 }, async () => {

@@ -9,7 +9,13 @@ import {
   sha256File,
   writeFileAtomic
 } from "./io.mjs";
-import { isProtonInstall, readInstalledBuildId, steamLocalConfigPaths, STEAM_APP_ID } from "./steam.mjs";
+import {
+  isProtonInstall,
+  readInstalledBuildId,
+  steamActiveLocalConfigPaths,
+  steamLocalConfigPaths,
+  STEAM_APP_ID
+} from "./steam.mjs";
 
 const stateFileName = ".sneakout-patches-install.json";
 const backupDirectoryName = ".sneakout-patches-backup";
@@ -236,7 +242,8 @@ export async function protonLaunchConfigurationRequired() {
   if (!isProtonInstall()) {
     return false;
   }
-  const paths = await steamLocalConfigPaths();
+  const activePaths = await steamActiveLocalConfigPaths();
+  const paths = activePaths.length > 0 ? activePaths : await steamLocalConfigPaths();
   if (paths.length === 0) {
     return true;
   }
@@ -325,7 +332,8 @@ function updateLaunchOptions(content) {
 }
 
 async function configureProton(gameDirectory, state) {
-  const paths = await steamLocalConfigPaths();
+  const activePaths = await steamActiveLocalConfigPaths();
+  const paths = activePaths.length > 0 ? activePaths : await steamLocalConfigPaths();
   if (paths.length === 0) {
     throw new Error("Steam localconfig.vdf was not found; cannot activate the Proton BepInEx loader.");
   }
@@ -528,7 +536,8 @@ export async function validateInstalled(gameDirectory, manifest, selectedIds, pa
     }
   }
   if (isProtonInstall()) {
-    const paths = await steamLocalConfigPaths();
+    const activePaths = await steamActiveLocalConfigPaths();
+    const paths = activePaths.length > 0 ? activePaths : await steamLocalConfigPaths();
     if (paths.length === 0) {
       problems.push("Steam localconfig.vdf was not found; Proton loader override is inactive");
     }

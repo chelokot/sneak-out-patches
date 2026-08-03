@@ -21,6 +21,38 @@ internal static class ChairWallThrowFixRuntime
         _harmony.PatchAll();
     }
 
+    [HarmonyPatch(typeof(Chair), nameof(Chair.IsAvailableInteraction))]
+    private static class ChairIsAvailableInteractionPatch
+    {
+        [HarmonyPostfix]
+        private static void Postfix(Chair __instance, int internalId, ref bool __result)
+        {
+            if (__result || _configuration?.EnableMod.Value != true)
+            {
+                return;
+            }
+
+            try
+            {
+                // A held chair is already committed to this player. Release-space overlap must
+                // not turn the action prompt into the crossed-out state and prevent Throw from
+                // reaching state authority; the Throw prefix below finds a safe release pose.
+                if (__instance.PlayerCurrentlyUsing == internalId)
+                {
+                    __result = true;
+                }
+            }
+            catch (Exception exception)
+            {
+                if (!_loggedFailure)
+                {
+                    _loggedFailure = true;
+                    _logger?.LogWarning($"Chair availability correction failed; using the stock prompt state: {exception}");
+                }
+            }
+        }
+    }
+
     [HarmonyPatch(typeof(Chair), nameof(Chair.Throw))]
     private static class ChairThrowPatch
     {

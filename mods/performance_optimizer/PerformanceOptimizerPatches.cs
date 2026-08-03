@@ -2,8 +2,10 @@ using Gameplay.Enviro;
 using HarmonyLib;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using Networking.Photon;
+using UI.Views;
 using UI.VideoSettings;
 using UnityEngine;
+using SneakOutGame = Game.Game;
 
 namespace SneakOut.PerformanceOptimizer;
 
@@ -112,6 +114,37 @@ internal static class ResolutionSelectorRefreshShownValuePatch
             currentResolution.height,
             closestResolution.width,
             closestResolution.height);
+        return false;
+    }
+}
+
+[HarmonyPatch(typeof(FinishBattlepassProgressView), "SetProgress")]
+internal static class FinishBattlepassMissingPlayerPatch
+{
+    [HarmonyPrefix]
+    private static bool Prefix(FinishBattlepassProgressView __instance)
+    {
+        var records = __instance._endMatchPlayerRecords?._matchPlayerResults;
+        if (records is null)
+        {
+            PerformanceOptimizerRuntime.ReportMissingEndMatchRecord(SneakOutGame.InternalId, 0);
+            return false;
+        }
+
+        var localInternalId = SneakOutGame.InternalId;
+        for (var index = 0; index < records.Length; index++)
+        {
+            if (records[index].InternalId == localInternalId)
+            {
+                return true;
+            }
+        }
+
+        // The stock method indexes EndMatchPlayerRecords without checking that the server sent
+        // a record for the local player. During the observed disconnect it threw from the event
+        // bus and stalled the end screen for several seconds. Skip only this optional battlepass
+        // subview; the main results view and reconnect flow continue normally.
+        PerformanceOptimizerRuntime.ReportMissingEndMatchRecord(localInternalId, records.Length);
         return false;
     }
 }

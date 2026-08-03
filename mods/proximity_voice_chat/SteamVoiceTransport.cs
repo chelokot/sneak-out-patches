@@ -14,7 +14,8 @@ internal sealed class SteamVoiceTransport : IDisposable
     private readonly ManualLogSource _logger;
     private readonly bool _loggingEnabled;
     private readonly Func<ulong, bool> _isCandidatePeer;
-    private readonly HashSet<ulong> _acceptedPeers = new();
+    private readonly VoicePeerAdmission _admission = new();
+    private readonly HashSet<ulong> _loggedSendFailures = new();
     private readonly Callback<P2PSessionRequest_t> _sessionRequestCallback;
     private readonly Callback<P2PSessionConnectFail_t> _sessionFailureCallback;
     private Il2CppStructArray<byte> _receiveBuffer = new((long)MaximumPacketBytes);
@@ -36,17 +37,17 @@ internal sealed class SteamVoiceTransport : IDisposable
             (Action<P2PSessionConnectFail_t>)OnSessionFailure);
     }
 
-    public void AcceptPeer(ulong steamId)
+    public void AllowPeer(ulong steamId)
     {
-        if (steamId == 0 || steamId == SteamUser.GetSteamID().m_SteamID || !_acceptedPeers.Add(steamId))
+        if (steamId == 0 || steamId == SteamUser.GetSteamID().m_SteamID)
         {
             return;
         }
-        SteamNetworking.AcceptP2PSessionWithUser(new CSteamID(steamId));
-        if (_loggingEnabled)
-        {
-            _logger.LogInfo($"Accepted proximity voice peer {steamId}");
-        }
+        // Do not call AcceptP2PSessionWithUser here. Steam can only accept a session after the
+        // remote endpoint has generated P2PSessionRequest_t. Marking a peer accepted before that
+        // callback used to suppress the real accept and left both clients in an endless hello
+        // loop with no voice packets delivered.
+        _admission.Allow(steamId);
     }
 
     public bool Send(ulong steamId, byte[] packet, bool reliable)
@@ -63,12 +64,21 @@ internal sealed class SteamVoiceTransport : IDisposable
         var sendType = reliable
             ? EP2PSend.k_EP2PSendReliable
             : EP2PSend.k_EP2PSendUnreliableNoDelay;
-        return SteamNetworking.SendP2PPacket(
+        var sent = SteamNetworking.SendP2PPacket(
             new CSteamID(steamId),
             _sendBuffer,
             (uint)packet.Length,
             sendType,
             VoiceChannel);
+        if (sent)
+        {
+            _loggedSendFailures.Remove(steamId);
+        }
+        else if (_loggingEnabled && _loggedSendFailures.Add(steamId))
+        {
+            _logger.LogWarning($"Proximity voice Steam P2P send is waiting for peer {steamId}");
+        }
+        return sent;
     }
 
     public void Poll(Action<CSteamID, byte[]> onPacket)
@@ -114,7 +124,9 @@ internal sealed class SteamVoiceTransport : IDisposable
 
     public void ClosePeer(ulong steamId)
     {
-        if (!_acceptedPeers.Remove(steamId))
+        var wasKnown = _admission.Forget(steamId);
+        _loggedSendFailures.Remove(steamId);
+        if (!wasKnown)
         {
             return;
         }
@@ -123,11 +135,12 @@ internal sealed class SteamVoiceTransport : IDisposable
 
     public void CloseAll()
     {
-        foreach (var steamId in _acceptedPeers.ToArray())
+        foreach (var steamId in _admission.KnownPeers.ToArray())
         {
             SteamNetworking.CloseP2PChannelWithUser(new CSteamID(steamId), VoiceChannel);
         }
-        _acceptedPeers.Clear();
+        _admission.Clear();
+        _loggedSendFailures.Clear();
     }
 
     private void OnSessionRequest(P2PSessionRequest_t request)
@@ -135,9 +148,22 @@ internal sealed class SteamVoiceTransport : IDisposable
         // Admission is finalized by the authenticated Steam sender id and room hash in the first
         // decoded protocol packet. Accepting here only allows Steam's relay handshake to complete.
         var steamId = request.m_steamIDRemote.m_SteamID;
-        if (_isCandidatePeer(steamId))
+        if (_admission.CanAcceptRequest(steamId, _isCandidatePeer(steamId)))
         {
-            AcceptPeer(steamId);
+            var accepted = SteamNetworking.AcceptP2PSessionWithUser(request.m_steamIDRemote);
+            if (accepted)
+            {
+                _admission.MarkAccepted(steamId);
+                _loggedSendFailures.Remove(steamId);
+                if (_loggingEnabled)
+                {
+                    _logger.LogInfo($"Accepted proximity voice Steam P2P session for {steamId}");
+                }
+            }
+            else if (_loggingEnabled)
+            {
+                _logger.LogWarning($"Steam rejected proximity voice P2P session request from {steamId}");
+            }
         }
         else
         {
@@ -147,7 +173,8 @@ internal sealed class SteamVoiceTransport : IDisposable
 
     private void OnSessionFailure(P2PSessionConnectFail_t failure)
     {
-        _acceptedPeers.Remove(failure.m_steamIDRemote.m_SteamID);
+        _admission.MarkDisconnected(failure.m_steamIDRemote.m_SteamID);
+        _loggedSendFailures.Remove(failure.m_steamIDRemote.m_SteamID);
         if (_loggingEnabled)
         {
             _logger.LogWarning(

@@ -54,6 +54,7 @@ internal static class PerformanceOptimizerRuntime
     private static double _activeSceneStartedSeconds;
     private static int _removedNullRoomLights;
     private static bool _resolutionSelectorRecoveryReported;
+    private static bool _missingEndMatchRecordReported;
     private static Il2CppStructArray<FrameTiming>? _frameTimingBuffer;
     private static bool _sceneCensusComplete;
     private static int _zeroEngineTimingSamples;
@@ -148,6 +149,19 @@ internal static class PerformanceOptimizerRuntime
         _logger?.LogWarning(
             $"Video settings did not contain the active {currentWidth}x{currentHeight} mode; "
             + $"showing the nearest {fallbackWidth}x{fallbackHeight} option without changing the display mode");
+    }
+
+    public static void ReportMissingEndMatchRecord(int localInternalId, int recordCount)
+    {
+        if (_missingEndMatchRecordReported)
+        {
+            return;
+        }
+
+        _missingEndMatchRecordReported = true;
+        _logger?.LogWarning(
+            $"Skipped optional battlepass end-screen progress because local player {localInternalId} "
+            + $"was absent from {recordCount} server result record(s)");
     }
 
     private static PerformancePreset ResolvePreset(PerformancePreset configuredPreset)

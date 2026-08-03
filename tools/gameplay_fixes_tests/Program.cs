@@ -1,4 +1,5 @@
 using SneakOut.ChairWallThrowFix;
+using SneakOut.KeyboardLayoutFix;
 using SneakOut.MagicWardrobeHookFix;
 using SneakOut.NetworkHostSelector;
 using SneakOut.PumpkinRadiusIndicatorFix;
@@ -23,6 +24,19 @@ RequireClose(releaseCandidates[0], 0.1f, "chair release first step changed");
 RequireClose(releaseCandidates[1], 0.2f, "chair release second step changed");
 RequireClose(releaseCandidates[2], 0.25f, "chair release maximum was exceeded");
 Require(!ChairReleasePolicy.CandidateDistances(float.NaN).Any(), "chair release accepted a non-finite maximum");
+
+var russianForward = NativeMovementPolicy.Resolve(true, true, false, false, false, false);
+Require(
+    russianForward.ShouldOverride && russianForward.OwnsMovement && russianForward.Vertical == 1f,
+    "Russian physical W did not produce forward movement");
+var russianRelease = NativeMovementPolicy.Resolve(true, false, false, false, false, true);
+Require(
+    russianRelease.ShouldOverride && !russianRelease.OwnsMovement
+    && russianRelease.Horizontal == 0f && russianRelease.Vertical == 0f,
+    "Russian physical movement release did not emit an explicit zero");
+Require(
+    !NativeMovementPolicy.Resolve(false, true, false, false, false, true).ShouldOverride,
+    "English layout movement was overridden");
 
 var wardrobeHook = new MagicWardrobeHookPolicy();
 Require(!wardrobeHook.RecordHook(7, 1f, 4f), "hook armed without an active magic-wardrobe entry");
@@ -83,7 +97,7 @@ Require(
         new[] { new PathBlocker(2f, 14) }),
     "an ordinary Wall-layer blocker was bypassed");
 Require(
-    !SharedCornerPolicy.ShouldBypass(
+    SharedCornerPolicy.ShouldBypass(
         true,
         5f,
         intersectionLayer,
@@ -92,7 +106,7 @@ Require(
             new PathBlocker(2f, intersectionLayer),
             new PathBlocker(3f, 20)
         }),
-    "HardEnvironment behind a room junction was bypassed");
+    "an ordinary collider made the perk stricter at a confirmed room junction");
 Require(
     !SharedCornerPolicy.ShouldBypass(true, 5f, intersectionLayer, Array.Empty<PathBlocker>()),
     "a clear path incorrectly took the custom RPC path");

@@ -94,53 +94,35 @@ External prerequisites:
 
 ## Runtime mod catalog
 
-Core and gameplay mods:
+The normal install enables every stable mod below. `Lobby Test Bot`, `Free Fly`, and
+`Runtime Profiler` are development tools and remain opt-in; install them with `--all` or
+select them with `--interactive`.
 
-- `performance-optimizer`
-  Measured startup, adaptive frame-pacing and weak-PC presets with low-overhead FPS, memory, render, loading, GC and Fusion telemetry.
-- `uniform-seeker-random`
-  Replaces the default seeker selection with a uniform random choice.
-- `portal-mode-selector`
-  Runtime portal mode and map selector hooks.
-- `network-host-selector`
-  Lets the party leader choose the actual Fusion match host before PLAY. It arms only after every real participant confirms the same protocol version; bots are excluded and any mismatch falls back to the stock automatic host.
-- `mummy-unlock`
-  Restores Mummy-related selection hooks.
-- `unlock-everything`
-  Profile overlay, local apply hooks, persistence, and live sync work.
-- `start-delay-reducer`
-  Keeps the stock connection grace period and adds an authoritative host-only `Start now` action.
-- `locker-stun-fix`
-  Prevents post-open stuns from ordinary hiding lockers.
-- `magic-wardrobe-hook-fix`
-  Stops an interrupted magic-wardrobe entry from moving a Butcher-hooked player back to the wardrobe.
-- `chair-wall-throw-fix`
-  Clears a small release overlap so held chairs remain throwable beside level geometry.
-- `pumpkin-radius-indicator-fix`
-  Makes the pumpkin danger ring match its authoritative instant-kill radius.
-- `ripper-corner-blink-fix`
-  Fixes exact shared-corner traversal for Ripper's equipped through-wall blink perk; normal blink is untouched.
-- `background-loading-guard`
-  Keeps the game responsive during scene loading without changing the normal background-running preference.
-- `keyboard-layout-fix`
-  Keeps physical controls usable without synthetic key injection and refreshes displayed labels across keyboard-layout changes.
-- `proximity-voice-chat`
-  Adds Steam-relayed spatial voice with push-to-talk, activation modes, occlusion, and living/ghost channels.
-- `friend-invite-unlock`
-  Keeps offline friends inviteable from the lobby list.
-- `lobby-skill-sandbox`
-  Enables the lobby penguin skill panel, slide, and networked prop-change using models already loaded by the lobby; every participant must run the mod for prop-change.
+| Mod id | Name | Default | What it does |
+| --- | --- | :---: | --- |
+| `performance-optimizer` | Performance Optimizer | Yes | Reduces measured startup and runtime overhead, adds adaptive frame pacing and weak-PC presets, and records low-overhead FPS, loading, memory, render, GC and Fusion network telemetry. It does not blindly lower graphics while performance is healthy. |
+| `uniform-seeker-random` | Uniform Seeker Random | Yes | Replaces the game's biased/default seeker selection with an equal random choice between eligible real players. |
+| `portal-mode-selector` | Portal Mode Selector | Yes | Adds a stock-styled portal menu for choosing Classic or Crown and the available map before matchmaking, without permanently editing Unity scenes. |
+| `network-host-selector` | Network Host Selector | Yes | Lets the party leader choose which real player receives Fusion network authority for the next match. It activates only when every real participant confirms the same protocol; bots are ignored and incompatible lobbies fall back to automatic host selection. |
+| `mummy-unlock` | Mummy Unlock | Yes | Restores Mummy as a selectable hunter, including its shop entry, localized text, abilities and current-client selection flow. |
+| `unlock-everything` | Unlock Everything | Yes | Exposes supported characters, cosmetics, emotes and skill cards through a profile overlay; keeps selected loadouts locally, reapplies them after backend refreshes, and synchronizes the local live player without replacing the real account identity. |
+| `start-delay-reducer` | Start Now | Yes | Keeps the normal 30-second connection grace period for slow clients but gives the authoritative host a `Start now` button once the lobby is ready. |
+| `locker-stun-fix` | Locker Stun Fix | Yes | Prevents a penguin from stunning a nearby hunter when leaving a normal hiding locker that the hunter has already opened. The ordinary unopened-locker ability is unchanged. |
+| `magic-wardrobe-hook-fix` | Magic Wardrobe Hook Fix | Yes | Cancels a pending magic-wardrobe teleport when a Butcher hook interrupts entry, so the pulled player is not snapped back to the wardrobe after the animation finishes. |
+| `chair-wall-throw-fix` | Chair Wall Throw Fix | Yes | Keeps the throw interaction available while a held chair overlaps nearby level geometry and moves the chair only far enough toward its owner to obtain a safe release position. |
+| `pumpkin-radius-indicator-fix` | Pumpkin Radius Indicator Fix | Yes | Corrects the pumpkin prefab's scaled visual danger ring so it matches the server-authoritative instant-kill radius; damage and the separate outer stun radius are not changed. |
+| `ripper-corner-blink-fix` | Ripper Corner Blink Fix | Yes | Lets the equipped `ReaperHelloThere` through-wall perk traverse the game's dedicated room-corner intersection strips even when ordinary scenery is also detected. It does not grant wall blink without the perk. |
+| `background-loading-guard` | Background Loading Guard | Yes | Temporarily keeps Unity updating while a scene loads, then restores the player's previous background-running preference instead of forcing it permanently. |
+| `keyboard-layout-fix` | Keyboard Layout Fix | Yes | Repairs physical WASD movement on Wine with Cyrillic layouts without injecting an entire synthetic keyboard, refreshes visible key labels when the layout changes, and checks again when the game regains focus. |
+| `proximity-voice-chat` | Proximity Voice Chat | Yes | Adds Steam-relayed positional voice with push-to-talk, voice activation and always-on modes, in-game audio settings, distance falloff and occlusion. Living players hear living players; ghosts hear living players and other ghosts, while living players cannot hear ghosts. |
+| `friend-invite-unlock` | Friend Invite Unlock | Yes | Keeps offline Steam friends available in the lobby invite list while preserving the normal self, teammate, leave and remove actions. |
+| `lobby-skill-sandbox` | Lobby Skill Sandbox | Yes | Enables the penguin skill panel and lobby-safe slide for practice. Match-only prop transformation is deliberately suppressed because the stock RPC has no safe lobby state and can freeze movement or drop the player through the floor. |
+| `lobby-test-bot` | Lobby Test Bot | No | Adds a host-only portal control that spawns or removes one inert real Fusion bot and allows private solo match-start testing. It is excluded from compatibility and host-selection counts. |
+| `free-fly` | Free Fly (Debug) | No | Adds Page Up/Page Down vertical movement for controlled map and interaction debugging; it is not intended for normal online matches. |
+| `runtime-profiler` | Runtime Profiler (Debug) | No | Instruments explicitly selected managed methods and writes timing reports for focused performance investigations. Expensive broad profiling is not enabled by default. |
 
-Experimental and debug mods:
-
-- `lobby-test-bot`
-  Opt-in host-only portal button that adds or removes one inert network player for solo match-start testing.
-- `free-fly`
-  Vertical free-fly debugging controls.
-- `runtime-profiler`
-  Managed method profiler for narrow runtime investigations.
-
-The patcher enables the lobby skill panel, slide, and networked prop-change by default. Prop-change assumes every lobby participant has the mod. The test bot, free-fly, and runtime profiler remain opt-in.
+`runtime_mods_manifest.json` is the authoritative machine-readable source for these ids,
+categories and default states.
 
 ## Common commands
 

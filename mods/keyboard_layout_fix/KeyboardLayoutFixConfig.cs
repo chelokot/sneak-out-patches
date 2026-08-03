@@ -26,7 +26,7 @@ internal sealed class KeyboardLayoutFixConfig
             "general",
             "EnableMod",
             true,
-            "Refresh displayed key labels when the keyboard layout changes. Physical Proton input is handled by the installer's per-game XIM setting.");
+            "Keep physical WASD movement usable on Wine Cyrillic layouts and refresh displayed key labels when the layout changes.");
         var enableLogging = configFile.Bind(
             "diagnostics",
             "EnableLogging",

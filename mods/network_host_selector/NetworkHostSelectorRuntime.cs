@@ -66,6 +66,7 @@ internal static class NetworkHostSelectorRuntime
     private static int _pendingRequestedRaw = int.MinValue;
     private static int _requestSequence;
     private static string _lastHandledRequest = string.Empty;
+    private static bool _localOnlySession;
 
     public static void Initialize(ManualLogSource logger, NetworkHostSelectorConfig configuration)
     {
@@ -153,6 +154,7 @@ internal static class NetworkHostSelectorRuntime
         }
 
         var localRaw = runner.LocalPlayer.RawEncoded;
+        _localOnlySession = participants.Count == 1 && participants[0].Raw == localRaw;
         var membership = ComputeMembership(participants);
         if (now >= _nextHelloAt)
         {
@@ -195,12 +197,18 @@ internal static class NetworkHostSelectorRuntime
         }
 
         var properties = runner.SessionInfo.Properties;
-        var compatible = properties is not null && participants.All(participant =>
-            TryReadString(properties, HelloProperty(participant.Raw), out var hello)
-            && string.Equals(
-                hello,
-                HostSelectionProtocol.CreateHello(_coordinatorMembership, participant.UserId),
-                StringComparison.Ordinal));
+        // The local participant inherently runs this plugin; it must not wait for its own
+        // round-trip through Photon custom properties. In a bot-only test lobby there is no
+        // remote participant to synchronize with, so the state is fully local and immediately
+        // ready. This also fixes the nonsensical "MODS 0/1" status.
+        var compatible = _localOnlySession
+            || properties is not null && participants.All(participant =>
+                participant.Raw == runner.LocalPlayer.RawEncoded
+                || TryReadString(properties, HelloProperty(participant.Raw), out var hello)
+                && string.Equals(
+                    hello,
+                    HostSelectionProtocol.CreateHello(_coordinatorMembership, participant.UserId),
+                    StringComparison.Ordinal));
         if (compatible != _coordinatorCompatible)
         {
             _coordinatorCompatible = compatible;
@@ -240,6 +248,26 @@ internal static class NetworkHostSelectorRuntime
             && _publishedCompatible == _coordinatorCompatible
             && _publishedReady == ready)
         {
+            return;
+        }
+
+        if (_localOnlySession)
+        {
+            _publishedRevision = _coordinatorRevision;
+            _publishedTargetRaw = _coordinatorTargetRaw;
+            _publishedTargetUserId = _coordinatorTargetUserId;
+            _publishedMembership = _coordinatorMembership;
+            _publishedCompatible = true;
+            _publishedReady = true;
+            SetObservedState(
+                _coordinatorRevision,
+                _coordinatorTargetRaw,
+                _coordinatorTargetUserId,
+                _coordinatorMembership,
+                compatible: true,
+                ready: true,
+                valid: true);
+            _pendingRequestedRaw = int.MinValue;
             return;
         }
 
@@ -575,6 +603,7 @@ internal static class NetworkHostSelectorRuntime
         _pendingRequestedRaw = int.MinValue;
         _requestSequence = 0;
         _lastHandledRequest = string.Empty;
+        _localOnlySession = false;
     }
 
     public static bool AllowPortalPlay()
@@ -626,7 +655,21 @@ internal static class NetworkHostSelectorRuntime
             _observedValid = false;
             return;
         }
-        ReadObservedState(runner, GetParticipants(runner));
+        var participants = GetParticipants(runner);
+        if (participants.Count == 1 && participants[0].Raw == runner.LocalPlayer.RawEncoded)
+        {
+            _localOnlySession = true;
+            SetObservedState(
+                _coordinatorRevision,
+                _coordinatorTargetRaw,
+                _coordinatorTargetUserId,
+                ComputeMembership(participants),
+                compatible: true,
+                ready: true,
+                valid: true);
+            return;
+        }
+        ReadObservedState(runner, participants);
     }
 
     private static NetworkHostSelectorUiState? EnsureButton(PortalPlayView view)
@@ -734,10 +777,11 @@ internal static class NetworkHostSelectorRuntime
         var participants = GetParticipants(runner);
         var membership = ComputeMembership(participants);
         var properties = runner.SessionInfo.Properties;
-        var confirmed = properties is null
-            ? 0
-            : participants.Count(participant =>
-                TryReadString(properties, HelloProperty(participant.Raw), out var hello)
+        var localRaw = runner.LocalPlayer.RawEncoded;
+        var confirmed = participants.Count(participant =>
+                participant.Raw == localRaw
+                || properties is not null
+                && TryReadString(properties, HelloProperty(participant.Raw), out var hello)
                 && string.Equals(
                     hello,
                     HostSelectionProtocol.CreateHello(membership, participant.UserId),

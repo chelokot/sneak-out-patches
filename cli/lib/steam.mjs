@@ -178,6 +178,54 @@ export async function steamLocalConfigPaths() {
   return unique(results);
 }
 
+function loginUserBlocks(content) {
+  return [...content.matchAll(/"(\d{17})"\s*\{([^{}]*)\}/g)].map((match) => ({
+    steamId64: match[1],
+    body: match[2]
+  }));
+}
+
+function loginUserFlag(body, key) {
+  return body.match(new RegExp(`"${key}"\\s+"([^"]*)"`, "i"))?.[1] ?? "";
+}
+
+function steamAccountId(steamId64) {
+  try {
+    return String(BigInt(steamId64) & 0xffffffffn);
+  } catch {
+    return null;
+  }
+}
+
+export async function steamActiveLocalConfigPaths() {
+  const results = [];
+  for (const steamRoot of await candidateSteamRoots()) {
+    let content;
+    try {
+      content = await readFile(join(steamRoot, "config", "loginusers.vdf"), "utf8");
+    } catch {
+      continue;
+    }
+
+    const users = loginUserBlocks(content);
+    const preferred = users.filter((user) => loginUserFlag(user.body, "MostRecent") === "1");
+    const active = preferred.length > 0
+      ? preferred
+      : users.filter((user) => loginUserFlag(user.body, "AutoLogin") === "1");
+    for (const user of active) {
+      const accountId = steamAccountId(user.steamId64);
+      if (!accountId) {
+        continue;
+      }
+      const path = join(steamRoot, "userdata", accountId, "config", "localconfig.vdf");
+      if (await exists(path)) {
+        results.push(path);
+      }
+    }
+  }
+  return unique(results);
+}
+
 export async function isSteamClientRunning() {
   if (process.env.SNEAKOUT_STEAM_RUNNING !== undefined) {
     return process.env.SNEAKOUT_STEAM_RUNNING === "1";

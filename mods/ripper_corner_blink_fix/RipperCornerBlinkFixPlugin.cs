@@ -8,7 +8,7 @@ public sealed class RipperCornerBlinkFixPlugin : BasePlugin
 {
     public const string PluginGuid = "chelokot.sneakout.ripper-corner-blink-fix";
     public const string PluginName = "Ripper Corner Blink Fix";
-    public const string PluginVersion = "0.1.0";
+    public const string PluginVersion = "0.1.1";
 
     public override void Load()
     {

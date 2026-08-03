@@ -1047,10 +1047,18 @@ internal static class UnlockEverythingStub
     {
         var normalizedSkins = playerSkins ?? new PlayerSkins(new Il2CppCollections.List<SkinPart>());
         normalizedSkins.SkinParts ??= new Il2CppCollections.List<SkinPart>();
+        var supportedSkinParts = UnlockEverythingCosmeticCatalog.GetSupportedSkinParts();
+        if (supportedSkinParts is null)
+        {
+            return normalizedSkins;
+        }
+
         var existingSkinParts = new Dictionary<SkinPartType, SkinPart>();
         foreach (var skinPart in normalizedSkins.SkinParts)
         {
-            if (skinPart is null || skinPart.SkinPartType == SkinPartType.None)
+            if (skinPart is null
+                || skinPart.SkinPartType == SkinPartType.None
+                || !supportedSkinParts.Contains(skinPart.SkinPartType))
             {
                 continue;
             }
@@ -1059,13 +1067,8 @@ internal static class UnlockEverythingStub
         }
         var mergedSkinParts = new Il2CppCollections.List<SkinPart>();
 
-        foreach (var skinPartType in System.Enum.GetValues<SkinPartType>())
+        foreach (var skinPartType in supportedSkinParts.OrderBy(value => (int)value))
         {
-            if (skinPartType == SkinPartType.None)
-            {
-                continue;
-            }
-
             if (existingSkinParts.TryGetValue(skinPartType, out var skinPart))
             {
                 skinPart.Id = GetSkinPartId(skinPartType);

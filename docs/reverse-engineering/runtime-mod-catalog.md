@@ -54,7 +54,7 @@ The lobby skill panel, slide, and networked prop-change are part of the default 
 They stay separate because:
 
 - `lobby-skill-sandbox` is a sandbox feature, not a normal progression fix, but its lobby-only skill use is an isolated default feature
-- lobby prop-change builds the missing pool from real lobby scenery on every modded client before using the stock prop RPC; every participant must run the mod
+- lobby prop-change uses the stock RPC only as transport, while every modded client renders a collider-free visual copied from lobby scenery; it never enters the map-only `PropPool`/registry path
 - the lobby skill panel reuses an existing view model and stays unavailable when the normal UI graph is not initialized
 - `lobby-test-bot` is a host-only match-start tool that uses the authoritative Fusion runner and the stock `SceneSpawner` bot initializer instead of faking player counts
 - `free-fly` is a debugging tool

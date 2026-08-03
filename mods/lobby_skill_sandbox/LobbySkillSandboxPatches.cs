@@ -1,6 +1,7 @@
 using Gameplay.Player;
 using Gameplay.Player.Components;
 using HarmonyLib;
+using Types;
 using UI;
 
 namespace SneakOut.LobbySkillSandbox;
@@ -51,21 +52,21 @@ internal static class EntitySkillsComponentHostValidateAndUseSkillPatch
     }
 }
 
-[HarmonyPatch(typeof(EntitySkillsComponent), "RPC_VictimPropChange")]
-internal static class EntitySkillsComponentLobbyPropChangeRpcPatch
+[HarmonyPatch(typeof(EntitySkillsComponent), "ChangeToProp")]
+internal static class EntitySkillsComponentLobbyChangeToPropPatch
 {
-    private static bool Prefix(EntitySkillsComponent __instance)
+    private static bool Prefix(EntitySkillsComponent __instance, PlayerPropType playerPropTypeToChangeInto)
     {
-        return LobbySkillSandboxRuntime.PrepareLobbyPropRpc(__instance);
+        return !LobbySkillSandboxRuntime.TryApplyLobbyPropVisual(__instance, playerPropTypeToChangeInto);
     }
 }
 
-[HarmonyPatch(typeof(EntitySkillsComponent), "RPC_VictimPropUnChange")]
-internal static class EntitySkillsComponentLobbyPropUnChangeRpcPatch
+[HarmonyPatch(typeof(EntitySkillsComponent), "ChangeFromProp")]
+internal static class EntitySkillsComponentLobbyChangeFromPropPatch
 {
     private static bool Prefix(EntitySkillsComponent __instance)
     {
-        return LobbySkillSandboxRuntime.PrepareLobbyPropRpc(__instance);
+        return !LobbySkillSandboxRuntime.TryRestoreLobbyPropVisual(__instance);
     }
 }
 

@@ -53,6 +53,8 @@ internal static class KeyboardLayoutFixRuntime
     private static float _nextDiagnosticPromptProbeAt;
     private static int _diagnosticCycleState;
     private static uint _lastPhysicalLetterMask;
+    private static float _retryPhysicalSyncAt;
+    private static bool _loggedPhysicalSyncFailure;
 
     public static void Initialize(ManualLogSource logger, KeyboardLayoutFixConfig configuration)
     {
@@ -89,7 +91,6 @@ internal static class KeyboardLayoutFixRuntime
         }
 
         var now = Time.unscaledTime;
-        SynchronizePhysicalLetterState();
         RunDiagnosticLayoutCycle(now);
         if (now >= _nextLayoutPollAt)
         {
@@ -102,6 +103,13 @@ internal static class KeyboardLayoutFixRuntime
             _bindingRefreshAt = -1f;
             RefreshBindingLabels();
         }
+
+        // Input repair is deliberately last and isolated. A Wine/InputSystem failure must never
+        // prevent layout polling or flood the IL2CPP trampoline with one exception per frame.
+        if (now >= _retryPhysicalSyncAt)
+        {
+            TrySynchronizePhysicalLetterState(now);
+        }
     }
 
     private static void HandleFocus(bool hasFocus)
@@ -109,6 +117,26 @@ internal static class KeyboardLayoutFixRuntime
         if (hasFocus)
         {
             DetectLayoutChange(force: true, source: "focus");
+        }
+    }
+
+    private static void TrySynchronizePhysicalLetterState(float now)
+    {
+        try
+        {
+            SynchronizePhysicalLetterState();
+            _loggedPhysicalSyncFailure = false;
+        }
+        catch (Exception exception)
+        {
+            _lastPhysicalLetterMask = 0;
+            _retryPhysicalSyncAt = now + 5f;
+            if (!_loggedPhysicalSyncFailure)
+            {
+                _loggedPhysicalSyncFailure = true;
+                _logger?.LogWarning(
+                    $"Physical keyboard synchronization paused for 5 seconds: {exception.GetType().Name}: {exception.Message}");
+            }
         }
     }
 
@@ -138,17 +166,23 @@ internal static class KeyboardLayoutFixRuntime
             return;
         }
 
-        _lastPhysicalLetterMask = physicalMask;
         var pressedKeys = new List<Key>();
-        var allKeys = keyboard.allKeys;
-        for (var index = 0; index < allKeys.Count; index++)
+        foreach (var key in System.Enum.GetValues<Key>())
         {
-            var control = allKeys[index];
-            if (control.isPressed && !ManagedPhysicalKeys.Contains(control.keyCode))
+            if (key == Key.None || ManagedPhysicalKeys.Contains(key))
             {
-                pressedKeys.Add(control.keyCode);
+                continue;
+            }
+
+            // Do not enumerate Keyboard.allKeys here. Its IL2CPP projection contains a null entry
+            // on Wine and was the source of the previous per-frame NullReferenceException.
+            var control = keyboard[key];
+            if (control is not null && control.isPressed)
+            {
+                pressedKeys.Add(key);
             }
         }
+
         for (var index = 0; index < PhysicalLetterKeys.Length; index++)
         {
             if ((physicalMask & (1u << index)) != 0)
@@ -161,6 +195,7 @@ internal static class KeyboardLayoutFixRuntime
             keyboard,
             new KeyboardState(pressedKeys.ToArray()),
             InputState.currentTime);
+        _lastPhysicalLetterMask = physicalMask;
     }
 
     private static void DetectLayoutChange(bool force, string source)

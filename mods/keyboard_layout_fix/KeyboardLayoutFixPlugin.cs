@@ -8,7 +8,7 @@ public sealed class KeyboardLayoutFixPlugin : BasePlugin
 {
     public const string PluginGuid = "chelokot.sneakout.keyboard-layout-fix";
     public const string PluginName = "Keyboard Layout Fix";
-    public const string PluginVersion = "0.4.0";
+    public const string PluginVersion = "0.4.1";
 
     public override void Load()
     {

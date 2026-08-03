@@ -1,18 +1,15 @@
-using Gameplay.Player.Components;
-using Gameplay.Skills;
-using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using UnityEngine;
 using Types;
 
 namespace SneakOut.LobbySkillSandbox;
 
 /// <summary>
-/// Supplies the small piece of map infrastructure which the lobby scene does not contain.
-/// The source objects are existing lobby scenery; no map scene or synthetic gameplay room is loaded.
+/// Creates a visual-only lobby prop from existing lobby scenery. It never initializes the
+/// gameplay PropPool and never changes the player's collider, transform or registry state.
 /// </summary>
 internal static class LobbyPropPool
 {
-    private const string RootName = "LobbySkillSandbox.PropPool";
+    private const float DesiredPropSize = 0.9f;
 
     private static readonly (PlayerPropType Type, string SourceName)[] PropSources =
     [
@@ -33,117 +30,67 @@ internal static class LobbyPropPool
         (PlayerPropType.BlueBag, "ItemSet_b_paperbag_prefab"),
     ];
 
-    private static GameObject? _root;
-    private static PlayerPropType[] _availableTypes = [];
-
-    public static bool EnsureInitialized(EntitySkillsComponent skills)
-    {
-        var propPool = skills._propPool;
-        if (IsInitialized(propPool))
-        {
-            CacheInitializedTypes(propPool!._propPoolInitialization);
-            return _availableTypes.Length > 0;
-        }
-
-        Dispose();
-
-        try
-        {
-            var sources = FindLobbySources();
-            if (sources.Count == 0)
-            {
-                return false;
-            }
-
-            var root = new GameObject(RootName);
-            _root = root;
-            root.hideFlags = HideFlags.HideAndDontSave;
-            root.SetActive(false);
-
-            var initialization = root.AddComponent<PropPoolInitialization>();
-            initialization.SkipDependencyResolution = true;
-            initialization._propPool = propPool;
-
-            var propPrefabs = new Il2CppReferenceArray<Prop>(sources.Count);
-            var availableTypes = new PlayerPropType[sources.Count];
-            for (var index = 0; index < sources.Count; index++)
-            {
-                var source = sources[index];
-                propPrefabs[index] = new Prop(source.Object, source.Type, null);
-                availableTypes[index] = source.Type;
-            }
-
-            initialization._propPrefabs = propPrefabs;
-            _availableTypes = availableTypes;
-
-            // PropPoolInitialization.OnAwake performs the game's normal PropPool.Init call,
-            // but only after every dependency and prefab entry has been assigned above.
-            root.SetActive(true);
-            if (IsInitialized(propPool))
-            {
-                return true;
-            }
-        }
-        catch (Exception exception)
-        {
-            LobbySkillSandboxRuntime.Warn($"LobbyPropPool initialization failed: {exception.GetType().Name}");
-        }
-
-        Dispose();
-        return false;
-    }
+    private static readonly Dictionary<PlayerPropType, GameObject> Sources = [];
 
     public static PlayerPropType ChooseRandomType()
     {
-        if (_availableTypes.Length == 0)
+        RefreshSources();
+        if (Sources.Count == 0)
         {
             return PlayerPropType.None;
         }
 
-        return _availableTypes[UnityEngine.Random.Range(0, _availableTypes.Length)];
+        var types = Sources.Keys.ToArray();
+        return types[UnityEngine.Random.Range(0, types.Length)];
+    }
+
+    public static GameObject? CreateVisual(PlayerPropType type, Transform owner)
+    {
+        RefreshSources();
+        if (!Sources.TryGetValue(type, out var source) || !source)
+        {
+            return null;
+        }
+
+        var visual = UnityEngine.Object.Instantiate(source, owner, false);
+        visual.name = $"LobbyPropVisual.{type}";
+        visual.transform.localPosition = Vector3.zero;
+        visual.transform.localRotation = Quaternion.identity;
+        visual.transform.localScale = Vector3.one;
+
+        foreach (var behaviour in visual.GetComponentsInChildren<MonoBehaviour>(true))
+        {
+            behaviour.enabled = false;
+        }
+
+        foreach (var collider in visual.GetComponentsInChildren<Collider>(true))
+        {
+            collider.enabled = false;
+        }
+
+        foreach (var body in visual.GetComponentsInChildren<Rigidbody>(true))
+        {
+            body.isKinematic = true;
+            body.detectCollisions = false;
+        }
+
+        FitVisualToPlayer(visual, owner);
+        return visual;
     }
 
     public static void Dispose()
     {
-        _availableTypes = [];
-        if (_root is null)
+        Sources.Clear();
+    }
+
+    private static void RefreshSources()
+    {
+        if (Sources.Count > 0 && Sources.Values.All(source => source))
         {
             return;
         }
 
-        UnityEngine.Object.Destroy(_root);
-        _root = null;
-    }
-
-    private static bool IsInitialized(PropPool? propPool)
-    {
-        return propPool is not null
-            && propPool._propPoolInitialization is not null
-            && propPool._pool is not null
-            && propPool._poolTransform is not null;
-    }
-
-    private static void CacheInitializedTypes(PropPoolInitialization? initialization)
-    {
-        if (_availableTypes.Length > 0 || initialization?._propPrefabs is null)
-        {
-            return;
-        }
-
-        var types = new List<PlayerPropType>();
-        foreach (var prop in initialization._propPrefabs)
-        {
-            if (prop is not null && prop._playerPropType != PlayerPropType.None)
-            {
-                types.Add(prop._playerPropType);
-            }
-        }
-
-        _availableTypes = types.ToArray();
-    }
-
-    private static List<LobbyPropSource> FindLobbySources()
-    {
+        Sources.Clear();
         var lobbyObjects = new Dictionary<string, GameObject>(StringComparer.Ordinal);
         foreach (var candidate in Resources.FindObjectsOfTypeAll<GameObject>())
         {
@@ -155,23 +102,46 @@ internal static class LobbyPropPool
                 continue;
             }
 
-            if (!lobbyObjects.ContainsKey(candidate.name))
-            {
-                lobbyObjects[candidate.name] = candidate;
-            }
+            lobbyObjects.TryAdd(candidate.name, candidate);
         }
 
-        var sources = new List<LobbyPropSource>(PropSources.Length);
         foreach (var (type, sourceName) in PropSources)
         {
-            if (lobbyObjects.TryGetValue(sourceName, out var sourceObject))
+            if (lobbyObjects.TryGetValue(sourceName, out var source))
             {
-                sources.Add(new LobbyPropSource(type, sourceObject));
+                Sources[type] = source;
+            }
+        }
+    }
+
+    private static void FitVisualToPlayer(GameObject visual, Transform owner)
+    {
+        var renderers = visual.GetComponentsInChildren<Renderer>(true);
+        if (renderers.Length == 0)
+        {
+            return;
+        }
+
+        var bounds = renderers[0].bounds;
+        for (var index = 1; index < renderers.Length; index++)
+        {
+            bounds.Encapsulate(renderers[index].bounds);
+        }
+
+        var largestDimension = Math.Max(bounds.size.x, Math.Max(bounds.size.y, bounds.size.z));
+        if (largestDimension > 0.001f)
+        {
+            var scale = Mathf.Clamp(DesiredPropSize / largestDimension, 0.05f, 8f);
+            visual.transform.localScale *= scale;
+
+            bounds = renderers[0].bounds;
+            for (var index = 1; index < renderers.Length; index++)
+            {
+                bounds.Encapsulate(renderers[index].bounds);
             }
         }
 
-        return sources;
+        var desiredCenter = owner.position + Vector3.up * 0.45f;
+        visual.transform.position += desiredCenter - bounds.center;
     }
-
-    private readonly record struct LobbyPropSource(PlayerPropType Type, GameObject Object);
 }

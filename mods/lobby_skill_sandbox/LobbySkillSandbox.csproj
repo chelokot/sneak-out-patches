@@ -17,5 +17,8 @@
     <Reference Include="UnityEngine.InputLegacyModule">
       <HintPath>$(InteropDir)/UnityEngine.InputLegacyModule.dll</HintPath>
     </Reference>
+    <Reference Include="UnityEngine.PhysicsModule">
+      <HintPath>$(InteropDir)/UnityEngine.PhysicsModule.dll</HintPath>
+    </Reference>
   </ItemGroup>
 </Project>

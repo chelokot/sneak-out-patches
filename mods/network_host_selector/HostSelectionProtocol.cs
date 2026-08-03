@@ -1,49 +1,53 @@
 namespace SneakOut.NetworkHostSelector;
 
-internal enum HostSelectionMessageType : byte
-{
-    Hello = 1,
-    SelectRequest = 2,
-    ProposalAck = 3,
-}
-
-internal readonly record struct HostSelectionMessage(
-    HostSelectionMessageType Type,
-    int Revision,
-    int TargetPlayerRaw);
+internal readonly record struct HostSelectionRequest(
+    string Membership,
+    int Sequence,
+    int TargetPlayerRaw,
+    string TargetUserId);
 
 internal static class HostSelectionProtocol
 {
     public const int Version = 1;
-    public const int PayloadLength = 16;
-    private const uint Magic = 0x53484F53; // SOHS in little-endian byte order.
 
-    public static byte[] Encode(HostSelectionMessageType type, int revision = 0, int targetPlayerRaw = 0)
+    public static string CreateHello(string membership, string userId)
     {
-        var payload = new byte[PayloadLength];
-        WriteUInt32(payload, 0, Magic);
-        payload[4] = Version;
-        payload[5] = (byte)type;
-        WriteInt32(payload, 8, revision);
-        WriteInt32(payload, 12, targetPlayerRaw);
-        return payload;
+        return $"{Version}|{membership}|{userId}";
     }
 
-    public static bool TryDecode(IReadOnlyList<byte> payload, out HostSelectionMessage message)
+    public static string CreateAck(int revision, string membership, int targetPlayerRaw, string targetUserId)
     {
-        message = default;
-        if (payload.Count != PayloadLength
-            || ReadUInt32(payload, 0) != Magic
-            || payload[4] != Version
-            || !Enum.IsDefined(typeof(HostSelectionMessageType), payload[5]))
+        return $"{Version}|{revision}|{membership}|{targetPlayerRaw}|{targetUserId}";
+    }
+
+    public static string CreateRequest(
+        string membership,
+        int sequence,
+        int targetPlayerRaw,
+        string targetUserId)
+    {
+        return $"{Version}|{membership}|{sequence}|{targetPlayerRaw}|{targetUserId}";
+    }
+
+    public static bool TryParseRequest(string value, out HostSelectionRequest request)
+    {
+        request = default;
+        var fields = value.Split('|');
+        if (fields.Length != 5
+            || !int.TryParse(fields[0], out var version)
+            || version != Version
+            || string.IsNullOrWhiteSpace(fields[1])
+            || !int.TryParse(fields[2], out var sequence)
+            || sequence < 0
+            || !int.TryParse(fields[3], out var targetPlayerRaw)
+            || targetPlayerRaw < 0
+            || (targetPlayerRaw == 0 && fields[4].Length != 0)
+            || (targetPlayerRaw != 0 && string.IsNullOrWhiteSpace(fields[4])))
         {
             return false;
         }
 
-        message = new HostSelectionMessage(
-            (HostSelectionMessageType)payload[5],
-            ReadInt32(payload, 8),
-            ReadInt32(payload, 12));
+        request = new HostSelectionRequest(fields[1], sequence, targetPlayerRaw, fields[4]);
         return true;
     }
 
@@ -69,29 +73,4 @@ internal static class HostSelectionProtocol
         return hash.ToString("X16");
     }
 
-    private static void WriteInt32(IList<byte> target, int offset, int value)
-    {
-        WriteUInt32(target, offset, unchecked((uint)value));
-    }
-
-    private static void WriteUInt32(IList<byte> target, int offset, uint value)
-    {
-        target[offset] = (byte)value;
-        target[offset + 1] = (byte)(value >> 8);
-        target[offset + 2] = (byte)(value >> 16);
-        target[offset + 3] = (byte)(value >> 24);
-    }
-
-    private static int ReadInt32(IReadOnlyList<byte> source, int offset)
-    {
-        return unchecked((int)ReadUInt32(source, offset));
-    }
-
-    private static uint ReadUInt32(IReadOnlyList<byte> source, int offset)
-    {
-        return source[offset]
-            | ((uint)source[offset + 1] << 8)
-            | ((uint)source[offset + 2] << 16)
-            | ((uint)source[offset + 3] << 24);
-    }
 }

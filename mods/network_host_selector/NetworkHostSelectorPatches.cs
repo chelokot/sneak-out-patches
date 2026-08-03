@@ -1,5 +1,3 @@
-using Fusion;
-using Fusion.Sockets;
 using HarmonyLib;
 using Networking.Lobby;
 using UI;
@@ -14,20 +12,6 @@ internal static class NetworkHostSelectorGameUiManagerPatch
     private static void Postfix(GameUIManager __instance)
     {
         NetworkHostSelectorRuntime.BindPortalManager(__instance);
-    }
-}
-
-[HarmonyPatch(typeof(PhotonLobby), nameof(PhotonLobby.OnReliableDataReceived))]
-internal static class NetworkHostSelectorReliableDataPatch
-{
-    [HarmonyPostfix]
-    private static void Postfix(
-        NetworkRunner runner,
-        PlayerRef player,
-        ReliableKey key,
-        Il2CppSystem.ArraySegment<byte> data)
-    {
-        NetworkHostSelectorRuntime.ReceiveMessage(runner, player, key, data);
     }
 }
 

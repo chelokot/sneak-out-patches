@@ -97,24 +97,32 @@ Require(
     !SharedCornerPolicy.ShouldBypass(true, 5f, intersectionLayer, Array.Empty<PathBlocker>()),
     "a clear path incorrectly took the custom RPC path");
 
-foreach (var expected in new[]
-         {
-             new HostSelectionMessage(HostSelectionMessageType.Hello, 0, 0),
-             new HostSelectionMessage(HostSelectionMessageType.SelectRequest, 17, 4),
-             new HostSelectionMessage(HostSelectionMessageType.ProposalAck, 23, 0),
-         })
-{
-    var encoded = HostSelectionProtocol.Encode(expected.Type, expected.Revision, expected.TargetPlayerRaw);
-    Require(encoded.Length == HostSelectionProtocol.PayloadLength, "host selection protocol payload length changed");
-    Require(HostSelectionProtocol.TryDecode(encoded, out var decoded), "valid host selection packet was rejected");
-    Require(decoded == expected, "host selection packet did not round-trip");
-}
-var invalidHostPacket = HostSelectionProtocol.Encode(HostSelectionMessageType.Hello);
-invalidHostPacket[4]++;
-Require(!HostSelectionProtocol.TryDecode(invalidHostPacket, out _), "mismatched host selector protocol version was accepted");
+var expectedRequest = new HostSelectionRequest("AABBCCDD", 17, 4, "steam-d");
+var encodedRequest = HostSelectionProtocol.CreateRequest(
+    expectedRequest.Membership,
+    expectedRequest.Sequence,
+    expectedRequest.TargetPlayerRaw,
+    expectedRequest.TargetUserId);
 Require(
-    !HostSelectionProtocol.TryDecode(invalidHostPacket[..^1], out _),
-    "truncated host selector packet was accepted");
+    HostSelectionProtocol.TryParseRequest(encodedRequest, out var decodedRequest),
+    "valid host selection request was rejected");
+Require(decodedRequest == expectedRequest, "host selection request did not round-trip");
+Require(
+    !HostSelectionProtocol.TryParseRequest("999|AABBCCDD|17|4|steam-d", out _),
+    "mismatched host selector protocol version was accepted");
+Require(
+    !HostSelectionProtocol.TryParseRequest("1|AABBCCDD|17|4", out _),
+    "truncated host selector request was accepted");
+Require(
+    !HostSelectionProtocol.TryParseRequest("1|AABBCCDD|17|0|steam-d", out _),
+    "automatic host request accepted a non-empty user id");
+Require(
+    HostSelectionProtocol.CreateHello("AABBCCDD", "steam-a") == "1|AABBCCDD|steam-a",
+    "host selector hello token changed unexpectedly");
+Require(
+    HostSelectionProtocol.CreateAck(7, "AABBCCDD", 4, "steam-d")
+        == "1|7|AABBCCDD|4|steam-d",
+    "host selector acknowledgement token changed unexpectedly");
 var signatureA = HostSelectionProtocol.ComputeMembershipSignature(new[]
 {
     (3, "steam-c"),

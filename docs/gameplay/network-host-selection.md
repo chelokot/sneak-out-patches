@@ -6,12 +6,17 @@ The stock client receives `matchId`, `hostId`, and `region`, then compares `host
 
 Safety protocol:
 
-- every real Fusion peer periodically advertises protocol version 1 over Fusion reliable data;
+- every real Fusion peer advertises protocol version 1 and its membership-bound identity through room custom properties;
 - the current lobby authority publishes the participant signature, proposal revision, selected `PlayerRef` and exact Fusion user id as session custom properties;
-- every real participant acknowledges the same proposal revision;
+- every real participant acknowledges the same proposal revision through its own membership-bound room property;
 - the selector becomes ready only after all acknowledgements arrive;
 - lobby test bots are excluded from both the quorum and candidate list;
-- a join, leave, missing heartbeat, identity mismatch, stale revision, or absent mod disarms the override;
+- a join, leave, missing identity advertisement, identity mismatch, stale revision, or absent mod disarms the override;
 - when disarmed or set to `Automatic`, the original backend `hostId` is left untouched.
+
+The protocol deliberately does not Harmony-patch `PhotonLobby.OnReliableDataReceived`.
+The BepInEx IL2CPP bridge bundled with the game setup cannot safely box Fusion's nested
+`ReliableKey` and `ArraySegment<byte>` value types and can otherwise terminate the process
+before a managed postfix is entered.
 
 Only the current party leader can cycle the portal button. Candidate labels include measured lobby RTT as a useful hint, but RTT never automatically changes the host and never affects protocol eligibility.

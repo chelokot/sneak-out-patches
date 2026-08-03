@@ -8,7 +8,7 @@ public sealed class LobbySkillSandboxPlugin : BasePlugin
 {
     public const string PluginGuid = "chelokot.sneakout.lobby-skill-sandbox";
     public const string PluginName = "Lobby Skill Sandbox";
-    public const string PluginVersion = "0.1.0";
+    public const string PluginVersion = "0.2.0";
 
     public override void Load()
     {

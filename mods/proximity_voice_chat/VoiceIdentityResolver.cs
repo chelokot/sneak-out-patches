@@ -1,6 +1,6 @@
 using Gameplay.Player.Components;
-using HarmonyLib;
 using Steamworks;
+using System.Reflection;
 
 namespace SneakOut.ProximityVoiceChat;
 
@@ -14,6 +14,10 @@ internal static class VoiceIdentityResolver
         "PlatformId",
         "PlatformID",
     };
+    private static readonly BindingFlags InstanceFlags =
+        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+    private static readonly Dictionary<(Type Type, string Name), MemberInfo?> MemberCache = [];
+    private static readonly Dictionary<Type, MethodInfo?> NullableGetterCache = [];
 
     public static bool TryResolveSteamId(SpookedNetworkPlayer player, out ulong steamId)
     {
@@ -62,7 +66,7 @@ internal static class VoiceIdentityResolver
             return IsPlausibleSteamId(steamId);
         }
 
-        var pointerProperty = AccessTools.Property(value.GetType(), "Pointer");
+        var pointerProperty = value.GetType().GetProperty("Pointer", InstanceFlags);
         if (pointerProperty?.GetValue(value) is IntPtr pointer
             && pointer != IntPtr.Zero
             && !visited.Add(pointer))
@@ -96,16 +100,25 @@ internal static class VoiceIdentityResolver
         value = null;
         try
         {
-            var property = AccessTools.Property(owner.GetType(), name);
-            if (property is not null && property.GetIndexParameters().Length == 0)
+            var ownerType = owner.GetType();
+            var key = (ownerType, name);
+            if (!MemberCache.TryGetValue(key, out var member))
             {
-                value = property.GetValue(owner);
+                var property = ownerType.GetProperty(name, InstanceFlags);
+                member = property is not null && property.GetIndexParameters().Length == 0
+                    ? property
+                    : ownerType.GetField(name, InstanceFlags);
+                MemberCache[key] = member;
+            }
+
+            if (member is PropertyInfo cachedProperty)
+            {
+                value = cachedProperty.GetValue(owner);
                 return true;
             }
-            var field = AccessTools.Field(owner.GetType(), name);
-            if (field is not null)
+            if (member is FieldInfo cachedField)
             {
-                value = field.GetValue(owner);
+                value = cachedField.GetValue(owner);
                 return true;
             }
         }
@@ -140,12 +153,22 @@ internal static class VoiceIdentityResolver
         }
         try
         {
-            var hasValue = AccessTools.Property(value.GetType(), "HasValue")?.GetValue(value);
+            var valueType = value.GetType();
+            var hasValue = valueType.GetProperty("HasValue", InstanceFlags)?.GetValue(value);
             if (hasValue is bool hasUnderlyingValue && !hasUnderlyingValue)
             {
                 return false;
             }
-            var getValueOrDefault = AccessTools.Method(value.GetType(), "GetValueOrDefault", Type.EmptyTypes);
+            if (!NullableGetterCache.TryGetValue(valueType, out var getValueOrDefault))
+            {
+                getValueOrDefault = valueType.GetMethod(
+                    "GetValueOrDefault",
+                    InstanceFlags,
+                    binder: null,
+                    types: Type.EmptyTypes,
+                    modifiers: null);
+                NullableGetterCache[valueType] = getValueOrDefault;
+            }
             if (getValueOrDefault is not null)
             {
                 return TryConvertIdentity(getValueOrDefault.Invoke(value, Array.Empty<object>()), out steamId);

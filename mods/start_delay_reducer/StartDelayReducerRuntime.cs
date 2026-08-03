@@ -5,6 +5,7 @@ using HarmonyLib;
 using Il2CppInterop.Runtime.Injection;
 using TMPro;
 using UI.Buttons;
+using UI.Views.Lobby;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.UI;
@@ -23,11 +24,13 @@ internal static class StartDelayReducerRuntime
     private static StartDelayReducerConfig? _configuration;
     private static MatchStateMachine? _cachedStateMachine;
     private static StartNowUiState? _uiState;
+    private static GameObject? _styleTemplate;
+    private static GameObject? _styleTemplateRoot;
+    private static Canvas? _overlayCanvas;
     private static IntPtr _skipRequestedForMachine;
     private static bool _loggedMissingStyleSource;
     private static bool _loggedWatcherUpdate;
     private static bool _loggedStateMachineCapture;
-    private static bool _loggedCanvasDiscovery;
     private static string _lastStateDiagnostic = string.Empty;
 
     public static void Initialize(ManualLogSource logger, StartDelayReducerConfig configuration)
@@ -49,6 +52,8 @@ internal static class StartDelayReducerRuntime
         {
             return;
         }
+
+        CacheStockButtonStyle();
 
         MatchStateMachine? stateMachine;
         try
@@ -184,31 +189,23 @@ internal static class StartDelayReducerRuntime
 
         _uiState = null;
 
-        var canvas = ResolveHudCanvas();
+        var canvas = EnsureOverlayCanvas();
         if (canvas is null)
         {
             return null;
         }
 
-        var styleSource = Resources.FindObjectsOfTypeAll<SpookedOutlineButton>()
-            .FirstOrDefault(button =>
-                button is not null
-                && button.Pointer != IntPtr.Zero
-                && button.gameObject.name != "StartNowButton"
-                && button._targetColorImage is not null
-                && button._targetOutlineImage is not null
-                && button.GetComponentInChildren<TMP_Text>(true) is not null);
-        if (styleSource is null)
+        if (!IsAlive(_styleTemplate))
         {
             if (!_loggedMissingStyleSource)
             {
                 _loggedMissingStyleSource = true;
-                LogInfo("No complete stock outline-button style is loaded yet");
+                LogInfo("No cached stock outline-button style is available");
             }
             return null;
         }
 
-        var buttonObject = UnityEngine.Object.Instantiate(styleSource.gameObject, canvas.transform, false);
+        var buttonObject = UnityEngine.Object.Instantiate(_styleTemplate!, canvas.transform, false);
         buttonObject.name = "StartNowButton";
         buttonObject.SetActive(false);
 
@@ -241,30 +238,93 @@ internal static class StartDelayReducerRuntime
 
         _uiState = new StartNowUiState(buttonObject, buttonRect, button, label, clickAction);
         LayoutButton(_uiState);
-        LogInfo($"Created host-only Start Now button on HUD canvas '{canvas.gameObject.name}' from the stock outline-button style");
+        LogInfo("Created host-only Start Now button on its screen overlay from the stock outline-button style");
         return _uiState;
     }
 
-    private static Canvas? ResolveHudCanvas()
+    private static Canvas EnsureOverlayCanvas()
     {
-        var canvases = Resources.FindObjectsOfTypeAll<Canvas>()
-            .Where(canvas =>
-                canvas is not null
-                && canvas.Pointer != IntPtr.Zero
-                && canvas.gameObject.activeInHierarchy
-                && canvas.renderMode != RenderMode.WorldSpace
-                && canvas.GetComponent<RectTransform>() is not null)
-            .OrderByDescending(canvas => canvas.sortingOrder)
-            .ThenByDescending(canvas => canvas.transform.childCount)
-            .ToArray();
-
-        if (!_loggedCanvasDiscovery)
+        try
         {
-            _loggedCanvasDiscovery = true;
-            LogInfo($"Active screen-space canvases: {string.Join("; ", canvases.Select(canvas => $"{canvas.gameObject.name}/order={canvas.sortingOrder}/children={canvas.transform.childCount}"))}");
+            if (_overlayCanvas is not null && _overlayCanvas.Pointer != IntPtr.Zero && _overlayCanvas)
+            {
+                return _overlayCanvas;
+            }
+        }
+        catch
+        {
+            _overlayCanvas = null;
         }
 
-        return canvases.FirstOrDefault();
+        var overlayObject = new GameObject("StartNowOverlay");
+        overlayObject.hideFlags = HideFlags.HideAndDontSave;
+        UnityEngine.Object.DontDestroyOnLoad(overlayObject);
+
+        var canvas = overlayObject.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvas.overrideSorting = true;
+        canvas.sortingOrder = 30000;
+        canvas.pixelPerfect = false;
+
+        var scaler = overlayObject.AddComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1920f, 1080f);
+        scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
+        scaler.matchWidthOrHeight = 0.5f;
+        overlayObject.AddComponent<GraphicRaycaster>();
+
+        _overlayCanvas = canvas;
+        return canvas;
+    }
+
+    private static void CacheStockButtonStyle()
+    {
+        if (IsAlive(_styleTemplate))
+        {
+            return;
+        }
+
+        _styleTemplate = null;
+        var styleSource = Resources.FindObjectsOfTypeAll<PortalPlayView>()
+            .Where(view => view is not null && view.Pointer != IntPtr.Zero)
+            .Select(view => view._playButton as SpookedOutlineButton)
+            .FirstOrDefault(IsCompleteStyleSource)
+            ?? Resources.FindObjectsOfTypeAll<SpookedOutlineButton>()
+            .Where(IsCompleteStyleSource)
+            .OrderBy(button => button!.gameObject.name.Contains("Report", StringComparison.OrdinalIgnoreCase))
+            .FirstOrDefault(button =>
+                button!.gameObject.name != "StartNowButton"
+                && button.gameObject.name != "StartNowStyleTemplate");
+        if (styleSource is null)
+        {
+            return;
+        }
+
+        if (!IsAlive(_styleTemplateRoot))
+        {
+            _styleTemplateRoot = new GameObject("StartNowStyleRoot");
+            _styleTemplateRoot.hideFlags = HideFlags.HideAndDontSave;
+            UnityEngine.Object.DontDestroyOnLoad(_styleTemplateRoot);
+        }
+
+        _styleTemplate = UnityEngine.Object.Instantiate(
+            styleSource.gameObject,
+            _styleTemplateRoot!.transform,
+            false);
+        _styleTemplate.name = "StartNowStyleTemplate";
+        _styleTemplate.hideFlags = HideFlags.HideAndDontSave;
+        _styleTemplate.SetActive(false);
+        _loggedMissingStyleSource = false;
+        LogInfo($"Cached Start Now style from stock button '{styleSource.gameObject.name}'");
+    }
+
+    private static bool IsCompleteStyleSource(SpookedOutlineButton? button)
+    {
+        return button is not null
+            && button.Pointer != IntPtr.Zero
+            && button._targetColorImage is not null
+            && button._targetOutlineImage is not null
+            && button.GetComponentInChildren<TMP_Text>(true) is not null;
     }
 
     private static void LayoutButton(StartNowUiState state)
@@ -363,6 +423,18 @@ internal static class StartDelayReducerRuntime
     private static bool IsAlive(MatchStateMachine? stateMachine)
     {
         return stateMachine is not null && stateMachine.Pointer != IntPtr.Zero;
+    }
+
+    private static bool IsAlive(GameObject? gameObject)
+    {
+        try
+        {
+            return gameObject;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static void LogInfo(string message)

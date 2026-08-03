@@ -9,8 +9,36 @@ using Gameplay.Spawn;
 using Types.Structs;
 using ClientCharacterType = Types.CharacterType;
 using Il2CppTasks = Il2CppSystem.Threading.Tasks;
+using Il2CppInterop.Runtime.InteropTypes.Arrays;
 
 namespace SneakOut.UnlockEverything;
+
+[HarmonyPatch(typeof(PlayerNewMetaInventory), nameof(PlayerNewMetaInventory.GetOwnedSkinParts))]
+internal static class PlayerNewMetaInventoryGetOwnedSkinPartsPatch
+{
+    private static void Postfix(ref Il2CppStructArray<SkinPartType> __result)
+    {
+        var supported = UnlockEverythingCosmeticCatalog.GetSupportedSkinParts();
+        if (supported is null || __result is null)
+        {
+            return;
+        }
+
+        var filtered = __result.Where(supported.Contains).Distinct().ToArray();
+        if (filtered.Length == __result.Length)
+        {
+            return;
+        }
+
+        var safeResult = new Il2CppStructArray<SkinPartType>(filtered.Length);
+        for (var index = 0; index < filtered.Length; index++)
+        {
+            safeResult[index] = filtered[index];
+        }
+
+        __result = safeResult;
+    }
+}
 
 [HarmonyPatch(typeof(SceneSpawner), "GetCharacterData")]
 internal static class SceneSpawnerGetCharacterDataPatch

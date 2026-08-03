@@ -17,6 +17,7 @@ internal static class LobbySkillSandboxRuntime
     private static LobbySkillSandboxConfig? _configuration;
     private static bool _lobbyUiActive;
     private static EntitySkillsComponent? _activeLobbyPropOwner;
+    private static readonly Dictionary<IntPtr, LobbyPropVisualState> LobbyPropVisuals = [];
 
     public static void Initialize(ManualLogSource logger, LobbySkillSandboxConfig configuration)
     {
@@ -180,11 +181,11 @@ internal static class LobbySkillSandboxRuntime
             return true;
         }
 
-        if (entitySkillsComponent.DuringPropChange)
+        if (HasLobbyPropVisual(entitySkillsComponent))
         {
             try
             {
-                entitySkillsComponent.ChangeFromProp();
+                RestoreLobbyPropVisual(entitySkillsComponent);
                 entitySkillsComponent.RPC_VictimPropUnChange();
                 Log("TryHandleLobbyPropChange: restored");
             }
@@ -194,16 +195,9 @@ internal static class LobbySkillSandboxRuntime
             }
             finally
             {
-                entitySkillsComponent._duringPropChange = false;
                 _activeLobbyPropOwner = null;
             }
 
-            return true;
-        }
-
-        if (!LobbyPropPool.EnsureInitialized(entitySkillsComponent))
-        {
-            Log("TryHandleLobbyPropChange: propPoolUnavailable");
             return true;
         }
 
@@ -216,24 +210,14 @@ internal static class LobbySkillSandboxRuntime
 
         try
         {
-            entitySkillsComponent.ChangeToProp(propType);
+            ApplyLobbyPropVisual(entitySkillsComponent, propType);
             entitySkillsComponent.RPC_VictimPropChange(propType);
-            entitySkillsComponent._duringPropChange = true;
             _activeLobbyPropOwner = entitySkillsComponent;
-            Log($"TryHandleLobbyPropChange: networkChanged type={propType}, internalId={playerInternalId}");
+            Log($"TryHandleLobbyPropChange: visualNetworkChanged type={propType}, internalId={playerInternalId}");
         }
         catch (Exception exception)
         {
-            try
-            {
-                entitySkillsComponent.ChangeFromProp();
-            }
-            catch
-            {
-                // The initial change may have failed before registering a prop instance.
-            }
-
-            entitySkillsComponent._duringPropChange = false;
+            RestoreLobbyPropVisual(entitySkillsComponent);
             _activeLobbyPropOwner = null;
             Warn($"Lobby prop change failed: {exception.GetType().Name}");
         }
@@ -243,45 +227,116 @@ internal static class LobbySkillSandboxRuntime
 
     private static void RestoreLobbyProp()
     {
-        if (_activeLobbyPropOwner is not EntitySkillsComponent entitySkillsComponent)
+        foreach (var state in LobbyPropVisuals.Values.ToArray())
+        {
+            RestoreLobbyPropVisual(state);
+        }
+
+        LobbyPropVisuals.Clear();
+        _activeLobbyPropOwner = null;
+    }
+
+    public static bool TryApplyLobbyPropVisual(EntitySkillsComponent entitySkillsComponent, PlayerPropType propType)
+    {
+        if (!Enabled || !_lobbyUiActive || !_configuration!.EnableLobbyPropChange.Value)
+        {
+            return false;
+        }
+
+        ApplyLobbyPropVisual(entitySkillsComponent, propType);
+        return true;
+    }
+
+    public static bool TryRestoreLobbyPropVisual(EntitySkillsComponent entitySkillsComponent)
+    {
+        if (!Enabled || !_lobbyUiActive || !_configuration!.EnableLobbyPropChange.Value)
+        {
+            return false;
+        }
+
+        RestoreLobbyPropVisual(entitySkillsComponent);
+        return true;
+    }
+
+    private static bool HasLobbyPropVisual(EntitySkillsComponent skills)
+    {
+        return skills.Pointer != IntPtr.Zero && LobbyPropVisuals.ContainsKey(skills.Pointer);
+    }
+
+    private static void ApplyLobbyPropVisual(EntitySkillsComponent skills, PlayerPropType propType)
+    {
+        RestoreLobbyPropVisual(skills);
+
+        var playerRenderers = skills.gameObject.GetComponentsInChildren<Renderer>(true)
+            .Where(renderer => renderer is not null && renderer.Pointer != IntPtr.Zero)
+            .ToArray();
+        var enabledStates = playerRenderers.Select(renderer => renderer.enabled).ToArray();
+        var visual = LobbyPropPool.CreateVisual(propType, skills.transform);
+        if (visual is null)
+        {
+            Warn($"Lobby prop visual source is unavailable for {propType}");
+            return;
+        }
+
+        foreach (var renderer in playerRenderers)
+        {
+            renderer.enabled = false;
+        }
+
+        LobbyPropVisuals[skills.Pointer] = new LobbyPropVisualState(
+            skills.Pointer,
+            visual,
+            playerRenderers,
+            enabledStates);
+    }
+
+    private static void RestoreLobbyPropVisual(EntitySkillsComponent skills)
+    {
+        if (skills.Pointer == IntPtr.Zero
+            || !LobbyPropVisuals.Remove(skills.Pointer, out var state))
         {
             return;
         }
 
-        try
+        RestoreLobbyPropVisual(state);
+    }
+
+    private static void RestoreLobbyPropVisual(LobbyPropVisualState state)
+    {
+        for (var index = 0; index < state.Renderers.Length; index++)
         {
-            if (entitySkillsComponent.DuringPropChange)
+            var renderer = state.Renderers[index];
+            try
             {
-                entitySkillsComponent.ChangeFromProp();
-                entitySkillsComponent.RPC_VictimPropUnChange();
+                if (renderer)
+                {
+                    renderer.enabled = state.EnabledStates[index];
+                }
+            }
+            catch
+            {
+                // The player can despawn while leaving the lobby.
             }
         }
-        catch (Exception exception)
+
+        try
         {
-            Warn($"Lobby prop cleanup failed: {exception.GetType().Name}");
+            if (state.Visual)
+            {
+                UnityEngine.Object.Destroy(state.Visual);
+            }
         }
-        finally
+        catch
         {
-            entitySkillsComponent._duringPropChange = false;
-            _activeLobbyPropOwner = null;
+            // The lobby scene may already have destroyed the visual.
         }
     }
 
-    public static bool PrepareLobbyPropRpc(EntitySkillsComponent entitySkillsComponent)
-    {
-        if (!Enabled || !_lobbyUiActive || !_configuration!.EnableLobbyPropChange.Value)
-        {
-            return true;
-        }
-
-        if (LobbyPropPool.EnsureInitialized(entitySkillsComponent))
-        {
-            return true;
-        }
-
-        Warn("Suppressed lobby prop RPC because this client could not initialize its lobby prop pool.");
-        return false;
-    }
+    private sealed record LobbyPropVisualState(
+        IntPtr Owner,
+        GameObject Visual,
+        Renderer[] Renderers,
+        bool[] EnabledStates);
 
     private static void TryInjectViewModel(PlayerActionsView playerActionsView)
     {

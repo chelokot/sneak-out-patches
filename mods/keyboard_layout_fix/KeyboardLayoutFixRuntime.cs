@@ -129,7 +129,11 @@ internal static class KeyboardLayoutFixRuntime
             }
         }
 
-        if (physicalMask == _lastPhysicalLetterMask)
+        // Wine's translated keyboard event can overwrite our physical state on the next Input
+        // System update. Reassert held letters every frame; an edge-only event made WASD work for
+        // a single frame and then stop until the key was released and pressed again. Once every
+        // managed letter is released, one zero-state event is enough.
+        if (physicalMask == 0 && _lastPhysicalLetterMask == 0)
         {
             return;
         }

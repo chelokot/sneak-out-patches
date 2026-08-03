@@ -33,8 +33,8 @@ internal sealed class LobbySkillSandboxConfig
         var enableMod = configFile.Bind(
             "general",
             "EnableMod",
-            false,
-            "Enable the experimental lobby-only penguin skill sandbox.");
+            true,
+            "Enable the lobby-only penguin skill panel and supported lobby slide.");
         var enableLobbySkillUi = configFile.Bind(
             "general",
             "EnableLobbySkillUi",
@@ -48,8 +48,8 @@ internal sealed class LobbySkillSandboxConfig
         var enableLobbyPropChange = configFile.Bind(
             "general",
             "EnableLobbyPropChange",
-            false,
-            "Allow prop-change only when the lobby has a real room and initialized gameplay prop pool.");
+            true,
+            "Allow networked lobby prop-change using lobby scenery. Every lobby participant must run this mod.");
         var enableLogging = configFile.Bind(
             "general",
             "EnableLogging",

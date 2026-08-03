@@ -62,6 +62,7 @@ internal static class LobbyTestBotRuntime
     private static bool _diagnosticMatchCaptured;
     private static float _diagnosticBotPresentCaptureAt = -1f;
     private static float _diagnosticBotRemovedCaptureAt = -1f;
+    private static float _lobbyPlayersPanelRefreshAt = -1f;
     private static string? _diagnosticFlowCaptureDirectory;
     private static float _diagnosticFlowCaptureStartedAt = -1f;
     private static float _diagnosticFlowCaptureNextAt;
@@ -173,6 +174,7 @@ internal static class LobbyTestBotRuntime
         try
         {
             TryCaptureDiagnosticFlow();
+            TryRefreshLobbyPlayersPanel();
             TryInitializeDeferredPlayerIndicators();
             ObservePendingOperation();
             MaintainMatchBot();
@@ -366,7 +368,31 @@ internal static class LobbyTestBotRuntime
             _diagnosticBotRemovedCaptureAt = Time.unscaledTime + 1f;
         }
         ForgetManagedBot(preserveMatchIntent);
+        _lobbyPlayersPanelRefreshAt = Time.unscaledTime + 0.1f;
         RefreshAllButtons();
+    }
+
+    private static void TryRefreshLobbyPlayersPanel()
+    {
+        if (_lobbyPlayersPanelRefreshAt < 0f || Time.unscaledTime < _lobbyPlayersPanelRefreshAt)
+        {
+            return;
+        }
+
+        _lobbyPlayersPanelRefreshAt = -1f;
+        var panel = _gameUiManager?._lobbyPlayersPanel;
+        if (panel is null || panel.Pointer == IntPtr.Zero)
+        {
+            return;
+        }
+
+        AccessTools.DeclaredMethod(typeof(UI.LobbyPlayersPanel), "Refresh").Invoke(
+            panel,
+            Array.Empty<object>());
+        if (LoggingEnabled)
+        {
+            _logger?.LogInfo("Refreshed lobby player cards after authoritative bot removal");
+        }
     }
 
     public static void IncludeManagedBotInPartyCount(ref int teamCount)

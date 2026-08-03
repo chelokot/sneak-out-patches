@@ -107,24 +107,36 @@ Core and gameplay mods:
 - `unlock-everything`
   Profile overlay, local apply hooks, persistence, and live sync work.
 - `start-delay-reducer`
-  Reduces host-side pre-match delays.
+  Keeps the stock connection grace period and adds an authoritative host-only `Start now` action.
+- `locker-stun-fix`
+  Prevents post-open locker stuns and cancels stale locker-exit movement after a Butcher hook.
+- `chair-wall-throw-fix`
+  Clears a small release overlap so held chairs remain throwable beside level geometry.
+- `pumpkin-radius-indicator-fix`
+  Makes the pumpkin danger ring match its authoritative instant-kill radius.
+- `ripper-corner-blink-fix`
+  Fixes exact shared-corner traversal for Ripper's equipped through-wall blink perk; normal blink is untouched.
 - `background-loading-guard`
   Keeps the game responsive during scene loading without changing the normal background-running preference.
+- `keyboard-layout-fix`
+  Keeps physical controls usable and refreshes displayed key labels across keyboard-layout changes.
+- `proximity-voice-chat`
+  Adds Steam-relayed spatial voice with push-to-talk, activation modes, occlusion, and living/ghost channels.
 - `friend-invite-unlock`
   Keeps offline friends inviteable from the lobby list.
-- `lobby-test-bot`
-  Host-only portal button that adds or removes one inert network player for solo match-start testing.
+- `lobby-skill-sandbox`
+  Enables the lobby penguin skill panel, slide, and networked prop-change using models already loaded by the lobby; every participant must run the mod for prop-change.
 
 Experimental and debug mods:
 
-- `lobby-skill-sandbox`
-  Opt-in lobby-only penguin skill sandbox. Slide is supported; prop-change runs only when explicitly enabled and backed by initialized gameplay room data.
+- `lobby-test-bot`
+  Opt-in host-only portal button that adds or removes one inert network player for solo match-start testing.
 - `free-fly`
   Vertical free-fly debugging controls.
 - `runtime-profiler`
   Managed method profiler for narrow runtime investigations.
 
-The patcher enables stable gameplay mods, including the lobby test bot, by default. Experimental and debug mods are opt-in.
+The patcher enables the lobby skill panel, slide, and networked prop-change by default. Prop-change assumes every lobby participant has the mod. The test bot, free-fly, and runtime profiler remain opt-in.
 
 ## Common commands
 

@@ -64,13 +64,46 @@
   {
     "option_id": "locker-stun-fix",
     "label": "Locker Stun Fix",
-    "details": "Prevents a penguin from stunning nearby seekers after a seeker has already opened that locker.",
+    "details": "Prevents post-open locker stuns and stops an unfinished locker exit from snapping a Butcher-hooked player back.",
     "category": "gameplay",
     "default_enabled": true,
     "project_relative_path": "mods/locker_stun_fix/LockerStunFix.csproj",
     "assembly_name": "SneakOut.LockerStunFix",
     "config_relative_path": "BepInEx/config/chelokot.sneakout.locker-stun-fix.cfg",
     "default_config_template_path": "config_templates/runtime_mods/locker-stun-fix.cfg"
+  },
+  {
+    "option_id": "chair-wall-throw-fix",
+    "label": "Chair Wall Throw Fix",
+    "details": "Clears only a small held-chair overlap at release so a chair can still be thrown while its player is flush against level geometry.",
+    "category": "gameplay",
+    "default_enabled": true,
+    "project_relative_path": "mods/chair_wall_throw_fix/ChairWallThrowFix.csproj",
+    "assembly_name": "SneakOut.ChairWallThrowFix",
+    "config_relative_path": "BepInEx/config/chelokot.sneakout.chair-wall-throw-fix.cfg",
+    "default_config_template_path": "config_templates/runtime_mods/chair-wall-throw-fix.cfg"
+  },
+  {
+    "option_id": "pumpkin-radius-indicator-fix",
+    "label": "Pumpkin Radius Indicator Fix",
+    "details": "Compensates the pumpkin prefab's parent scale so its visible danger ring matches the authoritative instant-kill radius.",
+    "category": "gameplay",
+    "default_enabled": true,
+    "project_relative_path": "mods/pumpkin_radius_indicator_fix/PumpkinRadiusIndicatorFix.csproj",
+    "assembly_name": "SneakOut.PumpkinRadiusIndicatorFix",
+    "config_relative_path": "BepInEx/config/chelokot.sneakout.pumpkin-radius-indicator-fix.cfg",
+    "default_config_template_path": "config_templates/runtime_mods/pumpkin-radius-indicator-fix.cfg"
+  },
+  {
+    "option_id": "ripper-corner-blink-fix",
+    "label": "Ripper Corner Blink Fix",
+    "details": "Fixes the ReaperHelloThere through-wall perk at the game's dedicated Intersections-layer room junctions; without that perk, stock blink remains untouched.",
+    "category": "gameplay",
+    "default_enabled": true,
+    "project_relative_path": "mods/ripper_corner_blink_fix/RipperCornerBlinkFix.csproj",
+    "assembly_name": "SneakOut.RipperCornerBlinkFix",
+    "config_relative_path": "BepInEx/config/chelokot.sneakout.ripper-corner-blink-fix.cfg",
+    "default_config_template_path": "config_templates/runtime_mods/ripper-corner-blink-fix.cfg"
   },
   {
     "option_id": "background-loading-guard",
@@ -95,6 +128,17 @@
     "default_config_template_path": "config_templates/runtime_mods/keyboard-layout-fix.cfg"
   },
   {
+    "option_id": "proximity-voice-chat",
+    "label": "Proximity Voice Chat",
+    "details": "Adds Steam-relayed spatial voice with push-to-talk, voice activation, stock-style audio settings, distance/occlusion, and living/ghost channel separation.",
+    "category": "gameplay",
+    "default_enabled": true,
+    "project_relative_path": "mods/proximity_voice_chat/ProximityVoiceChat.csproj",
+    "assembly_name": "SneakOut.ProximityVoiceChat",
+    "config_relative_path": "BepInEx/config/chelokot.sneakout.proximity-voice-chat.cfg",
+    "default_config_template_path": "config_templates/runtime_mods/proximity-voice-chat.cfg"
+  },
+  {
     "option_id": "friend-invite-unlock",
     "label": "Friend Invite Unlock",
     "details": "Builds and installs the BepInEx runtime mod that keeps offline friends inviteable from the lobby list.",
@@ -108,9 +152,9 @@
   {
     "option_id": "lobby-skill-sandbox",
     "label": "Lobby Skill Sandbox",
-    "details": "Builds the opt-in BepInEx sandbox for lobby penguin skill testing. Prop-change additionally requires a real room and initialized gameplay prop pool.",
-    "category": "experimental",
-    "default_enabled": false,
+    "details": "Enables the lobby penguin skill panel, slide, and networked prop-change backed by lobby scenery. Prop-change requires the mod on every participant.",
+    "category": "gameplay",
+    "default_enabled": true,
     "project_relative_path": "mods/lobby_skill_sandbox/LobbySkillSandbox.csproj",
     "assembly_name": "SneakOut.LobbySkillSandbox",
     "config_relative_path": "BepInEx/config/chelokot.sneakout.lobby-skill-sandbox.cfg",
@@ -120,8 +164,8 @@
     "option_id": "lobby-test-bot",
     "label": "Lobby Test Bot",
     "details": "Installs the host-only portal tool that spawns one inert Fusion player through the game's native bot initializer and starts private test matches with it.",
-    "category": "gameplay",
-    "default_enabled": true,
+    "category": "debug",
+    "default_enabled": false,
     "project_relative_path": "mods/lobby_test_bot/LobbyTestBot.csproj",
     "assembly_name": "SneakOut.LobbyTestBot",
     "config_relative_path": "BepInEx/config/chelokot.sneakout.lobby-test-bot.cfg",

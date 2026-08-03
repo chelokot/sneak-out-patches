@@ -1,12 +1,15 @@
 using BepInEx.Logging;
 using Gameplay.Interactions;
+using Gameplay.Skills;
 using HarmonyLib;
+using UnityEngine;
 
 namespace SneakOut.LockerStunFix;
 
 internal static class LockerStunFixRuntime
 {
     private static readonly HashSet<IntPtr> SeekerOpenedLockers = new();
+    private static readonly Dictionary<int, float> HookedPlayerExpiry = new();
 
     private static ManualLogSource? _logger;
     private static Harmony? _harmony;
@@ -56,6 +59,52 @@ internal static class LockerStunFixRuntime
         {
             SeekerOpenedLockers.Remove(locker.Pointer);
         }
+    }
+
+    public static void MarkHookedPlayer(ButcherHook hook)
+    {
+        if (_configuration?.EnableMod.Value != true
+            || _configuration.FixHookExitSnap.Value != true
+            || hook.Pointer == IntPtr.Zero)
+        {
+            return;
+        }
+
+        var playerId = hook._hookedPlayerId;
+        if (playerId < 0 || playerId == hook._butcherInternalId)
+        {
+            return;
+        }
+
+        try
+        {
+            var player = hook._networkPlayerRegistry?[playerId];
+            if (player is null || player.Pointer == IntPtr.Zero)
+            {
+                return;
+            }
+        }
+        catch
+        {
+            return;
+        }
+
+        HookedPlayerExpiry[playerId] = Time.unscaledTime + 4f;
+        LogInfo($"Tracked Butcher hook target {playerId} for locker-exit cancellation");
+    }
+
+    public static bool ShouldCancelExitLerp(int playerId)
+    {
+        if (_configuration?.EnableMod.Value != true
+            || _configuration.FixHookExitSnap.Value != true
+            || !HookedPlayerExpiry.Remove(playerId, out var expiresAt)
+            || Time.unscaledTime > expiresAt)
+        {
+            return false;
+        }
+
+        LogInfo($"Cancelled stale locker-exit movement for hooked player {playerId}");
+        return true;
     }
 
     private static void LogInfo(string message)

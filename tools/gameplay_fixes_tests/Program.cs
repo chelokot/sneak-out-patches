@@ -1,4 +1,6 @@
 using SneakOut.ChairWallThrowFix;
+using SneakOut.MagicWardrobeHookFix;
+using SneakOut.NetworkHostSelector;
 using SneakOut.PumpkinRadiusIndicatorFix;
 using SneakOut.RipperCornerBlinkFix;
 
@@ -21,6 +23,20 @@ RequireClose(releaseCandidates[0], 0.1f, "chair release first step changed");
 RequireClose(releaseCandidates[1], 0.2f, "chair release second step changed");
 RequireClose(releaseCandidates[2], 0.25f, "chair release maximum was exceeded");
 Require(!ChairReleasePolicy.CandidateDistances(float.NaN).Any(), "chair release accepted a non-finite maximum");
+
+var wardrobeHook = new MagicWardrobeHookPolicy();
+Require(!wardrobeHook.RecordHook(7, 1f, 4f), "hook armed without an active magic-wardrobe entry");
+Require(!wardrobeHook.BeginStep(7, true, 2f), "ordinary magic-wardrobe entry was cancelled");
+Require(wardrobeHook.RecordHook(7, 2.1f, 4f), "active magic-wardrobe entry did not accept a hook interruption");
+Require(wardrobeHook.BeginStep(7, true, 2.2f), "hooked magic-wardrobe entry was not cancelled");
+Require(!wardrobeHook.BeginStep(7, true, 2.3f), "one hook interruption cancelled more than one coroutine step");
+wardrobeHook.End(7);
+Require(!wardrobeHook.RecordHook(7, 3f, 4f), "completed magic-wardrobe entry remained armed");
+Require(!wardrobeHook.BeginStep(8, false, 3f), "magic-wardrobe exit was treated as an entry");
+Require(!wardrobeHook.RecordHook(8, 3.1f, 4f), "magic-wardrobe exit armed the entry hook fix");
+Require(!wardrobeHook.BeginStep(9, true, 3f), "ordinary entry was cancelled before a hook");
+Require(wardrobeHook.RecordHook(9, 3.1f, 1f), "active entry did not record expiring hook marker");
+Require(!wardrobeHook.BeginStep(9, true, 4.2f), "expired hook marker cancelled a later wardrobe step");
 
 Require(
     PumpkinIndicatorScalePolicy.TryCalculate(3f, new Scale3(0.8f, 0.8f, 0.8f), out var pumpkinScale),
@@ -81,4 +97,43 @@ Require(
     !SharedCornerPolicy.ShouldBypass(true, 5f, intersectionLayer, Array.Empty<PathBlocker>()),
     "a clear path incorrectly took the custom RPC path");
 
-Console.WriteLine("Chair release, pumpkin indicator, and perk-gated room-junction blink policy tests passed.");
+foreach (var expected in new[]
+         {
+             new HostSelectionMessage(HostSelectionMessageType.Hello, 0, 0),
+             new HostSelectionMessage(HostSelectionMessageType.SelectRequest, 17, 4),
+             new HostSelectionMessage(HostSelectionMessageType.ProposalAck, 23, 0),
+         })
+{
+    var encoded = HostSelectionProtocol.Encode(expected.Type, expected.Revision, expected.TargetPlayerRaw);
+    Require(encoded.Length == HostSelectionProtocol.PayloadLength, "host selection protocol payload length changed");
+    Require(HostSelectionProtocol.TryDecode(encoded, out var decoded), "valid host selection packet was rejected");
+    Require(decoded == expected, "host selection packet did not round-trip");
+}
+var invalidHostPacket = HostSelectionProtocol.Encode(HostSelectionMessageType.Hello);
+invalidHostPacket[4]++;
+Require(!HostSelectionProtocol.TryDecode(invalidHostPacket, out _), "mismatched host selector protocol version was accepted");
+Require(
+    !HostSelectionProtocol.TryDecode(invalidHostPacket[..^1], out _),
+    "truncated host selector packet was accepted");
+var signatureA = HostSelectionProtocol.ComputeMembershipSignature(new[]
+{
+    (3, "steam-c"),
+    (1, "steam-a"),
+    (2, "steam-b"),
+});
+var signatureB = HostSelectionProtocol.ComputeMembershipSignature(new[]
+{
+    (2, "steam-b"),
+    (3, "steam-c"),
+    (1, "steam-a"),
+});
+var signatureDifferent = HostSelectionProtocol.ComputeMembershipSignature(new[]
+{
+    (1, "steam-a"),
+    (2, "steam-b"),
+    (3, "steam-other"),
+});
+Require(signatureA == signatureB, "host selector membership signature depends on enumeration order");
+Require(signatureA != signatureDifferent, "host selector membership signature ignored a changed identity");
+
+Console.WriteLine("Gameplay fixes and synchronized host-selection protocol tests passed.");

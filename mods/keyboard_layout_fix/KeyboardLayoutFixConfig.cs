@@ -26,7 +26,7 @@ internal sealed class KeyboardLayoutFixConfig
             "general",
             "EnableMod",
             true,
-            "Keep physical keyboard controls and their displayed labels synchronized with the active Windows keyboard layout.");
+            "Refresh displayed key labels when the keyboard layout changes. Physical Proton input is handled by the installer's per-game XIM setting.");
         var enableLogging = configFile.Bind(
             "diagnostics",
             "EnableLogging",

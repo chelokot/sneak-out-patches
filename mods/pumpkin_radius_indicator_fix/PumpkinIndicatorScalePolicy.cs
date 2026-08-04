@@ -7,6 +7,7 @@ internal static class PumpkinIndicatorScalePolicy
 {
     private const float MinimumParentScale = 0.0001f;
     public const float StunIndicatorOpacity = 0.2f;
+    public const float ExplosionIndicatorDurationSeconds = 1.5f;
 
     public static bool TryResolveRadii(float skillRange, float stunExtension, out PumpkinRadii radii)
     {

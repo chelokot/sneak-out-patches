@@ -8,7 +8,7 @@ public sealed class PropBuffPlugin : BasePlugin
 {
     public const string PluginGuid = "chelokot.sneakout.prop-buff";
     public const string PluginName = "Prop Buff";
-    public const string PluginVersion = "0.1.1";
+    public const string PluginVersion = "0.1.2";
 
     public override void Load()
     {

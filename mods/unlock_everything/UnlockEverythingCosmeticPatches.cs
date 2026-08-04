@@ -12,6 +12,18 @@ using Il2CppTasks = Il2CppSystem.Threading.Tasks;
 
 namespace SneakOut.UnlockEverything;
 
+[HarmonyPatch(typeof(SpookedShopNewMeta), nameof(SpookedShopNewMeta.GetAllSkinTypeProducts))]
+internal static class SpookedShopNewMetaGetAllSkinTypeProductsPatch
+{
+    private static void Prefix(SpookedShopNewMeta __instance)
+    {
+        if (UnlockEverythingRuntime.UseProfileOverlay)
+        {
+            UnlockEverythingStub.ApplySkinProductsToShop(__instance);
+        }
+    }
+}
+
 [HarmonyPatch(typeof(SceneSpawner), "GetCharacterData")]
 internal static class SceneSpawnerGetCharacterDataPatch
 {
@@ -145,35 +157,6 @@ internal static class PlayerNewMetaInventoryEmoteChangePatch
 [HarmonyPatch(typeof(PlayerNewMetaInventory), nameof(PlayerNewMetaInventory.ChangeSkinEquipped))]
 internal static class PlayerNewMetaInventoryChangeSkinEquippedPatch
 {
-    private static SkinType? _pendingSkinType;
-    private static SkinPartType? _pendingSkinPartType;
-
-    public static bool TryConsumePendingSkinType(out SkinType skinType)
-    {
-        if (_pendingSkinType.HasValue)
-        {
-            skinType = _pendingSkinType.Value;
-            _pendingSkinType = null;
-            return true;
-        }
-
-        skinType = SkinType.None;
-        return false;
-    }
-
-    public static bool TryConsumePendingSkinPartType(out SkinPartType skinPartType)
-    {
-        if (_pendingSkinPartType.HasValue)
-        {
-            skinPartType = _pendingSkinPartType.Value;
-            _pendingSkinPartType = null;
-            return true;
-        }
-
-        skinPartType = SkinPartType.None;
-        return false;
-    }
-
     private static bool Prefix(PlayerNewMetaInventory __instance, SkinPartType partType, SkinType skinType, ClientCharacterType characterType, ref Il2CppTasks.Task __result)
     {
         UnlockEverythingSelections.RememberInventory(__instance);
@@ -185,8 +168,6 @@ internal static class PlayerNewMetaInventoryChangeSkinEquippedPatch
             return true;
         }
 
-        _pendingSkinType = skinType;
-        _pendingSkinPartType = partType;
         __result = Il2CppTasks.Task.CompletedTask;
         return false;
     }
@@ -223,136 +204,6 @@ internal static class CustomizeCharacterNewMetaViewOnEquipButtonLoggingPatch
     private static void Postfix()
     {
         UnlockEverythingRuntime.LogSkinRefreshEvent("CustomizeCharacterNewMetaView.OnEquipButton", 0);
-    }
-}
-
-[HarmonyPatch(typeof(CustomizeCharacterNewMetaView), "CostumeChange")]
-internal static class CustomizeCharacterNewMetaViewCostumeChangePatch
-{
-    private static void Postfix(CustomizeCharacterNewMetaView __instance, Il2CppTasks.Task __result)
-    {
-        if (!UnlockEverythingRuntime.UsePersistentSelections || __result is null)
-        {
-            return;
-        }
-
-        try
-        {
-            if (__result.IsCompletedSuccessfully)
-            {
-                RefreshCostumeView(__instance);
-                return;
-            }
-
-            UnlockEverythingRuntime.ContinueOnMainThread(
-                __result,
-                () => RefreshCostumeView(__instance),
-                "Unlock Everything CustomizeCharacterNewMetaView.CostumeChange postfix failed");
-        }
-        catch (Exception exception)
-        {
-            UnlockEverythingRuntime.LogError("Unlock Everything CustomizeCharacterNewMetaView.CostumeChange postfix failed", exception);
-        }
-    }
-
-    private static void RefreshCostumeView(CustomizeCharacterNewMetaView view)
-    {
-        try
-        {
-            var currentSkinType = PlayerNewMetaInventoryChangeSkinEquippedPatch.TryConsumePendingSkinType(out var pendingSkinType)
-                ? pendingSkinType
-                : view._currentSkinType;
-            var currentSkinPartType = PlayerNewMetaInventoryChangeSkinEquippedPatch.TryConsumePendingSkinPartType(out var pendingSkinPartType)
-                ? pendingSkinPartType
-                : view._currentSkinPartType;
-            UnlockEverythingRuntime.LogSkinPreview("CustomizeCharacterNewMetaView.CostumeChange:refresh", 0, currentSkinType, currentSkinPartType, true);
-            if (currentSkinType == SkinType.None)
-            {
-                return;
-            }
-
-            view._currentSkinType = currentSkinType;
-            view._currentSkinPartType = currentSkinPartType;
-            view._currentCategorySelectedIndex = GetCategoryIndex(currentSkinType);
-            InvokeCategoryView(view, currentSkinType);
-            UnlockEverythingRuntime.LogCostumePieces("CustomizeCharacterNewMetaView.CostumeChange:afterShowCostume", view);
-            view.CurrentCostumeSelectedSprite(currentSkinType);
-            if (currentSkinPartType != SkinPartType.None)
-            {
-                view.ChangeSelectedSprite(currentSkinPartType);
-            }
-
-            UnlockEverythingRuntime.LogCostumePieces("CustomizeCharacterNewMetaView.CostumeChange:afterSelectionRefresh", view);
-            UnlockEverythingSelections.SyncPreviewCharacterData(currentSkinType, currentSkinPartType);
-            TryRefreshPreviewModel(currentSkinType, currentSkinPartType);
-        }
-        catch (Exception exception)
-        {
-            UnlockEverythingRuntime.LogError("Backend stabilizer CustomizeCharacterNewMetaView.CostumeChange refresh failed", exception);
-        }
-    }
-
-    private static int GetCategoryIndex(SkinType skinType)
-    {
-        return skinType switch
-        {
-            SkinType.Head => 0,
-            SkinType.Hands => 1,
-            SkinType.Chest => 2,
-            SkinType.Legs => 3,
-            SkinType.Back => 4,
-            SkinType.Whole => 5,
-            _ => 0
-        };
-    }
-
-    private static void InvokeCategoryView(CustomizeCharacterNewMetaView view, SkinType skinType)
-    {
-        switch (skinType)
-        {
-            case SkinType.Head:
-                view.ShowHeadTypes();
-                break;
-            case SkinType.Hands:
-                view.ShowArmsTypes();
-                break;
-            case SkinType.Chest:
-                view.ShowTorsoTypes();
-                break;
-            case SkinType.Legs:
-                view.ShowLegsTypes();
-                break;
-            case SkinType.Back:
-                view.ShowBackTypes();
-                break;
-            case SkinType.Whole:
-                view.ShowWholeTypes();
-                break;
-        }
-    }
-
-    private static void TryRefreshPreviewModel(SkinType skinType, SkinPartType skinPartType)
-    {
-        try
-        {
-            var previewViews = UnityEngine.Resources.FindObjectsOfTypeAll<PlayerCustomizationView>();
-            UnlockEverythingRuntime.LogSkinPreview("CustomizeCharacterNewMetaView.CostumeChange:previewViews", previewViews.Length, skinType, skinPartType, true);
-
-            foreach (var previewView in previewViews)
-            {
-                if (previewView is null)
-                {
-                    continue;
-                }
-
-                previewView.TryPreviewOutfit(skinPartType, skinType);
-                UnlockEverythingRuntime.LogSkinPreview("CustomizeCharacterNewMetaView.CostumeChange:previewInvoked", 0, skinType, skinPartType, true);
-            }
-        }
-        catch (Exception exception)
-        {
-            UnlockEverythingRuntime.LogError("Backend stabilizer CustomizeCharacterNewMetaView preview refresh failed", exception);
-        }
     }
 }
 

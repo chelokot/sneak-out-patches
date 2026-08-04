@@ -65,7 +65,15 @@ internal static class PropBuffRuntime
             }
 
             var multiplier = Mathf.Clamp(_configuration.MovementSpeedMultiplier.Value, 0.05f, 0.75f);
-            inputController._moveDirection *= multiplier;
+            var movement = inputController._moveDirection;
+            if (movement.sqrMagnitude < 0.0001f)
+            {
+                movement = ReadPhysicalMovement();
+            }
+
+            inputController._moveDirection = movement.sqrMagnitude > 1f
+                ? movement.normalized * multiplier
+                : movement * multiplier;
         }
         catch (Exception exception)
         {
@@ -188,11 +196,43 @@ internal static class PropBuffRuntime
 
         return PropTypes[(index + direction + PropTypes.Length) % PropTypes.Length];
     }
+
+    private static Vector2 ReadPhysicalMovement()
+    {
+        var keyboard = Keyboard.current;
+        if (keyboard is null)
+        {
+            return Vector2.zero;
+        }
+
+        var horizontal = 0f;
+        var vertical = 0f;
+        if (keyboard.aKey.isPressed || keyboard.leftArrowKey.isPressed)
+        {
+            horizontal -= 1f;
+        }
+        if (keyboard.dKey.isPressed || keyboard.rightArrowKey.isPressed)
+        {
+            horizontal += 1f;
+        }
+        if (keyboard.sKey.isPressed || keyboard.downArrowKey.isPressed)
+        {
+            vertical -= 1f;
+        }
+        if (keyboard.wKey.isPressed || keyboard.upArrowKey.isPressed)
+        {
+            vertical += 1f;
+        }
+
+        var movement = new Vector2(horizontal, vertical);
+        return movement.sqrMagnitude > 1f ? movement.normalized : movement;
+    }
 }
 
 [HarmonyPatch(typeof(PlayerInputController), "ResolveLocalInputs")]
 internal static class PlayerInputControllerResolveLocalInputsPatch
 {
+    [HarmonyPriority(Priority.Last)]
     private static void Postfix(PlayerInputController __instance)
     {
         PropBuffRuntime.ApplyPropMovementSpeed(__instance);

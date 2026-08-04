@@ -8,11 +8,11 @@ These fixes target three independent client 1.1.10 defects. They are separate pl
 
 `chair-wall-throw-fix` keeps the throw interaction available for the player already holding the chair. On Fusion state authority, if the slightly shrunken chair bounds overlap a non-trigger collider, it searches at 0.1 m intervals for a free release point toward the thrower, bounded by `MaximumReleaseCorrection` (0.65 m by default). It ignores the chair itself and all player colliders, so it does not prevent a throw aimed at another player. The original throw, collision, force, stamina, and hit logic still run unchanged.
 
-## Pumpkin danger indicator
+## Pumpkin trigger, kill, and stun indicators
 
-The authoritative explosion coroutine reads `Gameplay.GetSkillSettings(ScarecrowPumpkinBomb).Range` for the instant-kill radius. It separately adds `ScarecrowBombStunRange` for the outer stun query. `PumpkinBomb.ShowRange(bool)` only activates the prefab indicator; it never aligns its scale to either value.
+The authoritative `PumpkinBomb.Tick()` query and the instant-kill branch of the explosion coroutine both read `Gameplay.GetSkillSettings(ScarecrowPumpkinBomb).Range`. The outer stun query separately adds `ScarecrowBombStunRange`. `PumpkinBomb.ShowRange(bool)` only activates the prefab indicator; it never aligns its scale to those live settings.
 
-In the shipped `resources.assets`, `VFX_PumpkinEngageRange` has local scale 3 while its pumpkin parent has scale 0.8, producing a world radius of 2.4 instead of the configured 3. `pumpkin-radius-indicator-fix` derives local scale from the live kill range divided by the parent's lossy scale, so backend/config changes remain authoritative. It does not alter damage, stun range, targeting, or line-of-sight checks.
+In the shipped `resources.assets`, `VFX_PumpkinEngageRange` has local scale 3 while its pumpkin parent has scale 0.8, producing a world radius of 2.4 instead of the configured 3. `pumpkin-radius-indicator-fix` derives local scale from the live range divided by the parent's lossy scale, so backend/config changes remain authoritative. The persistent hunter-only ring now matches the trigger radius. When a victim triggers the bomb, two copies of the stock ring effect appear: the full-opacity kill radius and the outer stun radius at 20% opacity. The plugin does not alter damage, stun, triggering, targeting, or line-of-sight checks.
 
 ## Ripper blink through a shared corner
 

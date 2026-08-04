@@ -44,6 +44,32 @@ Require(LocalSkinEconomy.DisplayedGold(5_000, 0) == 5_000, "empty local skin led
 Require(LocalSkinEconomy.DisplayedGold(int.MaxValue, int.MaxValue) == 0, "local skin ledger overflowed");
 Require(LocalSkinEconomy.CanPurchase(1_000), "exactly 1000 Gold could not buy a skin part");
 Require(!LocalSkinEconomy.CanPurchase(999), "skin purchase accepted less than 1000 Gold");
+var initialGoldOverlay = LocalSkinEconomy.ResolveOverlay(1_322, 0, null, 0);
+Require(initialGoldOverlay.DisplayedGold == 1_322, "empty local ledger changed initial server Gold");
+var stockDebitedGoldOverlay = LocalSkinEconomy.ResolveOverlay(
+    322,
+    1,
+    initialGoldOverlay.DisplayedGold,
+    initialGoldOverlay.ChargedPurchaseCount);
+Require(
+    stockDebitedGoldOverlay.DisplayedGold == 322,
+    "stock shop continuation was charged a second time by the local ledger");
+var earlyRefreshGoldOverlay = LocalSkinEconomy.ResolveOverlay(
+    1_322,
+    1,
+    initialGoldOverlay.DisplayedGold,
+    initialGoldOverlay.ChargedPurchaseCount);
+Require(
+    earlyRefreshGoldOverlay.DisplayedGold == 322,
+    "local ledger did not charge a refresh that preceded the stock continuation");
+var serverRefreshGoldOverlay = LocalSkinEconomy.ResolveOverlay(
+    1_322,
+    1,
+    stockDebitedGoldOverlay.DisplayedGold,
+    stockDebitedGoldOverlay.ChargedPurchaseCount);
+Require(
+    serverRefreshGoldOverlay.DisplayedGold == 322,
+    "authoritative server refresh did not preserve the local-only purchase debit");
 var completeSkinCatalog = SkinPartCatalogPolicy.AllConcreteEnumValues(TestSkinPart.None);
 Require(
     completeSkinCatalog.SequenceEqual(new[] { TestSkinPart.VisibleHead, TestSkinPart.HiddenWhole }),
@@ -95,6 +121,16 @@ RequireClose(pumpkinScale.X * 0.8f, 3f, "pumpkin world radius does not match kil
 Require(
     !PumpkinIndicatorScalePolicy.TryCalculate(3f, new Scale3(0f, 0.8f, 0.8f), out _),
     "pumpkin scale compensation divided by a zero parent axis");
+Require(
+    PumpkinIndicatorScalePolicy.TryResolveRadii(3f, 2f, out var pumpkinRadii),
+    "pumpkin radii rejected valid live settings");
+RequireClose(pumpkinRadii.Trigger, 3f, "pumpkin trigger radius diverged from the native query range");
+RequireClose(pumpkinRadii.Kill, 3f, "pumpkin kill radius diverged from the native instant-kill range");
+RequireClose(pumpkinRadii.Stun, 5f, "pumpkin stun radius did not include the outer stun extension");
+RequireClose(PumpkinIndicatorScalePolicy.StunIndicatorOpacity, 0.2f, "pumpkin stun indicator opacity changed");
+Require(
+    !PumpkinIndicatorScalePolicy.TryResolveRadii(3f, -1f, out _),
+    "pumpkin radii accepted a negative stun extension");
 
 const int intersectionLayer = 15;
 Require(

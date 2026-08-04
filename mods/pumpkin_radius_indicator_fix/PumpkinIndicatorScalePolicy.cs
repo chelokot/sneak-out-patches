@@ -1,10 +1,27 @@
 namespace SneakOut.PumpkinRadiusIndicatorFix;
 
 internal readonly record struct Scale3(float X, float Y, float Z);
+internal readonly record struct PumpkinRadii(float Trigger, float Kill, float Stun);
 
 internal static class PumpkinIndicatorScalePolicy
 {
     private const float MinimumParentScale = 0.0001f;
+    public const float StunIndicatorOpacity = 0.2f;
+
+    public static bool TryResolveRadii(float skillRange, float stunExtension, out PumpkinRadii radii)
+    {
+        radii = default;
+        if (!float.IsFinite(skillRange) || skillRange <= 0f
+            || !float.IsFinite(stunExtension) || stunExtension < 0f)
+        {
+            return false;
+        }
+
+        // The current client uses SkillSettings.Range both for the periodic trigger query and
+        // for the instant-kill comparison. Only the outer stun query adds the gameplay setting.
+        radii = new PumpkinRadii(skillRange, skillRange, skillRange + stunExtension);
+        return float.IsFinite(radii.Stun) && radii.Stun > 0f;
+    }
 
     public static bool TryCalculate(float radius, Scale3 parentLossyScale, out Scale3 localScale)
     {

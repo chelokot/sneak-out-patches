@@ -20,7 +20,7 @@ internal sealed class PumpkinRadiusIndicatorFixConfig
             "general",
             "EnableMod",
             true,
-            "Scale the pumpkin's visible danger ring to the authoritative instant-kill radius.");
+            "Align the hunter trigger ring and the triggered kill/stun effects to their authoritative radii.");
         var enableLogging = configFile.Bind(
             "general",
             "EnableLogging",

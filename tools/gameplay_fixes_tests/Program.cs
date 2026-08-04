@@ -1,5 +1,6 @@
 using SneakOut.ChairWallThrowFix;
 using SneakOut.KeyboardLayoutFix;
+using SneakOut.LockerStunFix;
 using SneakOut.MagicWardrobeHookFix;
 using SneakOut.NetworkHostSelector;
 using SneakOut.PumpkinRadiusIndicatorFix;
@@ -44,6 +45,8 @@ RequireClose(releaseCandidates[0], 0.1f, "chair release first step changed");
 RequireClose(releaseCandidates[1], 0.2f, "chair release second step changed");
 RequireClose(releaseCandidates[2], 0.25f, "chair release maximum was exceeded");
 Require(!ChairReleasePolicy.CandidateDistances(float.NaN).Any(), "chair release accepted a non-finite maximum");
+Require(LockerBooPolicy.CanArmBoo(false), "closed locker no longer arms Boo on exit");
+Require(!LockerBooPolicy.CanArmBoo(true), "open locker still arms Boo on exit");
 
 var russianForward = NativeMovementPolicy.Resolve(true, true, false, false, false, false);
 Require(

@@ -146,6 +146,29 @@ internal static class KinguinverseWebServicePutOnSkinPartPatch
     }
 }
 
+[HarmonyPatch(typeof(KinguinverseWebService), nameof(KinguinverseWebService.BuySkinPartProduct))]
+internal static class KinguinverseWebServiceBuySkinPartProductPatch
+{
+    private static bool Prefix(int id, bool shards, ref Il2CppTasks.Task<Result<bool>> __result)
+    {
+        if (!UnlockEverythingRuntime.UseProfileOverlay)
+        {
+            return true;
+        }
+
+        if (!UnlockEverythingStub.HasSkinPartProduct(id))
+        {
+            return true;
+        }
+
+        // Every exposed skin product is normalized to a single 1000 Gold price. The purchase is
+        // deliberately local because synthetic catalog entries do not exist on the backend.
+        var purchased = UnlockEverythingStub.TryPurchaseSkinPartProduct(id);
+        __result = UnlockEverythingStub.SuccessBoolean(purchased);
+        return false;
+    }
+}
+
 [HarmonyPatch(typeof(KinguinverseWebService), nameof(KinguinverseWebService.PutOnSkillCard))]
 internal static class KinguinverseWebServicePutOnSkillCardPatch
 {
@@ -318,13 +341,13 @@ internal static class KinguinverseWebServiceGetProductsV2Patch
         {
             if (__result.IsCompletedSuccessfully)
             {
-                LogProducts(__result.Result);
+                ApplyAndLogProducts(__result.Result);
                 return;
             }
 
             UnlockEverythingRuntime.ContinueOnMainThread(
                 __result,
-                LogProducts,
+                ApplyAndLogProducts,
                 "Backend research GetProductsV2 completion logging failed");
         }
         catch (Exception exception)
@@ -333,10 +356,15 @@ internal static class KinguinverseWebServiceGetProductsV2Patch
         }
     }
 
-    private static void LogProducts(Result<Products> result)
+    private static void ApplyAndLogProducts(Result<Products> result)
     {
         if (result is not null && result.IsSuccessful && result.Value is not null)
         {
+            if (UnlockEverythingRuntime.UseProfileOverlay)
+            {
+                UnlockEverythingStub.ApplySkinProductsOverlay(result.Value);
+            }
+
             UnlockEverythingRuntime.LogProductsResponse("KinguinverseWebService.GetProductsV2", result.Value);
         }
     }

@@ -108,6 +108,21 @@ internal static class LocalSelectionsStore
         }
     }
 
+    public static void SavePurchasedSkinPart(SkinPartType skinPartType)
+    {
+        if (skinPartType == SkinPartType.None)
+        {
+            return;
+        }
+
+        lock (Sync)
+        {
+            var profileSelections = GetOrCreateProfileSelections(UnlockEverythingStub.GetProfileStorageKey());
+            profileSelections.PurchasedSkinParts.Add((int)skinPartType);
+            Save();
+        }
+    }
+
     public static void ApplySelections(WebPlayer player)
     {
         lock (Sync)
@@ -117,6 +132,8 @@ internal static class LocalSelectionsStore
             {
                 return;
             }
+
+            ApplyPurchasedSkinParts(player, profileSelections);
 
             foreach (var character in player.Characters ?? new Il2CppCollections.List<Character>())
             {
@@ -134,6 +151,34 @@ internal static class LocalSelectionsStore
                 ApplySelection(player, character, selection);
                 UnlockEverythingRuntime.LogSkinSelectionSnapshot("LocalSelectionsStore.ApplySelections:applied", character);
             }
+        }
+    }
+
+    private static void ApplyPurchasedSkinParts(WebPlayer player, PersistedProfileSelections profileSelections)
+    {
+        player.Skins ??= new PlayerSkins(new Il2CppCollections.List<SkinPart>());
+        player.Skins.SkinParts ??= new Il2CppCollections.List<SkinPart>();
+        var existing = new HashSet<SkinPartType>();
+        foreach (var skinPart in player.Skins.SkinParts)
+        {
+            if (skinPart is not null)
+            {
+                existing.Add(skinPart.SkinPartType);
+            }
+        }
+
+        foreach (var persistedValue in profileSelections.PurchasedSkinParts)
+        {
+            var skinPartType = (SkinPartType)persistedValue;
+            if (skinPartType == SkinPartType.None || !existing.Add(skinPartType))
+            {
+                continue;
+            }
+
+            player.Skins.SkinParts.Add(new SkinPart(
+                UnlockEverythingStub.GetSkinPartId(skinPartType),
+                UnlockEverythingStub.GetSkinTypeForSkinPart(skinPartType),
+                skinPartType));
         }
     }
 
@@ -617,6 +662,8 @@ internal sealed class PersistedSelectionsRoot
 internal sealed class PersistedProfileSelections
 {
     public Dictionary<string, PersistedCharacterSelection> Characters { get; set; } = new();
+
+    public HashSet<int> PurchasedSkinParts { get; set; } = new();
 }
 
 internal sealed class PersistedCharacterSelection

@@ -111,10 +111,9 @@ internal static class ClientCacheRefreshPlayerPatch
     private static void ApplyProfileOverlayAndLiveSelections(ClientCache clientCache)
     {
         UnlockEverythingStub.ApplyProfileOverlay(clientCache);
-        // RefreshPlayer replaces the backend-owned profile after a round. Persistent selections
-        // are reapplied to that model by the overlay; immediately mirror the local penguin outfit
-        // back into the existing lobby/network player as well, because returning to the lobby does
-        // not guarantee another SpawnedReady callback.
-        UnlockEverythingSelections.ApplyStartupSkinSelectionsToLivePreview();
+        // RefreshPlayer can run while a joining client is still carrying the previous lobby's
+        // Game.InternalId. Never publish outfit events by that mutable global id: resolve the
+        // actual local Fusion object by input authority and mutate only that object.
+        UnlockEverythingSelections.ApplyPersistedSkinToCurrentNetworkPlayer();
     }
 }

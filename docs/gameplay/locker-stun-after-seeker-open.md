@@ -1,24 +1,21 @@
-# Locker Stun After Seeker Open
+# Locker Boo Eligibility
 
-`Locker.ComeOut(int)` cannot use `Locker.IsOpen` alone to decide whether the
-locker stun is valid. In client 1.1.10, the coroutine performs this sequence:
+In client 1.1.10, `Locker.ComeOut(int)` opens the locker before its coroutine
+eventually calls `Locker.HandleBooSkill(int)`. Looking at `IsOpen` inside
+`HandleBooSkill` is therefore too late: both exit paths are open by then.
 
-1. call `Locker.Open(playerId, false)`
-2. set `IsOpen = true`
-3. clear the current locker occupant
-4. call `Locker.HandleBooSkill(playerId)`
+`Locker Stun Fix` captures `IsOpen` synchronously at the `ComeOut` call:
 
-Consequently, `IsOpen` is true for both a normal penguin exit and an exit that
-was forced by a seeker.
+- closed at exit start: the one matching `HandleBooSkill` call may run;
+- already open at exit start: `HandleBooSkill` is skipped entirely;
+- no matching captured exit: fail closed and skip the handler.
 
-The distinguishing event is `Locker.TryToOpen(int)`. It is reached through the
-seeker's `OpenLocker` interaction while the locker is still closed, before the
-forced `ComeOut` flow. `Locker Stun Fix` records that event per locker instance,
-suppresses only the next `HandleBooSkill` call for that instance, and consumes
-or clears the marker before a new hide cycle.
+Skipping the entire handler is intentional. It prevents both the hunter stun
+and Boo cooldown consumption when the hunter has already opened the locker.
+The record is keyed by the native locker pointer and player id, consumed once,
+and cleared when a new hide cycle begins.
 
 Relevant client 1.1.10 RVAs:
 
 - `Locker.ComeOut(int)`: `0x6D30D0`
 - `Locker.HandleBooSkill(int)`: `0x6D3500`
-- `Locker.TryToOpen(int)`: `0x6D3CF0`

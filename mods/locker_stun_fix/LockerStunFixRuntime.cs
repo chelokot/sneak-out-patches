@@ -6,7 +6,9 @@ namespace SneakOut.LockerStunFix;
 
 internal static class LockerStunFixRuntime
 {
-    private static readonly HashSet<IntPtr> SeekerOpenedLockers = new();
+    private readonly record struct ExitState(int PlayerId, bool BooAllowed);
+
+    private static readonly Dictionary<IntPtr, ExitState> PendingExits = new();
 
     private static ManualLogSource? _logger;
     private static Harmony? _harmony;
@@ -20,17 +22,19 @@ internal static class LockerStunFixRuntime
         _harmony.PatchAll();
     }
 
-    public static void MarkSeekerOpen(Locker locker, int playerId)
+    public static void BeginExit(Locker locker, int playerId)
     {
         if (_configuration?.EnableMod.Value != true
-            || locker.Pointer == IntPtr.Zero
-            || locker.IsOpen)
+            || locker.Pointer == IntPtr.Zero)
         {
             return;
         }
 
-        SeekerOpenedLockers.Add(locker.Pointer);
-        LogInfo($"Tracked seeker-opened locker 0x{locker.Pointer:X} for player {playerId}");
+        // Capture the state before ComeOut's iterator opens the locker. By the time
+        // HandleBooSkill runs, vanilla has already set IsOpen=true for both paths.
+        var booAllowed = LockerBooPolicy.CanArmBoo(locker.IsOpen);
+        PendingExits[locker.Pointer] = new ExitState(playerId, booAllowed);
+        LogInfo($"Locker exit 0x{locker.Pointer:X} for player {playerId}: closedAtStart={!locker.IsOpen}, booAllowed={booAllowed}");
     }
 
     public static bool ShouldApplyLockerStun(Locker locker, int playerId)
@@ -40,20 +44,29 @@ internal static class LockerStunFixRuntime
             return true;
         }
 
-        if (!SeekerOpenedLockers.Remove(locker.Pointer))
+        if (!PendingExits.Remove(locker.Pointer, out var exitState)
+            || exitState.PlayerId != playerId)
         {
-            return true;
+            // Boo is allowed only for an exit that was positively observed to start
+            // from a closed locker. Unknown/stale calls fail closed and therefore do
+            // not consume the skill cooldown either.
+            LogInfo($"Suppressed locker stun for player {playerId}: no matching closed-locker exit");
+            return false;
         }
 
-        LogInfo($"Suppressed locker stun for player {playerId}: seeker already opened locker 0x{locker.Pointer:X}");
-        return false;
+        if (!exitState.BooAllowed)
+        {
+            LogInfo($"Suppressed locker stun for player {playerId}: locker 0x{locker.Pointer:X} was already open when exit began");
+        }
+
+        return exitState.BooAllowed;
     }
 
     public static void ClearCycle(Locker locker)
     {
         if (locker.Pointer != IntPtr.Zero)
         {
-            SeekerOpenedLockers.Remove(locker.Pointer);
+            PendingExits.Remove(locker.Pointer);
         }
     }
 

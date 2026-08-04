@@ -22,11 +22,13 @@ internal static class UnlockEverythingStub
     private const int MaxExperienceAmount = 9_999_999;
     private const int MaxSkillTier = 5;
     private const int MaxSkillExperience = 9_999;
+    private const int SkinPartGoldPrice = 1_000;
     private const string CommunityEmail = "community@local";
     private const string CommunityServerName = "community-local";
 
     private static readonly object Sync = new();
     private static readonly Il2CppCollections.Dictionary<string, string> Metadata = new();
+    private static readonly Dictionary<int, SkinPartType> SkinPartTypeByProductId = new();
 
     private static int _userId = 424242;
     private static string _authorizationToken = System.Guid.NewGuid().ToString("N");
@@ -1047,18 +1049,11 @@ internal static class UnlockEverythingStub
     {
         var normalizedSkins = playerSkins ?? new PlayerSkins(new Il2CppCollections.List<SkinPart>());
         normalizedSkins.SkinParts ??= new Il2CppCollections.List<SkinPart>();
-        var supportedSkinParts = UnlockEverythingCosmeticCatalog.GetSupportedSkinParts();
-        if (supportedSkinParts is null)
-        {
-            return normalizedSkins;
-        }
-
         var existingSkinParts = new Dictionary<SkinPartType, SkinPart>();
         foreach (var skinPart in normalizedSkins.SkinParts)
         {
             if (skinPart is null
-                || skinPart.SkinPartType == SkinPartType.None
-                || !supportedSkinParts.Contains(skinPart.SkinPartType))
+                || skinPart.SkinPartType == SkinPartType.None)
             {
                 continue;
             }
@@ -1067,18 +1062,13 @@ internal static class UnlockEverythingStub
         }
         var mergedSkinParts = new Il2CppCollections.List<SkinPart>();
 
-        foreach (var skinPartType in supportedSkinParts.OrderBy(value => (int)value))
+        foreach (var pair in existingSkinParts.OrderBy(value => (int)value.Key))
         {
-            if (existingSkinParts.TryGetValue(skinPartType, out var skinPart))
-            {
-                skinPart.Id = AvatarSelectionPolicy.PreserveOwnedProductId(skinPart.Id, GetSkinPartId(skinPartType));
-                skinPart.SkinPartType = skinPartType;
-                skinPart.SkinType = GetSkinTypeForSkinPart(skinPartType);
-                mergedSkinParts.Add(skinPart);
-                continue;
-            }
-
-            mergedSkinParts.Add(new SkinPart(GetSkinPartId(skinPartType), GetSkinTypeForSkinPart(skinPartType), skinPartType));
+            var skinPart = pair.Value;
+            skinPart.Id = AvatarSelectionPolicy.PreserveOwnedProductId(skinPart.Id, GetSkinPartId(pair.Key));
+            skinPart.SkinPartType = pair.Key;
+            skinPart.SkinType = GetSkinTypeForSkinPart(pair.Key);
+            mergedSkinParts.Add(skinPart);
         }
 
         normalizedSkins.SkinParts = mergedSkinParts;
@@ -1197,7 +1187,123 @@ internal static class UnlockEverythingStub
         products.AvatarFrames = CreatePlayerAvatarFrames().AvatarFrames;
         products.InAppPacks = new Il2CppCollections.List<InAppPack>();
         products.UnPurchaseAbleSkinParts = new Il2CppCollections.List<SkinPart>();
+        ApplySkinProductsOverlay(products);
         return products;
+    }
+
+    public static void ApplySkinProductsOverlay(Products products)
+    {
+        lock (Sync)
+        {
+            products.SkinPartProducts ??= new Il2CppCollections.List<SkinPartProduct>();
+            products.UnPurchaseAbleSkinParts = new Il2CppCollections.List<SkinPart>();
+
+            var supported = UnlockEverythingCosmeticCatalog.GetSupportedSkinParts();
+            if (supported is null)
+            {
+                return;
+            }
+
+            var byType = new Dictionary<SkinPartType, SkinPartProduct>();
+            foreach (var product in products.SkinPartProducts)
+            {
+                var skinPartType = product?.Product?.SkinPartType ?? SkinPartType.None;
+                if (skinPartType == SkinPartType.None || !supported.Contains(skinPartType))
+                {
+                    continue;
+                }
+
+                product!.Price = CreateSkinPartPrice();
+                byType[skinPartType] = product;
+                SkinPartTypeByProductId[product.Id] = skinPartType;
+            }
+
+            foreach (var skinPartType in supported.OrderBy(value => (int)value))
+            {
+                if (byType.ContainsKey(skinPartType))
+                {
+                    continue;
+                }
+
+                var productId = GetSkinPartProductId(skinPartType);
+                var skinPart = new SkinPart(GetSkinPartId(skinPartType), GetSkinTypeForSkinPart(skinPartType), skinPartType);
+                products.SkinPartProducts.Add(new SkinPartProduct(productId, skinPart, CreateSkinPartPrice()));
+                SkinPartTypeByProductId[productId] = skinPartType;
+            }
+        }
+    }
+
+    public static bool TryPurchaseSkinPartProduct(int productId)
+    {
+        lock (Sync)
+        {
+            if (!SkinPartTypeByProductId.TryGetValue(productId, out var skinPartType))
+            {
+                return false;
+            }
+
+            var player = UnlockEverythingRuntime.CurrentClientCache?.UserWebPlayer;
+            if (player is null)
+            {
+                return false;
+            }
+
+            player.Skins ??= new PlayerSkins(new Il2CppCollections.List<SkinPart>());
+            player.Skins.SkinParts ??= new Il2CppCollections.List<SkinPart>();
+            foreach (var owned in player.Skins.SkinParts)
+            {
+                if (owned is not null && owned.SkinPartType == skinPartType)
+                {
+                    return true;
+                }
+            }
+
+            player.Resources ??= new PlayerResources(new Il2CppCollections.List<Resource>());
+            player.Resources.Resources ??= new Il2CppCollections.List<Resource>();
+            Resource? gold = null;
+            foreach (var resource in player.Resources.Resources)
+            {
+                if (resource is not null && resource.ResourceType == ResourceType.Gold)
+                {
+                    gold = resource;
+                    break;
+                }
+            }
+
+            if (gold is null || gold.Quantity < SkinPartGoldPrice)
+            {
+                return false;
+            }
+
+            gold.Quantity -= SkinPartGoldPrice;
+            player.Skins.SkinParts.Add(new SkinPart(
+                GetSkinPartId(skinPartType),
+                GetSkinTypeForSkinPart(skinPartType),
+                skinPartType));
+            LocalSelectionsStore.SavePurchasedSkinPart(skinPartType);
+            return true;
+        }
+    }
+
+    public static bool HasSkinPartProduct(int productId)
+    {
+        lock (Sync)
+        {
+            return SkinPartTypeByProductId.ContainsKey(productId);
+        }
+    }
+
+    private static ProductPrice CreateSkinPartPrice()
+    {
+        return new ProductPrice(
+            new Resource(ResourceType.Gold, SkinPartGoldPrice),
+            new Resource(ResourceType.None, 0),
+            new Resource(ResourceType.None, 0));
+    }
+
+    private static int GetSkinPartProductId(SkinPartType skinPartType)
+    {
+        return 130_000 + (int)skinPartType;
     }
 
     private static Il2CppCollections.List<CharacterProduct> CreateCharacterProducts()
@@ -1247,6 +1353,11 @@ internal static class UnlockEverythingStub
     public static Il2CppTasks.Task<Result<bool>> SuccessBoolean()
     {
         return Success(true);
+    }
+
+    public static Il2CppTasks.Task<Result<bool>> SuccessBoolean(bool value)
+    {
+        return Success(value);
     }
 
     private static Il2CppTasks.Task<Result> Success()

@@ -1,13 +1,18 @@
 using BepInEx.Logging;
+using Fusion;
 using Gameplay.Interactions;
+using Gameplay.Interactions.Tasks.PotTask;
 using Gameplay.Player.Components;
 using HarmonyLib;
+using Il2CppInterop.Runtime;
+using Types;
 using UnityEngine;
 
 namespace SneakOut.ChairWallThrowFix;
 
 internal static class ChairWallThrowFixRuntime
 {
+    private static readonly Dictionary<IntPtr, int> HeldThrowableOwners = new();
     private static ManualLogSource? _logger;
     private static ChairWallThrowFixConfig? _configuration;
     private static Harmony? _harmony;
@@ -34,10 +39,7 @@ internal static class ChairWallThrowFixRuntime
 
             try
             {
-                // A held chair is already committed to this player. Release-space overlap must
-                // not turn the action prompt into the crossed-out state and prevent Throw from
-                // reaching state authority; the Throw prefix below finds a safe release pose.
-                if (__instance.PlayerCurrentlyUsing == internalId)
+                if (IsThrowInteraction(__instance, internalId))
                 {
                     __result = true;
                 }
@@ -49,6 +51,70 @@ internal static class ChairWallThrowFixRuntime
                     _loggedFailure = true;
                     _logger?.LogWarning($"Chair availability correction failed; using the stock prompt state: {exception}");
                 }
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(Barrel), nameof(Barrel.IsAvailableInteraction))]
+    private static class BarrelIsAvailableInteractionPatch
+    {
+        [HarmonyPostfix]
+        private static void Postfix(Barrel __instance, int internalId, ref bool __result)
+        {
+            if (!__result && _configuration?.EnableMod.Value == true && IsThrowInteraction(__instance, internalId))
+            {
+                __result = true;
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(Ingredient), nameof(Ingredient.IsAvailableInteraction))]
+    private static class IngredientIsAvailableInteractionPatch
+    {
+        [HarmonyPostfix]
+        private static void Postfix(Ingredient __instance, int internalId, ref bool __result)
+        {
+            if (!__result && _configuration?.EnableMod.Value == true && IsThrowInteraction(__instance, internalId))
+            {
+                __result = true;
+            }
+        }
+    }
+
+    [HarmonyPatch(
+        typeof(EntityInteractiveComponent),
+        "ValidateInteraction",
+        new[] { typeof(NetworkId), typeof(InteractionType) })]
+    private static class EntityInteractiveComponentValidateThrowPatch
+    {
+        [HarmonyPostfix]
+        private static void Postfix(
+            EntityInteractiveComponent __instance,
+            NetworkId networkId,
+            InteractionType interactionType,
+            ref bool __result)
+        {
+            if (__result
+                || interactionType != InteractionType.Throw
+                || _configuration?.EnableMod.Value != true)
+            {
+                return;
+            }
+
+            try
+            {
+                var interactable = __instance._interactableObjectsRegistry?[networkId];
+                if (interactable is not null && IsSupportedThrowable(interactable))
+                {
+                    // Throw is an explicit request for the object already carried by this player.
+                    // Distance, wall overlap and the normal nearby-interactable filters must not
+                    // be allowed to turn that release request into the crossed-out prompt state.
+                    __result = true;
+                }
+            }
+            catch (Exception exception)
+            {
+                LogFailureOnce("Throwable validation override failed", exception);
             }
         }
     }
@@ -77,6 +143,68 @@ internal static class ChairWallThrowFixRuntime
                 }
             }
         }
+
+        [HarmonyPostfix]
+        private static void Postfix(Chair __instance)
+        {
+            ForgetHeldThrowable(__instance);
+        }
+    }
+
+    [HarmonyPatch(typeof(Chair), nameof(Chair.PickUp))]
+    private static class ChairPickUpPatch
+    {
+        [HarmonyPostfix]
+        private static void Postfix(Chair __instance, int internalId) => RememberHeldThrowable(__instance, internalId);
+    }
+
+    [HarmonyPatch(typeof(Barrel), nameof(Barrel.PickUp))]
+    private static class BarrelPickUpPatch
+    {
+        [HarmonyPostfix]
+        private static void Postfix(Barrel __instance, int internalId) => RememberHeldThrowable(__instance, internalId);
+    }
+
+    [HarmonyPatch(typeof(Barrel), nameof(Barrel.Throw))]
+    private static class BarrelThrowPatch
+    {
+        [HarmonyPostfix]
+        private static void Postfix(Barrel __instance) => ForgetHeldThrowable(__instance);
+    }
+
+    [HarmonyPatch(typeof(Ingredient), nameof(Ingredient.PickUp))]
+    private static class IngredientPickUpPatch
+    {
+        [HarmonyPostfix]
+        private static void Postfix(Ingredient __instance, int internalId) => RememberHeldThrowable(__instance, internalId);
+    }
+
+    [HarmonyPatch(typeof(Ingredient), nameof(Ingredient.Throw))]
+    private static class IngredientThrowPatch
+    {
+        [HarmonyPostfix]
+        private static void Postfix(Ingredient __instance) => ForgetHeldThrowable(__instance);
+    }
+
+    [HarmonyPatch(typeof(Chair), nameof(Chair.ForceStopInteraction))]
+    private static class ChairForceStopPatch
+    {
+        [HarmonyPostfix]
+        private static void Postfix(Chair __instance) => ForgetHeldThrowable(__instance);
+    }
+
+    [HarmonyPatch(typeof(Barrel), nameof(Barrel.ForceStopInteraction))]
+    private static class BarrelForceStopPatch
+    {
+        [HarmonyPostfix]
+        private static void Postfix(Barrel __instance) => ForgetHeldThrowable(__instance);
+    }
+
+    [HarmonyPatch(typeof(Ingredient), nameof(Ingredient.ForceStopInteraction))]
+    private static class IngredientForceStopPatch
+    {
+        [HarmonyPostfix]
+        private static void Postfix(Ingredient __instance) => ForgetHeldThrowable(__instance);
     }
 
     private static void TryClearReleaseOverlap(Chair chair, int internalId, float maximumCorrection)
@@ -134,6 +262,78 @@ internal static class ChairWallThrowFixRuntime
 
             return;
         }
+    }
+
+    private static bool IsThrowInteraction(Chair chair, int internalId)
+    {
+        return IsRememberedHeldThrowable(chair, internalId)
+            || chair.PlayerCurrentlyUsing == internalId
+            || HasThrowAction(action => chair.GetInteraction(internalId, action));
+    }
+
+    private static bool IsThrowInteraction(Barrel barrel, int internalId)
+    {
+        return IsRememberedHeldThrowable(barrel, internalId)
+            || barrel.PlayerCurrentlyUsing == internalId
+            || HasThrowAction(action => barrel.GetInteraction(internalId, action));
+    }
+
+    private static bool IsThrowInteraction(Ingredient ingredient, int internalId)
+    {
+        return IsRememberedHeldThrowable(ingredient, internalId)
+            || ingredient.PlayerCurrentlyUsing == internalId
+            || HasThrowAction(action => ingredient.GetInteraction(internalId, action));
+    }
+
+    private static bool HasThrowAction(Func<InputActionType, InteractionType> resolve)
+    {
+        return resolve(InputActionType.ActionStart) == InteractionType.Throw
+            || resolve(InputActionType.ActionHold) == InteractionType.Throw
+            || resolve(InputActionType.ActionRelease) == InteractionType.Throw
+            || resolve(InputActionType.ActionReleaseAfterHold) == InteractionType.Throw;
+    }
+
+    private static bool IsSupportedThrowable(Interactable interactable)
+    {
+        return interactable.TryCast<Chair>() is not null
+            || interactable.TryCast<Barrel>() is not null
+            || interactable.TryCast<Ingredient>() is not null;
+    }
+
+    private static void RememberHeldThrowable(Interactable interactable, int internalId)
+    {
+        if (_configuration?.EnableMod.Value == true
+            && interactable.Pointer != IntPtr.Zero
+            && internalId > 0)
+        {
+            HeldThrowableOwners[interactable.Pointer] = internalId;
+        }
+    }
+
+    private static bool IsRememberedHeldThrowable(Interactable interactable, int internalId)
+    {
+        return interactable.Pointer != IntPtr.Zero
+            && HeldThrowableOwners.TryGetValue(interactable.Pointer, out var ownerId)
+            && ownerId == internalId;
+    }
+
+    private static void ForgetHeldThrowable(Interactable interactable)
+    {
+        if (interactable.Pointer != IntPtr.Zero)
+        {
+            HeldThrowableOwners.Remove(interactable.Pointer);
+        }
+    }
+
+    private static void LogFailureOnce(string message, Exception exception)
+    {
+        if (_loggedFailure)
+        {
+            return;
+        }
+
+        _loggedFailure = true;
+        _logger?.LogWarning($"{message}; leaving the stock behavior for this call: {exception}");
     }
 
     private static bool HasBlockingOverlap(

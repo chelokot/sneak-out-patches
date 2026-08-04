@@ -23,13 +23,11 @@ internal static partial class UnlockEverythingSelections
 
     internal static void RememberNetworkPlayer(SpookedNetworkPlayerRuntime networkPlayer)
     {
-        if (networkPlayer is null || networkPlayer.InternalId <= 0)
-        {
-            return;
-        }
-
-        var currentInternalId = GetCurrentInternalId();
-        if (currentInternalId > 0 && networkPlayer.InternalId != currentInternalId)
+        if (networkPlayer is null
+            || networkPlayer.Pointer == IntPtr.Zero
+            || networkPlayer.InternalId <= 0
+            || !networkPlayer.HasInputAuthority
+            || networkPlayer.IsBot)
         {
             return;
         }
@@ -156,19 +154,15 @@ internal static partial class UnlockEverythingSelections
 
     private static SpookedNetworkPlayerRuntime? GetCurrentNetworkPlayer()
     {
-        var internalId = GetCurrentInternalId();
-        if (internalId <= 0)
-        {
-            return null;
-        }
-
         if (_currentNetworkPlayer is not null)
         {
             if (_currentNetworkPlayer == null)
             {
                 _currentNetworkPlayer = null;
             }
-            else if (_currentNetworkPlayer.InternalId == internalId)
+            else if (_currentNetworkPlayer.Pointer != IntPtr.Zero
+                && _currentNetworkPlayer.HasInputAuthority
+                && !_currentNetworkPlayer.IsBot)
             {
                 return _currentNetworkPlayer;
             }
@@ -178,29 +172,31 @@ internal static partial class UnlockEverythingSelections
             }
         }
 
-        var registry = GetNetworkPlayerRegistry();
-        var networkPlayer = registry?[internalId];
-        if (networkPlayer is not null)
-        {
-            RememberNetworkPlayer(networkPlayer);
-            return networkPlayer;
-        }
-
         foreach (var candidate in UnityEngine.Resources.FindObjectsOfTypeAll<SpookedNetworkPlayerRuntime>())
         {
-            if (candidate is null || candidate.GetType() != typeof(SpookedNetworkPlayerRuntime))
+            if (candidate is null
+                || candidate.Pointer == IntPtr.Zero
+                || candidate.GetType() != typeof(SpookedNetworkPlayerRuntime)
+                || !candidate.HasInputAuthority
+                || candidate.IsBot)
             {
                 continue;
             }
 
-            if (candidate.InternalId == internalId)
-            {
-                RememberNetworkPlayer(candidate);
-                return candidate;
-            }
+            RememberNetworkPlayer(candidate);
+            return candidate;
         }
 
         return null;
+    }
+
+    internal static void ApplyPersistedSkinToCurrentNetworkPlayer()
+    {
+        var networkPlayer = GetCurrentNetworkPlayer();
+        if (networkPlayer is not null)
+        {
+            ApplyPersistedSkinToLocalNetworkPlayer(networkPlayer);
+        }
     }
 
     private static bool SyncMyPlayerRegistryCharactersSkills(PlayerNewMetaInventory? preferredInventory = null)

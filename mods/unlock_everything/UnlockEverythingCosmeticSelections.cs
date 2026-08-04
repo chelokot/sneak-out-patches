@@ -759,12 +759,14 @@ internal static partial class UnlockEverythingSelections
     {
         try
         {
-            var internalId = GetCurrentInternalId();
-            if (internalId <= 0)
+            var localNetworkPlayer = GetCurrentNetworkPlayer();
+            if (localNetworkPlayer is null || localNetworkPlayer.InternalId <= 0)
             {
                 UnlockEverythingRuntime.LogSkinPreview("UnlockEverythingSelections.SyncPreviewCharacterData:noInternalId", 0, skinType, skinPartType, false);
                 return;
             }
+
+            var internalId = localNetworkPlayer.InternalId;
 
             var previewViews = UnityEngine.Resources.FindObjectsOfTypeAll<PlayerCustomizationView>();
             UnlockEverythingRuntime.LogSkinPreview("UnlockEverythingSelections.SyncPreviewCharacterData:views", previewViews.Length, skinType, skinPartType, true);
@@ -821,13 +823,14 @@ internal static partial class UnlockEverythingSelections
 
     private static void PublishSkinRefresh(SkinPartType skinPartType, SkinType skinType)
     {
-        var internalId = GetCurrentInternalId();
-        if (internalId == 0)
+        var localNetworkPlayer = GetCurrentNetworkPlayer();
+        if (localNetworkPlayer is null)
         {
             UnlockEverythingRuntime.LogSkinPreview("UnlockEverythingSelections.PublishSkinRefresh:noInternalId", 0, skinType, skinPartType, false);
             return;
         }
 
+        var internalId = localNetworkPlayer.InternalId;
         if (internalId <= 0)
         {
             UnlockEverythingRuntime.LogSkinPreview("UnlockEverythingSelections.PublishSkinRefresh:invalidInternalId", internalId, skinType, skinPartType, false);
@@ -879,45 +882,6 @@ internal static partial class UnlockEverythingSelections
         SaveSelection(character);
         return true;
     }
-    public static void ApplyStartupSkinSelectionsToLivePreview()
-    {
-        if (!UnlockEverythingRuntime.UsePersistentSelections)
-        {
-            return;
-        }
-
-        if (GetCurrentInternalId() <= 0 || !LocalSelectionsStore.HasPersistedSkinSelection(CharacterType.Penguin))
-        {
-            return;
-        }
-
-        var character = GetCharacterByType(CharacterType.Penguin);
-        if (character?.SkinParts is null)
-        {
-            return;
-        }
-
-        ApplyStartupSkinPart(character.SkinParts.Head);
-        ApplyStartupSkinPart(character.SkinParts.Chest);
-        ApplyStartupSkinPart(character.SkinParts.Legs);
-        ApplyStartupSkinPart(character.SkinParts.Hands);
-        ApplyStartupSkinPart(character.SkinParts.Back);
-        ApplyStartupSkinPart(character.SkinParts.Whole);
-        SyncLivePlayerCharacterData(character);
-    }
-
-    private static void ApplyStartupSkinPart(SkinPart skinPart)
-    {
-        if (skinPart is null || skinPart.SkinType == SkinType.None || skinPart.SkinPartType == SkinPartType.None)
-        {
-            return;
-        }
-
-        UnlockEverythingRuntime.LogSkinPreview("UnlockEverythingSelections.ApplyStartupSkinSelectionsToLivePreview", 0, skinPart.SkinType, skinPart.SkinPartType, true);
-        SyncPreviewCharacterData(skinPart.SkinType, skinPart.SkinPartType);
-        PublishSkinRefresh(skinPart.SkinPartType, skinPart.SkinType);
-    }
-
     public static bool ApplyAvatarModificationSelection(Il2CppSystem.Enum productType, ClientCharacterType clientCharacterType)
     {
         if (!UnlockEverythingRuntime.UsePersistentSelections || !TryGetCharacterId(clientCharacterType, out var characterId))

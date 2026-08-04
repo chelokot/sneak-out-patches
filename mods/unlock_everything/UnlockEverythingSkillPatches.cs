@@ -2,11 +2,13 @@ using Collections;
 using HarmonyLib;
 using Kinguinverse.WebServiceProvider.Types_v2;
 using UI.Views;
+using UnityEngine.InputSystem;
 using ClientCharacterType = Types.CharacterType;
 using CharactersSkillsRuntime = Types.Structs.CharactersSkills;
 using EntitySkillsComponentRuntime = Gameplay.Player.Components.EntitySkillsComponent;
 using Il2CppTasks = Il2CppSystem.Threading.Tasks;
 using PlayersActiveSkillsRuntime = Collections.Skills.PlayersActiveSkills;
+using PlayerInputControllerRuntime = Gameplay.Player.PlayerInputController;
 using RuntimeCharacterType = Types.CharacterType;
 using ScopeCleanerRuntime = Gameplay.ScopeCleaner;
 using SpookedNetworkPlayerRuntime = Gameplay.Player.Components.SpookedNetworkPlayer;
@@ -190,6 +192,46 @@ internal static class EntitySkillsComponentGetSkillPatch
     }
 }
 
+[HarmonyPatch(typeof(PlayerInputControllerRuntime), "ResolveLocalInputs")]
+internal static class PlayerInputControllerLeftAltSecondSkillPatch
+{
+    private static void Postfix(PlayerInputControllerRuntime __instance)
+    {
+        var keyboard = Keyboard.current;
+        if (keyboard is null || !keyboard.leftAltKey.wasPressedThisFrame)
+        {
+            return;
+        }
+
+        try
+        {
+            var networkPlayer = __instance._spookedNetworkPlayer;
+            if (networkPlayer is null
+                || networkPlayer.Pointer == IntPtr.Zero
+                || !networkPlayer.HasInputAuthority
+                || networkPlayer.IsBot)
+            {
+                return;
+            }
+
+            var skills = __instance.GetComponent<EntitySkillsComponentRuntime>();
+            if (skills is null || skills.Pointer == IntPtr.Zero || !skills.HasInputAuthority)
+            {
+                return;
+            }
+
+            // Use the game's ordinary client -> state-authority skill path. The second slot is
+            // the character's alternate active perk; Left Alt does not rewrite cooldowns or call
+            // any skill implementation directly.
+            skills.OnSecondSkillStartButton();
+        }
+        catch (Exception exception)
+        {
+            UnlockEverythingRuntime.LogError("Left Alt alternate active skill dispatch failed", exception);
+        }
+    }
+}
+
 [HarmonyPatch(typeof(SpookedNetworkPlayerRuntime), nameof(SpookedNetworkPlayerRuntime.Spawned))]
 internal static class SpookedNetworkPlayerSpawnedRememberPatch
 {
@@ -207,7 +249,6 @@ internal static class SpookedNetworkPlayerSpawnedReadyStartupSkinPatch
     {
         UnlockEverythingSelections.RememberNetworkPlayer(__instance);
         UnlockEverythingSelections.ApplyPersistedSkinToLocalNetworkPlayer(__instance);
-        UnlockEverythingSelections.ApplyStartupSkinSelectionsToLivePreview();
     }
 }
 

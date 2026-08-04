@@ -53,7 +53,7 @@
   {
     "option_id": "unlock-everything",
     "label": "Unlock Everything",
-    "details": "Builds and installs the BepInEx runtime mod that stabilizes profile-backed unlocks, local apply flows, and persisted selections.",
+    "details": "Provides profile unlocks, 1000-Gold local skin purchases, persisted selections, local-authority-only outfit sync, and a Left Alt alternate-active-perk hotkey.",
     "category": "progression",
     "default_enabled": true,
     "project_relative_path": "mods/unlock_everything/UnlockEverything.csproj",
@@ -75,7 +75,7 @@
   {
     "option_id": "locker-stun-fix",
     "label": "Locker Stun Fix",
-    "details": "Prevents a penguin from stunning a nearby hunter after the hunter has already opened that penguin's hiding locker.",
+    "details": "Allows Boo only for exits begun from a closed locker; an already-open locker neither stuns the hunter nor consumes Boo cooldown.",
     "category": "gameplay",
     "default_enabled": true,
     "project_relative_path": "mods/locker_stun_fix/LockerStunFix.csproj",
@@ -97,7 +97,7 @@
   {
     "option_id": "chair-wall-throw-fix",
     "label": "Chair Wall Throw Fix",
-    "details": "Clears only a small held-chair overlap at release so a chair can still be thrown while its player is flush against level geometry.",
+    "details": "Keeps Throw valid for held chairs, barrels and ingredients regardless of distance or wall overlap, eliminating the crossed-out release state.",
     "category": "gameplay",
     "default_enabled": true,
     "project_relative_path": "mods/chair_wall_throw_fix/ChairWallThrowFix.csproj",

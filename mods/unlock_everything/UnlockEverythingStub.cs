@@ -1274,13 +1274,16 @@ internal static class UnlockEverythingStub
                 return false;
             }
 
-            gold.Quantity -= LocalSkinEconomy.SkinPartGoldPrice;
+            // Do not debit the resource here. The game's SpookedShopNewMeta.BuyProduct
+            // continuation applies the price to the in-memory WebPlayer after our local
+            // BuySkinPartProduct task succeeds. The backend endpoint itself is suppressed
+            // by KinguinverseWebServiceBuySkinPartProductPatch, so this remains a strictly
+            // local purchase while avoiding two client-side debits.
             player.Skins.SkinParts.Add(new SkinPart(
                 GetSkinPartId(skinPartType),
                 GetSkinTypeForSkinPart(skinPartType),
                 skinPartType));
             LocalSelectionsStore.SavePurchasedSkinPart(skinPartType);
-            LocalSelectionsStore.RecordPurchasedSkinPartBalance(player);
             return true;
         }
     }

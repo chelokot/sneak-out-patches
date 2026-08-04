@@ -127,24 +127,6 @@ internal static class LocalSelectionsStore
         }
     }
 
-    public static void RecordPurchasedSkinPartBalance(WebPlayer player)
-    {
-        lock (Sync)
-        {
-            var profileSelections = GetExistingProfileSelections();
-            var gold = FindGold(player);
-            if (profileSelections is null || gold is null || player.Pointer == IntPtr.Zero)
-            {
-                return;
-            }
-
-            _appliedGoldPlayerPointer = player.Pointer;
-            _appliedGoldOverlay = new AppliedGoldOverlay(
-                gold.Quantity,
-                profileSelections.PurchasedSkinParts.Count);
-        }
-    }
-
     public static void ApplySelections(WebPlayer player)
     {
         lock (Sync)

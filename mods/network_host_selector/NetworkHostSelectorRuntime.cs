@@ -17,23 +17,18 @@ namespace SneakOut.NetworkHostSelector;
 
 internal static class NetworkHostSelectorRuntime
 {
-    private const string PropertyVersion = "sohs_v";
-    private const string PropertyRevision = "sohs_r";
-    private const string PropertyTargetRaw = "sohs_p";
-    private const string PropertyTargetUserId = "sohs_h";
-    private const string PropertyMembers = "sohs_m";
-    private const string PropertyCompatible = "sohs_c";
-    private const string PropertyReady = "sohs_y";
+    private const string PropertyState = "sohs_s";
+    private const string PropertyPeers = "sohs_e";
     private const string PropertyRequest = "sohs_q";
-    private const string PropertyHelloPrefix = "sohs_h";
-    private const string PropertyAckPrefix = "sohs_a";
     private const float NetworkTickInterval = 0.25f;
+    private const float UiRefreshInterval = 0.25f;
     private const float HelloInterval = 1f;
     private const float AckInterval = 0.5f;
     private const float ButtonHeight = 36f;
     private const float ButtonGap = 6f;
 
     private static readonly Dictionary<IntPtr, NetworkHostSelectorUiState> UiStateByView = new();
+    private static readonly Dictionary<IntPtr, SpookedNetworkPlayer> ObservedPlayers = new();
 
     private static ManualLogSource? _logger;
     private static NetworkHostSelectorConfig? _configuration;
@@ -42,6 +37,7 @@ internal static class NetworkHostSelectorRuntime
     private static bool _watcherInstalled;
     private static IntPtr _runnerPointer;
     private static float _nextNetworkTick;
+    private static float _nextUiRefreshAt;
     private static float _nextHelloAt;
     private static float _nextAckAt;
     private static string _coordinatorMembership = string.Empty;
@@ -67,6 +63,7 @@ internal static class NetworkHostSelectorRuntime
     private static int _requestSequence;
     private static string _lastHandledRequest = string.Empty;
     private static bool _localOnlySession;
+    private static IReadOnlyList<Participant> _cachedParticipants = Array.Empty<Participant>();
 
     public static void Initialize(ManualLogSource logger, NetworkHostSelectorConfig configuration)
     {
@@ -80,6 +77,22 @@ internal static class NetworkHostSelectorRuntime
     public static void BindPortalManager(GameUIManager gameUiManager)
     {
         _gameUiManager = gameUiManager;
+    }
+
+    public static void ObservePlayer(SpookedNetworkPlayer player)
+    {
+        if (player is not null && player.Pointer != IntPtr.Zero)
+        {
+            ObservedPlayers[player.Pointer] = player;
+        }
+    }
+
+    public static void ForgetPlayer(SpookedNetworkPlayer player)
+    {
+        if (player is not null)
+        {
+            ObservedPlayers.Remove(player.Pointer);
+        }
     }
 
     private static bool Enabled => _configuration is not null && _configuration.EnableMod.Value;
@@ -116,8 +129,17 @@ internal static class NetworkHostSelectorRuntime
             TickNetwork(now);
         }
 
+        if (now < _nextUiRefreshAt)
+        {
+            return;
+        }
+        _nextUiRefreshAt = now + UiRefreshInterval;
+
         var view = _gameUiManager?._portalPlayView;
-        if (view is null || view.Pointer == IntPtr.Zero || view._playButton is null)
+        if (view is null
+            || view.Pointer == IntPtr.Zero
+            || view._playButton is null
+            || !view.gameObject.activeInHierarchy)
         {
             return;
         }
@@ -148,6 +170,7 @@ internal static class NetworkHostSelectorRuntime
         }
 
         var participants = GetParticipants(runner);
+        _cachedParticipants = participants;
         if (participants.Count == 0)
         {
             return;
@@ -156,10 +179,28 @@ internal static class NetworkHostSelectorRuntime
         var localRaw = runner.LocalPlayer.RawEncoded;
         _localOnlySession = participants.Count == 1 && participants[0].Raw == localRaw;
         var membership = ComputeMembership(participants);
+        if (_localOnlySession)
+        {
+            _coordinatorMembership = membership;
+            _coordinatorCompatible = true;
+            _coordinatorTargetRaw = 0;
+            _coordinatorTargetUserId = string.Empty;
+            SetObservedState(
+                _coordinatorRevision,
+                0,
+                string.Empty,
+                membership,
+                compatible: true,
+                ready: true,
+                valid: true);
+            _pendingRequestedRaw = int.MinValue;
+            return;
+        }
+
         if (now >= _nextHelloAt)
         {
             _nextHelloAt = now + HelloInterval;
-            PublishHello(runner, participants, membership);
+            PublishPeerStatus(runner, participants, membership, acknowledgedRevision: -1);
         }
 
         ReadObservedState(runner, participants);
@@ -178,7 +219,7 @@ internal static class NetworkHostSelectorRuntime
         {
             _nextAckAt = now + AckInterval;
             _lastAckedRevision = _observedRevision;
-            PublishAck(runner, localRaw);
+            PublishAck(runner);
         }
     }
 
@@ -204,11 +245,9 @@ internal static class NetworkHostSelectorRuntime
         var compatible = _localOnlySession
             || properties is not null && participants.All(participant =>
                 participant.Raw == runner.LocalPlayer.RawEncoded
-                || TryReadString(properties, HelloProperty(participant.Raw), out var hello)
-                && string.Equals(
-                    hello,
-                    HostSelectionProtocol.CreateHello(_coordinatorMembership, participant.UserId),
-                    StringComparison.Ordinal));
+                || TryReadPeer(properties, participant.Raw, out var peer)
+                && string.Equals(peer.UserId, participant.UserId, StringComparison.Ordinal)
+                && string.Equals(peer.Membership, _coordinatorMembership, StringComparison.Ordinal));
         if (compatible != _coordinatorCompatible)
         {
             _coordinatorCompatible = compatible;
@@ -227,15 +266,13 @@ internal static class NetworkHostSelectorRuntime
             _coordinatorRevision++;
         }
 
-        var expectedAck = HostSelectionProtocol.CreateAck(
-            _coordinatorRevision,
-            _coordinatorMembership,
-            _coordinatorTargetRaw,
-            _coordinatorTargetUserId);
         var ready = compatible && (_coordinatorTargetRaw == 0
             || properties is not null && participants.All(participant =>
-                TryReadString(properties, AckProperty(participant.Raw), out var ack)
-                && string.Equals(ack, expectedAck, StringComparison.Ordinal)));
+                participant.Raw == runner.LocalPlayer.RawEncoded
+                || TryReadPeer(properties, participant.Raw, out var peer)
+                && string.Equals(peer.UserId, participant.UserId, StringComparison.Ordinal)
+                && string.Equals(peer.Membership, _coordinatorMembership, StringComparison.Ordinal)
+                && peer.AcknowledgedRevision == _coordinatorRevision));
         PublishState(runner, ready);
     }
 
@@ -272,13 +309,13 @@ internal static class NetworkHostSelectorRuntime
         }
 
         var properties = new Il2CppSystem.Collections.Generic.Dictionary<string, SessionProperty>();
-        properties[PropertyVersion] = HostSelectionProtocol.Version;
-        properties[PropertyRevision] = _coordinatorRevision;
-        properties[PropertyTargetRaw] = _coordinatorTargetRaw;
-        properties[PropertyTargetUserId] = _coordinatorTargetUserId;
-        properties[PropertyMembers] = _coordinatorMembership;
-        properties[PropertyCompatible] = _coordinatorCompatible;
-        properties[PropertyReady] = ready;
+        properties[PropertyState] = HostSelectionProtocol.CreateState(
+            _coordinatorRevision,
+            _coordinatorTargetRaw,
+            _coordinatorTargetUserId,
+            _coordinatorMembership,
+            _coordinatorCompatible,
+            ready);
         if (!runner.SessionInfo.UpdateCustomProperties(properties))
         {
             return;
@@ -310,31 +347,25 @@ internal static class NetworkHostSelectorRuntime
         {
             var properties = runner.SessionInfo.Properties;
             if (properties is null
-                || !TryReadInt(properties, PropertyVersion, out var version)
-                || version != HostSelectionProtocol.Version
-                || !TryReadInt(properties, PropertyRevision, out var revision)
-                || !TryReadInt(properties, PropertyTargetRaw, out var targetRaw)
-                || !TryReadString(properties, PropertyTargetUserId, out var targetUserId)
-                || !TryReadString(properties, PropertyMembers, out var membership)
-                || !TryReadBool(properties, PropertyCompatible, out var compatible)
-                || !TryReadBool(properties, PropertyReady, out var ready))
+                || !TryReadString(properties, PropertyState, out var encodedState)
+                || !HostSelectionProtocol.TryParseState(encodedState, out var state))
             {
                 _observedValid = false;
                 return;
             }
 
             var localMembership = ComputeMembership(participants);
-            var targetValid = targetRaw == 0 || participants.Any(participant =>
-                participant.Raw == targetRaw
-                && string.Equals(participant.UserId, targetUserId, StringComparison.Ordinal));
+            var targetValid = state.TargetPlayerRaw == 0 || participants.Any(participant =>
+                participant.Raw == state.TargetPlayerRaw
+                && string.Equals(participant.UserId, state.TargetUserId, StringComparison.Ordinal));
             SetObservedState(
-                revision,
-                targetRaw,
-                targetUserId,
-                membership,
-                compatible,
-                ready,
-                string.Equals(membership, localMembership, StringComparison.Ordinal) && targetValid);
+                state.Revision,
+                state.TargetPlayerRaw,
+                state.TargetUserId,
+                state.Membership,
+                state.Compatible,
+                state.Ready,
+                string.Equals(state.Membership, localMembership, StringComparison.Ordinal) && targetValid);
         }
         catch (Exception exception)
         {
@@ -365,10 +396,11 @@ internal static class NetworkHostSelectorRuntime
         _observedValid = valid;
     }
 
-    private static void PublishHello(
+    private static void PublishPeerStatus(
         NetworkRunner runner,
         IReadOnlyList<Participant> participants,
-        string membership)
+        string membership,
+        int acknowledgedRevision)
     {
         var localRaw = runner.LocalPlayer.RawEncoded;
         var local = participants.FirstOrDefault(participant => participant.Raw == localRaw);
@@ -377,22 +409,62 @@ internal static class NetworkHostSelectorRuntime
             return;
         }
 
-        UpdateProperty(
-            runner,
-            HelloProperty(localRaw),
-            HostSelectionProtocol.CreateHello(membership, local.UserId));
+        var properties = runner.SessionInfo.Properties;
+        var registry = properties is not null
+            && TryReadString(properties, PropertyPeers, out var currentRegistry)
+                ? currentRegistry
+                : string.Empty;
+        var existingAck = -1;
+        if (HostSelectionProtocol.TryGetPeer(registry, localRaw, out var existing)
+            && string.Equals(existing.UserId, local.UserId, StringComparison.Ordinal)
+            && string.Equals(existing.Membership, membership, StringComparison.Ordinal))
+        {
+            existingAck = existing.AcknowledgedRevision;
+        }
+        var value = HostSelectionProtocol.UpsertPeer(
+            registry,
+            localRaw,
+            local.UserId,
+            membership,
+            Math.Max(existingAck, acknowledgedRevision));
+        if (string.Equals(value, registry, StringComparison.Ordinal))
+        {
+            return;
+        }
+        UpdateProperty(runner, PropertyPeers, value);
     }
 
-    private static void PublishAck(NetworkRunner runner, int localRaw)
+    public static void InitializeSessionProperties(StartGameArgs args)
     {
-        UpdateProperty(
+        if (!Enabled || args.SessionProperties is null)
+        {
+            return;
+        }
+
+        // Fusion allows only ten custom properties total and the game already consumes five.
+        // Keep the entire protocol in three fixed strings: coordinator state, a compact peer
+        // registry, and the latest party-leader request. Reserving per-player keys both exceeded
+        // the room limit and caused live updates to be rejected by Photon.
+        EnsureSessionProperty(args, PropertyState, string.Empty);
+        EnsureSessionProperty(args, PropertyPeers, string.Empty);
+        EnsureSessionProperty(args, PropertyRequest, string.Empty);
+    }
+
+    private static void EnsureSessionProperty(StartGameArgs args, string key, SessionProperty value)
+    {
+        if (!args.SessionProperties.ContainsKey(key))
+        {
+            args.SessionProperties[key] = value;
+        }
+    }
+
+    private static void PublishAck(NetworkRunner runner)
+    {
+        PublishPeerStatus(
             runner,
-            AckProperty(localRaw),
-            HostSelectionProtocol.CreateAck(
-                _observedRevision,
-                _observedMembership,
-                _observedTargetRaw,
-                _observedTargetUserId));
+            _cachedParticipants,
+            _observedMembership,
+            _observedRevision);
     }
 
     private static void PublishSelectionRequest(
@@ -453,10 +525,6 @@ internal static class NetworkHostSelectorRuntime
         }
     }
 
-    private static string HelloProperty(int playerRaw) => $"{PropertyHelloPrefix}{playerRaw}";
-
-    private static string AckProperty(int playerRaw) => $"{PropertyAckPrefix}{playerRaw}";
-
     private static void AcceptSelectionRequest(
         NetworkRunner runner,
         IReadOnlyList<Participant> participants,
@@ -497,11 +565,34 @@ internal static class NetworkHostSelectorRuntime
 
     private static List<Participant> GetParticipants(NetworkRunner runner)
     {
-        var playerObjects = Resources.FindObjectsOfTypeAll<SpookedNetworkPlayer>()
-            .Where(player => player is not null
-                && player.Pointer != IntPtr.Zero
-                && player.Runner is not null
-                && player.Runner.Pointer == runner.Pointer)
+        var stalePointers = new List<IntPtr>();
+        var livePlayers = new List<SpookedNetworkPlayer>();
+        foreach (var pair in ObservedPlayers)
+        {
+            var player = pair.Value;
+            try
+            {
+                if (player is null || player.Pointer == IntPtr.Zero)
+                {
+                    stalePointers.Add(pair.Key);
+                    continue;
+                }
+                if (player.Runner is not null && player.Runner.Pointer == runner.Pointer)
+                {
+                    livePlayers.Add(player);
+                }
+            }
+            catch
+            {
+                stalePointers.Add(pair.Key);
+            }
+        }
+        foreach (var pointer in stalePointers)
+        {
+            ObservedPlayers.Remove(pointer);
+        }
+
+        var playerObjects = livePlayers
             .GroupBy(player => player.PlayerRef.RawEncoded)
             .ToDictionary(group => group.Key, group => group.First());
         var botRaws = playerObjects.Values
@@ -579,6 +670,7 @@ internal static class NetworkHostSelectorRuntime
     private static void ResetForRunner(IntPtr runnerPointer)
     {
         _runnerPointer = runnerPointer;
+        _cachedParticipants = Array.Empty<Participant>();
         _nextHelloAt = 0f;
         _nextAckAt = 0f;
         _coordinatorMembership = string.Empty;
@@ -738,19 +830,39 @@ internal static class NetworkHostSelectorRuntime
         var width = Mathf.Max(72f, (playWidth - ButtonGap * 2f) / 3f);
         var toolbarY = playRect.rect.height * 0.5f + ButtonHeight * 0.5f + 10f;
         var y = toolbarY;
-        if (GameObject.Find("LobbyTestBotButton") is not null)
+        var siblingRoot = playRect.parent;
+        var botButton = siblingRoot?.Find("LobbyTestBotButton");
+        if (botButton is not null && botButton.gameObject.activeInHierarchy)
         {
             y += ButtonHeight + ButtonGap;
-            foreach (var mapRect in Resources.FindObjectsOfTypeAll<RectTransform>())
+            var portalControls = siblingRoot?.Find("CodexPortalControls");
+            if (portalControls is not null)
             {
-                if (mapRect is null
-                    || !mapRect.gameObject.activeInHierarchy
-                    || !mapRect.gameObject.name.StartsWith("CodexPortalMap_", StringComparison.Ordinal))
+                for (var childIndex = 0; childIndex < portalControls.childCount; childIndex++)
                 {
-                    continue;
+                    var mapRect = portalControls.GetChild(childIndex)?.GetComponent<RectTransform>();
+                    if (mapRect is null
+                        || !mapRect.gameObject.activeInHierarchy
+                        || !mapRect.gameObject.name.StartsWith("CodexPortalMap_", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+                    y = Mathf.Max(
+                        y,
+                        mapRect.anchoredPosition.y
+                        + mapRect.rect.height * 0.5f
+                        + ButtonGap
+                        + ButtonHeight * 0.5f);
                 }
-                y = Mathf.Max(y, mapRect.anchoredPosition.y + mapRect.rect.height * 0.5f + ButtonGap + ButtonHeight * 0.5f);
             }
+        }
+
+        var targetSize = new Vector2(width, ButtonHeight);
+        var targetPosition = playRect.localPosition + new Vector3(width + ButtonGap, y, 0f);
+        if ((rect.sizeDelta - targetSize).sqrMagnitude < 0.01f
+            && (rect.localPosition - targetPosition).sqrMagnitude < 0.01f)
+        {
+            return;
         }
 
         rect.anchorMin = new Vector2(0.5f, 0.5f);
@@ -758,8 +870,8 @@ internal static class NetworkHostSelectorRuntime
         rect.pivot = new Vector2(0.5f, 0.5f);
         rect.localScale = Vector3.one;
         rect.localRotation = Quaternion.identity;
-        rect.sizeDelta = new Vector2(width, ButtonHeight);
-        rect.localPosition = playRect.localPosition + new Vector3(width + ButtonGap, y, 0f);
+        rect.sizeDelta = targetSize;
+        rect.localPosition = targetPosition;
         rect.SetAsLastSibling();
     }
 
@@ -768,52 +880,48 @@ internal static class NetworkHostSelectorRuntime
         var runner = PhotonLobby.Runner;
         if (!IsUsableLobbyRunner(runner))
         {
-            state.Label.text = "HOST: AUTOMATIC";
-            state.Button.interactable = false;
-            SetButtonColor(state.Button, new Color(0.16f, 0.18f, 0.22f, 0.95f));
+            SetInteractable(state.Button, false);
+            SetButtonPresentation(state, "HOST: AUTOMATIC", new Color(0.16f, 0.18f, 0.22f, 0.95f));
             return;
         }
 
-        var participants = GetParticipants(runner);
+        var participants = runner.Pointer == _runnerPointer
+            ? _cachedParticipants
+            : Array.Empty<Participant>();
         var membership = ComputeMembership(participants);
         var properties = runner.SessionInfo.Properties;
         var localRaw = runner.LocalPlayer.RawEncoded;
         var confirmed = participants.Count(participant =>
                 participant.Raw == localRaw
                 || properties is not null
-                && TryReadString(properties, HelloProperty(participant.Raw), out var hello)
-                && string.Equals(
-                    hello,
-                    HostSelectionProtocol.CreateHello(membership, participant.UserId),
-                    StringComparison.Ordinal));
+                && TryReadPeer(properties, participant.Raw, out var peer)
+                && string.Equals(peer.UserId, participant.UserId, StringComparison.Ordinal)
+                && string.Equals(peer.Membership, membership, StringComparison.Ordinal));
         var leader = PgosLobby.Instance is { } pgosLobby && pgosLobby.AmITeamLeader;
         var canSelect = leader && participants.Count > 0 && _observedValid && _observedCompatible;
-        state.Button.interactable = canSelect;
+        SetInteractable(state.Button, canSelect);
 
         if (!_observedValid || !_observedCompatible)
         {
-            state.Label.text = $"HOST: MODS {confirmed}/{participants.Count}";
-            SetButtonColor(state.Button, new Color(0.55f, 0.34f, 0.08f, 1f));
+            SetButtonPresentation(state, $"HOST: MODS {confirmed}/{participants.Count}", new Color(0.55f, 0.34f, 0.08f, 1f));
             return;
         }
         if (!_observedReady || _pendingRequestedRaw != int.MinValue)
         {
-            state.Label.text = "HOST: SYNCING...";
-            SetButtonColor(state.Button, new Color(0.55f, 0.34f, 0.08f, 1f));
+            SetButtonPresentation(state, "HOST: SYNCING...", new Color(0.55f, 0.34f, 0.08f, 1f));
             return;
         }
         if (_observedTargetRaw == 0)
         {
-            state.Label.text = "HOST: AUTOMATIC";
-            SetButtonColor(state.Button, new Color(0.16f, 0.18f, 0.22f, 0.95f));
+            SetButtonPresentation(state, "HOST: AUTOMATIC", new Color(0.16f, 0.18f, 0.22f, 0.95f));
             return;
         }
 
         var selected = participants.FirstOrDefault(participant => participant.Raw == _observedTargetRaw);
-        state.Label.text = selected is null
+        var label = selected is null
             ? "HOST: AUTOMATIC"
             : $"HOST: {selected.Name.ToUpperInvariant()}  {selected.RttMs}ms";
-        SetButtonColor(state.Button, new Color(0.08627451f, 0.5372549f, 0.654902f, 1f));
+        SetButtonPresentation(state, label, new Color(0.08627451f, 0.5372549f, 0.654902f, 1f));
     }
 
     private static void CycleHost()
@@ -868,10 +976,27 @@ internal static class NetworkHostSelectorRuntime
     private static void SetButtonColor(SpookedOutlineButton button, Color color)
     {
         var background = button._targetColorImage ?? button.targetGraphic as Image;
-        if (background is not null)
+        if (background is not null && background.color != color)
         {
             background.color = color;
         }
+    }
+
+    private static void SetInteractable(SpookedOutlineButton button, bool interactable)
+    {
+        if (button.interactable != interactable)
+        {
+            button.interactable = interactable;
+        }
+    }
+
+    private static void SetButtonPresentation(NetworkHostSelectorUiState state, string label, Color color)
+    {
+        if (!string.Equals(state.Label.text, label, StringComparison.Ordinal))
+        {
+            state.Label.text = label;
+        }
+        SetButtonColor(state.Button, color);
     }
 
     private static void FitStockButtonLayers(RectTransform root, SpookedOutlineButton button, TMP_Text label)
@@ -935,6 +1060,16 @@ internal static class NetworkHostSelectorRuntime
         }
         value = property ?? string.Empty;
         return true;
+    }
+
+    private static bool TryReadPeer(
+        Il2CppSystem.Collections.ObjectModel.ReadOnlyDictionary<string, SessionProperty> properties,
+        int playerRaw,
+        out HostSelectionPeer peer)
+    {
+        peer = default;
+        return TryReadString(properties, PropertyPeers, out var registry)
+            && HostSelectionProtocol.TryGetPeer(registry, playerRaw, out peer);
     }
 
     private static bool TryReadBool(

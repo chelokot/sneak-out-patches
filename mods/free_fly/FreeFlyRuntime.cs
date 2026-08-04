@@ -3,11 +3,40 @@ using HarmonyLib;
 using Gameplay.Player.Components;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.SceneManagement;
 
 namespace SneakOut.FreeFly;
 
 internal static class FreeFlyRuntime
 {
+    private static readonly Vector3[] Map02TraversalRoute =
+    {
+        new(-10.7f, 0f, -10.7f),
+        new(-4.7f, 0f, -9.0f),
+        new(1.8f, 0f, -11.6f),
+        new(9.8f, 0f, -15.6f),
+        new(13.4f, 0f, -17.9f),
+        new(19.3f, 0f, -27.1f),
+        new(22.8f, 0f, -32.7f),
+        new(10.8f, 0f, -47.0f),
+        new(4.8f, 0f, -41.7f),
+        new(1.3f, 0f, -29.6f),
+        new(-1.3f, 0f, -17.9f),
+        new(5.4f, 0f, 3.1f),
+        new(11.0f, 0f, 8.8f),
+        new(1.7f, 0f, 18.2f),
+        new(-1.6f, 0f, 32.8f),
+        new(-13.4f, 0f, 41.4f),
+        new(-25.7f, 0f, 36.5f),
+        new(-31.4f, 0f, 23.8f),
+        new(-25.3f, 0f, 20.7f),
+        new(-8.7f, 0f, 28.0f),
+        new(7.3f, 0f, 38.8f),
+        new(25.0f, 0f, 33.1f),
+        new(12.8f, 0f, 13.5f),
+        new(-10.7f, 0f, -10.7f),
+    };
+
     private static ManualLogSource? _logger;
     private static Harmony? _harmony;
     private static FreeFlyConfig? _configuration;
@@ -19,6 +48,11 @@ internal static class FreeFlyRuntime
     private static SpookedNetworkPlayer? _localNetworkPlayer;
     private static bool _freeFlyActive;
     private static float _targetAxisCoordinate;
+    private static float _map02ReadyAt = -1f;
+    private static int _traversalWaypoint;
+    private static int _traversalLoopsCompleted;
+    private static bool _traversalReverse;
+    private static bool _traversalComplete;
 
     public static void Initialize(ManualLogSource logger, FreeFlyConfig configuration)
     {
@@ -40,6 +74,7 @@ internal static class FreeFlyRuntime
         _loggedMissingPlayer = false;
         _freeFlyActive = false;
         _targetAxisCoordinate = GetAxisCoordinate(networkPlayer.transform.position);
+        ResetTraversal();
 
         if (_configuration.EnableLogging.Value && !_loggedRememberedPlayer)
         {
@@ -63,6 +98,11 @@ internal static class FreeFlyRuntime
                 _loggedMissingPlayer = true;
                 _logger?.LogInfo("FreeFly: noLocalNetworkPlayer");
             }
+            return;
+        }
+
+        if (TryApplyAutomaticTraversal(networkPlayer))
+        {
             return;
         }
 
@@ -98,6 +138,95 @@ internal static class FreeFlyRuntime
         {
             _logger?.LogInfo($"FreeFly: direction={direction}, axis={_configuration.Axis.Value}, target={_targetAxisCoordinate}, from={currentPosition}, to={nextPosition}");
         }
+    }
+
+    private static bool TryApplyAutomaticTraversal(SpookedNetworkPlayer networkPlayer)
+    {
+        if (_configuration?.AutoTraverseMap02.Value != true || _traversalComplete)
+        {
+            return false;
+        }
+
+        if (!string.Equals(SceneManager.GetActiveScene().name, "Map02", StringComparison.Ordinal))
+        {
+            _map02ReadyAt = -1f;
+            return false;
+        }
+
+        if (_map02ReadyAt < 0f)
+        {
+            _map02ReadyAt = Time.unscaledTime + 8f;
+            _traversalWaypoint = 0;
+            _traversalLoopsCompleted = 0;
+            _traversalReverse = false;
+            _logger?.LogInfo("FreeFly traversal: Map02 detected; route starts after an 8 second settle window");
+            return true;
+        }
+
+        if (Time.unscaledTime < _map02ReadyAt)
+        {
+            return true;
+        }
+
+        var entityTransformComponent = networkPlayer.EntityTransformComponent;
+        if (entityTransformComponent is null)
+        {
+            return true;
+        }
+
+        var targetIndex = _traversalReverse
+            ? Map02TraversalRoute.Length - 1 - _traversalWaypoint
+            : _traversalWaypoint;
+        var currentPosition = networkPlayer.transform.position;
+        // The route is a streaming probe, not a physics test. Recover from any collision
+        // correction immediately so an invalid intermediate position cannot turn the rest
+        // of the capture into an out-of-bounds/falling profile.
+        currentPosition.y = 0f;
+        var targetPosition = Map02TraversalRoute[targetIndex];
+        var distance = Vector3.Distance(currentPosition, targetPosition);
+        var maximumStep = Mathf.Max(0.5f, _configuration.AutoTraverseSpeed.Value) * Time.unscaledDeltaTime;
+        var nextPosition = Vector3.MoveTowards(currentPosition, targetPosition, maximumStep);
+        entityTransformComponent.ForceSetPosition(nextPosition, true);
+        networkPlayer.transform.position = nextPosition;
+
+        if (distance > 0.15f)
+        {
+            return true;
+        }
+
+        _traversalWaypoint++;
+        if (_traversalWaypoint < Map02TraversalRoute.Length)
+        {
+            return true;
+        }
+
+        _traversalWaypoint = 0;
+        if (!_traversalReverse)
+        {
+            _traversalReverse = true;
+            _logger?.LogInfo("FreeFly traversal: forward route complete; starting reverse route");
+            return true;
+        }
+
+        _traversalReverse = false;
+        _traversalLoopsCompleted++;
+        _logger?.LogInfo($"FreeFly traversal: loop {_traversalLoopsCompleted} complete");
+        if (_traversalLoopsCompleted >= Math.Clamp(_configuration.AutoTraverseLoops.Value, 1, 20))
+        {
+            _traversalComplete = true;
+            _logger?.LogInfo("FreeFly traversal: all requested loops complete");
+        }
+
+        return true;
+    }
+
+    private static void ResetTraversal()
+    {
+        _map02ReadyAt = -1f;
+        _traversalWaypoint = 0;
+        _traversalLoopsCompleted = 0;
+        _traversalReverse = false;
+        _traversalComplete = false;
     }
 
     private static float GetInputDirection()

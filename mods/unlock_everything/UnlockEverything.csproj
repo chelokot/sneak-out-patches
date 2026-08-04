@@ -23,5 +23,8 @@
     <Reference Include="UnityEngine.UI">
       <HintPath>$(InteropDir)/UnityEngine.UI.dll</HintPath>
     </Reference>
+    <Reference Include="Unity.TextMeshPro">
+      <HintPath>$(InteropDir)/Unity.TextMeshPro.dll</HintPath>
+    </Reference>
   </ItemGroup>
 </Project>

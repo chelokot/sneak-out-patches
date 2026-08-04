@@ -68,6 +68,34 @@ catch (ReflectionTypeLoadException exception)
     }
 }
 
+if (string.Equals(pattern, "@frame-methods", StringComparison.OrdinalIgnoreCase))
+{
+    var frameMethodNames = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "Update",
+        "LateUpdate",
+        "FixedUpdate",
+        "Tick",
+        "Render",
+        "FixedUpdateNetwork"
+    };
+    const BindingFlags frameFlags = BindingFlags.Instance
+        | BindingFlags.Static
+        | BindingFlags.Public
+        | BindingFlags.NonPublic
+        | BindingFlags.DeclaredOnly;
+    foreach (var method in types
+        .SelectMany(type => type.GetMethods(frameFlags))
+        .Where(method => frameMethodNames.Contains(method.Name))
+        .OrderBy(method => method.DeclaringType?.FullName, StringComparer.Ordinal)
+        .ThenBy(method => method.Name, StringComparer.Ordinal))
+    {
+        var parameters = string.Join(", ", method.GetParameters().Select(parameter => parameter.ParameterType.FullName));
+        Console.WriteLine($"FRAME {method.DeclaringType?.FullName}.{method.Name}({parameters})");
+    }
+    return;
+}
+
 static bool Matches(Type type, string searchPattern)
 {
     const BindingFlags flags = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;

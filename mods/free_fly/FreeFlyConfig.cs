@@ -14,11 +14,17 @@ internal sealed class FreeFlyConfig
         ConfigEntry<bool> enableMod,
         ConfigEntry<float> movementSpeed,
         ConfigEntry<FreeFlyAxis> axis,
+        ConfigEntry<bool> autoTraverseMap02,
+        ConfigEntry<float> autoTraverseSpeed,
+        ConfigEntry<int> autoTraverseLoops,
         ConfigEntry<bool> enableLogging)
     {
         EnableMod = enableMod;
         MovementSpeed = movementSpeed;
         Axis = axis;
+        AutoTraverseMap02 = autoTraverseMap02;
+        AutoTraverseSpeed = autoTraverseSpeed;
+        AutoTraverseLoops = autoTraverseLoops;
         EnableLogging = enableLogging;
     }
 
@@ -27,6 +33,12 @@ internal sealed class FreeFlyConfig
     public ConfigEntry<float> MovementSpeed { get; }
 
     public ConfigEntry<FreeFlyAxis> Axis { get; }
+
+    public ConfigEntry<bool> AutoTraverseMap02 { get; }
+
+    public ConfigEntry<float> AutoTraverseSpeed { get; }
+
+    public ConfigEntry<int> AutoTraverseLoops { get; }
 
     public ConfigEntry<bool> EnableLogging { get; }
 
@@ -47,6 +59,21 @@ internal sealed class FreeFlyConfig
             "Axis",
             FreeFlyAxis.Y,
             "Axis to move on. Y is the normal Unity vertical axis.");
+        var autoTraverseMap02 = configFile.Bind(
+            "diagnostics",
+            "AutoTraverseMap02",
+            false,
+            "Move the local host through a repeatable Map02 route for unattended profiling. Never enable in a real match.");
+        var autoTraverseSpeed = configFile.Bind(
+            "diagnostics",
+            "AutoTraverseSpeed",
+            8f,
+            "World-space speed used by the unattended Map02 traversal probe.");
+        var autoTraverseLoops = configFile.Bind(
+            "diagnostics",
+            "AutoTraverseLoops",
+            3,
+            "Number of forward/back Map02 traversal loops before the probe stops.");
         var enableLogging = configFile.Bind(
             "general",
             "EnableLogging",
@@ -57,6 +84,9 @@ internal sealed class FreeFlyConfig
             enableMod,
             movementSpeed,
             axis,
+            autoTraverseMap02,
+            autoTraverseSpeed,
+            autoTraverseLoops,
             enableLogging);
     }
 }

@@ -5,6 +5,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Reference Include="Kinguinverse">
+      <HintPath>$(InteropDir)/Kinguinverse.dll</HintPath>
+    </Reference>
     <Reference Include="Fusion.Runtime">
       <HintPath>$(InteropDir)/Fusion.Runtime.dll</HintPath>
     </Reference>

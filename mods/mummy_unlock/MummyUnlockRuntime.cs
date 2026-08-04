@@ -1,10 +1,12 @@
 using BepInEx.Logging;
 using Collections;
+using Gameplay.Player.Components;
 using HarmonyLib;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using Types;
 using UI.Views;
 using UI.Views.Lobby;
+using AvatarType = Kinguinverse.WebServiceProvider.Types_v2.AvatarType;
 
 namespace SneakOut.MummyUnlock;
 
@@ -26,6 +28,29 @@ internal static class MummyUnlockRuntime
     public static void EnsureAvailableSeekersContainMummy(SeekerSelectionViewModel viewModel)
     {
         viewModel.AvailableSeekers = AppendCharacter(viewModel.AvailableSeekers, MummyCharacterType);
+    }
+
+    public static bool TryGetMummyAvatar(SpookedNetworkPlayer networkPlayer, out AvatarType avatarType)
+    {
+        avatarType = AvatarType.None;
+        if (networkPlayer.CharacterType != MummyCharacterType)
+        {
+            return false;
+        }
+
+        // The retail network schema has no MummyAvatarType field and the stock
+        // GetCurrentAvatar switch deliberately falls into its error branch for
+        // murderer_mummy. PlayersPanel refreshes that branch repeatedly, and
+        // producing the IL2CPP error stack can stall Wine for several seconds.
+        // Reuse an existing synchronized hunter avatar slot as a presentation
+        // fallback; this does not alter the selected character or its gameplay.
+        avatarType = networkPlayer.ButcherAvatarType;
+        if (avatarType == AvatarType.None)
+        {
+            avatarType = AvatarType.Butcher;
+        }
+
+        return true;
     }
 
     public static void PrepareCharacterShop(CharacterShopView shopView)

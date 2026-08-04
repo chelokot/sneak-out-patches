@@ -176,6 +176,15 @@ internal static class RuntimeProfilerRuntime
 
     private static bool ShouldIncludeMethod(MethodInfo method)
     {
+        // Harmony's IL2CPP trampoline for this global MonoBehaviour recursively re-enters the
+        // wrapper and throws from the generated DMD. Refuse it even in an intentionally broad
+        // profile so the diagnostic cannot manufacture an error loop and invalidate the run.
+        if (string.Equals(method.DeclaringType?.FullName, "WorldRegionSwitch", StringComparison.Ordinal)
+            && string.Equals(method.Name, "Update", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
         if (method.IsAbstract)
         {
             return false;

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -83,6 +84,9 @@ test("noninteractive install selects stable defaults and uninstall restores clea
     if (process.platform !== "win32") {
       const localConfig = await readFile(paths.userdataConfig, "utf8");
       assert.match(localConfig, /XMODIFIERS=@im=none WINEDLLOVERRIDES=\\"winhttp=n,b\\" %command%/);
+      if (existsSync("/usr/bin/gamemoderun")) {
+        assert.match(localConfig, /gamemoderun %command%/);
+      }
       assert.doesNotMatch(localConfig, /WINEDLLOVERRIDES="winhttp=n,b"/);
     }
     assert.equal(await readFile(join(paths.gameDirectory, "winhttp.dll"), "utf8"), "loader");

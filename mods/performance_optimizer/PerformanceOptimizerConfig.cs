@@ -26,9 +26,11 @@ internal sealed class PerformanceOptimizerConfig
         ConfigEntry<bool> adaptivePerformance,
         ConfigEntry<int> adaptiveMinimumFps,
         ConfigEntry<bool> enableTelemetry,
+        ConfigEntry<bool> writeReportsDuringGameplay,
         ConfigEntry<bool> enableSceneCensus,
         ConfigEntry<bool> enableExperimentalUnityRecorders,
         ConfigEntry<int> reportIntervalSeconds,
+        ConfigEntry<int> frameSpikeThresholdMilliseconds,
         ConfigEntry<int> targetFrameRate,
         ConfigEntry<VSyncMode> vSync,
         ConfigEntry<int> maxQueuedFrames,
@@ -47,9 +49,11 @@ internal sealed class PerformanceOptimizerConfig
         AdaptivePerformance = adaptivePerformance;
         AdaptiveMinimumFps = adaptiveMinimumFps;
         EnableTelemetry = enableTelemetry;
+        WriteReportsDuringGameplay = writeReportsDuringGameplay;
         EnableSceneCensus = enableSceneCensus;
         EnableExperimentalUnityRecorders = enableExperimentalUnityRecorders;
         ReportIntervalSeconds = reportIntervalSeconds;
+        FrameSpikeThresholdMilliseconds = frameSpikeThresholdMilliseconds;
         TargetFrameRate = targetFrameRate;
         VSync = vSync;
         MaxQueuedFrames = maxQueuedFrames;
@@ -69,9 +73,11 @@ internal sealed class PerformanceOptimizerConfig
     public ConfigEntry<bool> AdaptivePerformance { get; }
     public ConfigEntry<int> AdaptiveMinimumFps { get; }
     public ConfigEntry<bool> EnableTelemetry { get; }
+    public ConfigEntry<bool> WriteReportsDuringGameplay { get; }
     public ConfigEntry<bool> EnableSceneCensus { get; }
     public ConfigEntry<bool> EnableExperimentalUnityRecorders { get; }
     public ConfigEntry<int> ReportIntervalSeconds { get; }
+    public ConfigEntry<int> FrameSpikeThresholdMilliseconds { get; }
     public ConfigEntry<int> TargetFrameRate { get; }
     public ConfigEntry<VSyncMode> VSync { get; }
     public ConfigEntry<int> MaxQueuedFrames { get; }
@@ -105,18 +111,28 @@ internal sealed class PerformanceOptimizerConfig
         var adaptiveMinimumFps = configFile.Bind(
             "general",
             "AdaptiveMinimumFps",
-            45,
-            "Auto mode tuning threshold after the active lobby or match scene has settled.");
+            55,
+            "Auto mode tuning floor after the active lobby or match scene has settled. The display refresh rate also contributes a proportional target.");
         var enableTelemetry = configFile.Bind(
             "telemetry",
             "EnableTelemetry",
             true,
             "Collect frame pacing, memory, render, loading, GC, and Fusion RTT statistics.");
+        var writeReportsDuringGameplay = configFile.Bind(
+            "telemetry",
+            "WriteReportsDuringGameplay",
+            false,
+            "Write interval CSV reports while playing. Diagnostic only: synchronous filesystem flushes can create frame-time spikes. A final snapshot is attempted on a clean Unity shutdown.");
         var reportIntervalSeconds = configFile.Bind(
             "telemetry",
             "ReportIntervalSeconds",
             10,
-            "Append one aggregate telemetry row after this many seconds. No per-frame disk writes are performed.");
+            "Aggregate in-memory metrics after this many seconds. CSV writes at this cadence occur only when WriteReportsDuringGameplay is enabled.");
+        var frameSpikeThresholdMilliseconds = configFile.Bind(
+            "telemetry",
+            "FrameSpikeThresholdMilliseconds",
+            80,
+            "Record a buffered world-context event when one frame exceeds this duration. Events are flushed only with the aggregate report.");
         var enableSceneCensus = configFile.Bind(
             "telemetry",
             "EnableSceneCensus",
@@ -131,7 +147,7 @@ internal sealed class PerformanceOptimizerConfig
             "frame-pacing",
             "TargetFrameRate",
             0,
-            "Optional frame cap. Zero preserves the game's current setting.");
+            "Frame cap. Zero follows the current display refresh rate, -1 preserves the game's setting, and 30-360 sets an explicit cap.");
         var vSync = configFile.Bind(
             "frame-pacing",
             "VSync",
@@ -194,9 +210,11 @@ internal sealed class PerformanceOptimizerConfig
             adaptivePerformance,
             adaptiveMinimumFps,
             enableTelemetry,
+            writeReportsDuringGameplay,
             enableSceneCensus,
             enableExperimentalUnityRecorders,
             reportIntervalSeconds,
+            frameSpikeThresholdMilliseconds,
             targetFrameRate,
             vSync,
             maxQueuedFrames,

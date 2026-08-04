@@ -43,6 +43,8 @@ internal static class LobbyTestBotRuntime
     private static LobbyTestBotConfig? _configuration;
     private static Harmony? _harmony;
     private static UI.GameUIManager? _gameUiManager;
+    private static SceneSpawner? _sceneSpawner;
+    private static float _nextSceneSpawnerRecoveryAt;
     private static bool _watcherInstalled;
     private static bool _controlsPrepared;
     private static PendingOperation _pendingOperation;
@@ -118,6 +120,15 @@ internal static class LobbyTestBotRuntime
         if (LoggingEnabled)
         {
             _logger?.LogInfo("Lobby bot captured GameUIManager");
+        }
+    }
+
+    public static void RememberSceneSpawner(SceneSpawner sceneSpawner)
+    {
+        if (sceneSpawner is not null && sceneSpawner.Pointer != IntPtr.Zero)
+        {
+            _sceneSpawner = sceneSpawner;
+            _nextSceneSpawnerRecoveryAt = 0f;
         }
     }
 
@@ -1502,7 +1513,7 @@ internal static class LobbyTestBotRuntime
             return spawnPosition;
         }
 
-        foreach (var player in Resources.FindObjectsOfTypeAll<SpookedNetworkPlayer>())
+        foreach (var player in sceneSpawner._networkPlayerRegistry._components)
         {
             if (player is null
                 || player.IsBot
@@ -1552,7 +1563,32 @@ internal static class LobbyTestBotRuntime
 
     private static SceneSpawner? ResolveAuthoritativeSpawner()
     {
-        var sceneSpawner = UnityEngine.Object.FindObjectOfType<SceneSpawner>();
+        var sceneSpawner = _sceneSpawner;
+        try
+        {
+            if (sceneSpawner is null
+                || sceneSpawner.Pointer == IntPtr.Zero
+                || sceneSpawner.gameObject is null)
+            {
+                if (Time.unscaledTime < _nextSceneSpawnerRecoveryAt)
+                {
+                    return null;
+                }
+
+                // SceneSpawner.Spawn normally populates the cache. The global lookup is only a
+                // recovery path for a plugin loaded after that lifecycle event. Back it off so a
+                // scene transition cannot repeat Unity's sorted all-scene search every frame.
+                _nextSceneSpawnerRecoveryAt = Time.unscaledTime + 0.5f;
+                sceneSpawner = UnityEngine.Object.FindObjectOfType<SceneSpawner>();
+                _sceneSpawner = sceneSpawner;
+            }
+        }
+        catch
+        {
+            _sceneSpawner = null;
+            _nextSceneSpawnerRecoveryAt = Time.unscaledTime + 0.5f;
+            return null;
+        }
         if (sceneSpawner is null
             || sceneSpawner._gameState is null
             || sceneSpawner.Object is null
@@ -1561,6 +1597,11 @@ internal static class LobbyTestBotRuntime
             || sceneSpawner.Runner is null
             || !sceneSpawner.Runner.IsRunning)
         {
+            if (sceneSpawner is not null && sceneSpawner.Pointer != IntPtr.Zero)
+            {
+                _sceneSpawner = null;
+                _nextSceneSpawnerRecoveryAt = Time.unscaledTime + 0.5f;
+            }
             return null;
         }
 
@@ -1580,7 +1621,7 @@ internal static class LobbyTestBotRuntime
             return null;
         }
 
-        foreach (var player in Resources.FindObjectsOfTypeAll<SpookedNetworkPlayer>())
+        foreach (var player in sceneSpawner._networkPlayerRegistry._components)
         {
             if (IsManagedBot(player)
                 && player.Object is not null
@@ -1602,7 +1643,7 @@ internal static class LobbyTestBotRuntime
             return null;
         }
 
-        foreach (var player in Resources.FindObjectsOfTypeAll<SpookedNetworkPlayer>())
+        foreach (var player in sceneSpawner._networkPlayerRegistry._components)
         {
             if (player is not null
                 && player.IsBot

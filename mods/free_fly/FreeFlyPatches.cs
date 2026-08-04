@@ -1,17 +1,12 @@
 using HarmonyLib;
+using Gameplay.Player;
 using Gameplay.Player.Components;
 
 namespace SneakOut.FreeFly;
 
-[HarmonyPatch]
+[HarmonyPatch(typeof(PlayerInputController), "Update")]
 internal static class PlayerInputControllerUpdatePatch
 {
-    private static System.Reflection.MethodBase? TargetMethod()
-    {
-        var type = AccessTools.TypeByName("Gameplay.Player.PlayerInputController");
-        return type is null ? null : AccessTools.Method(type, "Update");
-    }
-
     private static void Postfix()
     {
         FreeFlyRuntime.TryApplyFreeFly();

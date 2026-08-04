@@ -1,10 +1,12 @@
 using Collections;
+using Gameplay.Player.Components;
 using Gameplay.Skills;
 using HarmonyLib;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using Types;
 using UI.Views;
 using UI.Views.Lobby;
+using AvatarType = Kinguinverse.WebServiceProvider.Types_v2.AvatarType;
 
 namespace SneakOut.MummyUnlock;
 
@@ -14,6 +16,21 @@ internal static class SeekerSelectionViewModelInitPatch
     private static void Postfix(SeekerSelectionViewModel __instance)
     {
         MummyUnlockRuntime.EnsureAvailableSeekersContainMummy(__instance);
+    }
+}
+
+[HarmonyPatch(typeof(SpookedNetworkPlayer), nameof(SpookedNetworkPlayer.GetCurrentAvatar))]
+internal static class SpookedNetworkPlayerGetCurrentAvatarPatch
+{
+    private static bool Prefix(SpookedNetworkPlayer __instance, ref AvatarType __result)
+    {
+        if (!MummyUnlockRuntime.TryGetMummyAvatar(__instance, out var avatarType))
+        {
+            return true;
+        }
+
+        __result = avatarType;
+        return false;
     }
 }
 

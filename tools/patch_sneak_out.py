@@ -31,7 +31,6 @@ LOCAL_BEPINEX_DIR = REPO_ROOT / ".tmp/runtime-mod/bepinex"
 RUNTIME_MOD_ARTIFACTS_DIR = REPO_ROOT / "artifacts/runtime_mods"
 SUPPORTED_GAME_BUILD_PATH = REPO_ROOT / "supported_game_build.json"
 PROTON_INPUT_ENVIRONMENT = "XMODIFIERS=@im=none"
-PROTON_LAUNCH_OPTIONS = f'{PROTON_INPUT_ENVIRONMENT} WINEDLLOVERRIDES="winhttp=n,b" %command%'
 RUNTIME_LOADER_ENTRY_NAMES: tuple[str, ...] = (
     "BepInEx",
     "dotnet",
@@ -642,7 +641,19 @@ def split_launch_option_prefix(existing_launch_options: str) -> tuple[str, str]:
     return " ".join(prefix_tokens).strip(), " ".join(tokens[index:]).strip()
 
 
-def merge_proton_launch_options(existing_launch_options: str) -> str:
+def game_mode_available(game_dir: Path) -> bool:
+    return shutil.which("gamemoderun") is not None or ".var/app/com.valvesoftware.Steam" in game_dir.as_posix()
+
+
+def default_proton_launch_options(use_game_mode: bool) -> str:
+    game_mode_prefix = "gamemoderun " if use_game_mode else ""
+    return (
+        f'{PROTON_INPUT_ENVIRONMENT} WINEDLLOVERRIDES="winhttp=n,b" '
+        f'{game_mode_prefix}%command%'
+    )
+
+
+def merge_proton_launch_options(existing_launch_options: str, use_game_mode: bool = False) -> str:
     # Remove the exact diagnostic display override used by the performance harness during
     # development. It must never become a persistent user launch option: besides forcing
     # 1280x720 windowed mode, it leaves the game's resolution dropdown without an exact match.
@@ -662,7 +673,7 @@ def merge_proton_launch_options(existing_launch_options: str) -> str:
     )
     existing_launch_options = re.sub(r"\s+", " ", existing_launch_options).strip()
     if not existing_launch_options:
-        return PROTON_LAUNCH_OPTIONS
+        return default_proton_launch_options(use_game_mode)
 
     wine_match = re.search(r'WINEDLLOVERRIDES=(["\']?)([^"\']*)(\1)', existing_launch_options)
     if wine_match is not None:
@@ -686,6 +697,15 @@ def merge_proton_launch_options(existing_launch_options: str) -> str:
 
     if not re.search(r"(?:^|\s)XMODIFIERS=", existing_launch_options):
         existing_launch_options = f"{PROTON_INPUT_ENVIRONMENT} {existing_launch_options}".strip()
+    if use_game_mode and not re.search(r"(?:^|\s)gamemoderun(?:\s|$)", existing_launch_options):
+        if "%command%" in existing_launch_options:
+            existing_launch_options = existing_launch_options.replace(
+                "%command%",
+                "gamemoderun %command%",
+                1,
+            )
+        else:
+            existing_launch_options = f"{existing_launch_options} gamemoderun %command%".strip()
     return existing_launch_options
 
 
@@ -710,7 +730,7 @@ def escape_vdf_string(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"')
 
 
-def update_localconfig_launch_options(localconfig_path: Path) -> bool:
+def update_localconfig_launch_options(localconfig_path: Path, use_game_mode: bool) -> bool:
     lines = localconfig_path.read_text(encoding="utf-8", errors="ignore").splitlines()
     pending_key: str | None = None
     stack: list[str] = []
@@ -756,7 +776,7 @@ def update_localconfig_launch_options(localconfig_path: Path) -> bool:
             return False
         indent = launch_options_match.group(1)
         current_launch_options = unescape_vdf_string(launch_options_match.group(2))
-        updated_launch_options = merge_proton_launch_options(current_launch_options)
+        updated_launch_options = merge_proton_launch_options(current_launch_options, use_game_mode)
         updated_line = f'{indent}"LaunchOptions"\t\t"{escape_vdf_string(updated_launch_options)}"'
         if updated_line == lines[launch_options_index]:
             return False
@@ -767,7 +787,8 @@ def update_localconfig_launch_options(localconfig_path: Path) -> bool:
     if app_closing_index is not None:
         indent_match = re.match(r'(\s*)', lines[app_closing_index])
         indent = indent_match.group(1) if indent_match is not None else ""
-        lines.insert(app_closing_index, f'{indent}\t"LaunchOptions"\t\t"{escape_vdf_string(PROTON_LAUNCH_OPTIONS)}"')
+        launch_options = default_proton_launch_options(use_game_mode)
+        lines.insert(app_closing_index, f'{indent}\t"LaunchOptions"\t\t"{escape_vdf_string(launch_options)}"')
         localconfig_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         return True
 
@@ -779,26 +800,27 @@ def update_localconfig_launch_options(localconfig_path: Path) -> bool:
     lines[apps_closing_index:apps_closing_index] = [
         f'{apps_indent}"{STEAM_APP_ID}"',
         f"{apps_indent}" + "{",
-        f'{apps_indent}\t"LaunchOptions"\t\t"{escape_vdf_string(PROTON_LAUNCH_OPTIONS)}"',
+        f'{apps_indent}\t"LaunchOptions"\t\t"{escape_vdf_string(default_proton_launch_options(use_game_mode))}"',
         f"{apps_indent}" + "}",
     ]
     localconfig_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return True
 
 
-def configure_proton_launch_options() -> None:
+def configure_proton_launch_options(game_dir: Path) -> None:
     localconfig_paths = candidate_localconfig_paths()
     if not localconfig_paths:
         print("warning: no Steam localconfig.vdf files found; could not configure Proton launch options automatically")
         return
 
+    use_game_mode = game_mode_available(game_dir)
     for localconfig_path in localconfig_paths:
         backup_path = localconfig_path.with_name(localconfig_path.name + BACKUP_SUFFIX)
         if not backup_path.exists():
             backup_path.write_bytes(localconfig_path.read_bytes())
             print(f"backup:    {backup_path}")
 
-        if update_localconfig_launch_options(localconfig_path):
+        if update_localconfig_launch_options(localconfig_path, use_game_mode):
             print(f"updated:   {localconfig_path}")
         else:
             print(f"unchanged: {localconfig_path}")
@@ -1045,7 +1067,7 @@ def install_selected_runtime_mods(
     if selected_runtime_mod_option_ids:
         install_runtime_loader(game_dir)
         if is_proton_game_install(game_dir):
-            configure_proton_launch_options()
+            configure_proton_launch_options(game_dir)
             configure_bepinex_for_proton(game_dir)
     for option_id in selected_runtime_mod_option_ids:
         runtime_mod = RUNTIME_MOD_OPTION_BY_ID[option_id]

@@ -1200,6 +1200,7 @@ internal static class UnlockEverythingStub
             products.UnPurchaseAbleSkinParts ??= new Il2CppCollections.List<SkinPart>();
 
             var byType = new Dictionary<SkinPartType, SkinPartProduct>();
+            var advertisedTypes = new List<SkinPartType>();
             foreach (var product in products.SkinPartProducts)
             {
                 var skinPartType = product?.Product?.SkinPartType ?? SkinPartType.None;
@@ -1210,50 +1211,48 @@ internal static class UnlockEverythingStub
 
                 product!.Price = CreateSkinPartPrice();
                 byType[skinPartType] = product;
+                advertisedTypes.Add(skinPartType);
                 SkinPartTypeByProductId[product.Id] = skinPartType;
             }
 
-            // The backend puts unreleased and otherwise non-purchasable cosmetics in a
-            // separate list. Promote those exact SkinPart records into the shop instead of
-            // inventing products for every enum member. The real records are important: the
-            // wardrobe can bind their actual ids and sprites, while enum-only products turn
-            // into blank cards and make every category rebuild unnecessarily expensive.
+            var unavailableByType = new Dictionary<SkinPartType, SkinPart>();
             foreach (var skinPart in products.UnPurchaseAbleSkinParts)
             {
                 var skinPartType = skinPart?.SkinPartType ?? SkinPartType.None;
-                if (skinPartType == SkinPartType.None || byType.ContainsKey(skinPartType))
+                if (skinPartType != SkinPartType.None)
                 {
-                    continue;
+                    unavailableByType[skinPartType] = skinPart!;
                 }
-
-                var productId = GetSkinPartProductId(skinPartType);
-                var product = new SkinPartProduct(productId, skinPart!, CreateSkinPartPrice());
-                products.SkinPartProducts.Add(product);
-                byType[skinPartType] = product;
-                SkinPartTypeByProductId[productId] = skinPartType;
             }
 
-            products.UnPurchaseAbleSkinParts = new Il2CppCollections.List<SkinPart>();
-
-            // Keep product availability separate from ownership. Enum entries not advertised
-            // by the backend are the unreleased/hidden wardrobe pieces this mod intentionally
-            // exposes; adding a product here does not add it to player.Skins.
-            foreach (var skinPartType in SkinPartCatalogPolicy.AllConcreteEnumValues(SkinPartType.None))
+            // Availability, ownership and equipped state are intentionally separate sets.
+            // Every concrete enum value belongs in the shop, including unreleased entries
+            // without an icon/model in this client. Only player.Skins grants ownership and
+            // only CharacterData controls what is equipped.
+            var exposedTypes = SkinPartCatalogPolicy.AllConcreteEnumValues(SkinPartType.None);
+            var normalizedProducts = new Il2CppCollections.List<SkinPartProduct>();
+            foreach (var skinPartType in exposedTypes)
             {
-                if (byType.ContainsKey(skinPartType))
+                if (byType.TryGetValue(skinPartType, out var existingProduct))
                 {
+                    normalizedProducts.Add(existingProduct);
                     continue;
                 }
 
                 var productId = GetSkinPartProductId(skinPartType);
-                var skinPart = new SkinPart(GetSkinPartId(skinPartType), GetSkinTypeForSkinPart(skinPartType), skinPartType);
+                var skinPart = unavailableByType.TryGetValue(skinPartType, out var exactSkinPart)
+                    ? exactSkinPart
+                    : new SkinPart(GetSkinPartId(skinPartType), GetSkinTypeForSkinPart(skinPartType), skinPartType);
                 var product = new SkinPartProduct(productId, skinPart, CreateSkinPartPrice());
-                products.SkinPartProducts.Add(product);
+                normalizedProducts.Add(product);
                 byType[skinPartType] = product;
                 SkinPartTypeByProductId[productId] = skinPartType;
             }
 
-            _cachedSkinPartProducts = products.SkinPartProducts.ToArray();
+            products.SkinPartProducts = normalizedProducts;
+            _cachedSkinPartProducts = normalizedProducts.ToArray();
+            UnlockEverythingRuntime.LogOperational(
+                $"Wardrobe catalog prepared: advertised={advertisedTypes.Count}, unavailable={unavailableByType.Count}, exposed={_cachedSkinPartProducts.Length}");
         }
     }
 
@@ -1274,6 +1273,8 @@ internal static class UnlockEverythingStub
             }
 
             shop.SkinPartProducts = products;
+            UnlockEverythingRuntime.LogOperational(
+                $"Wardrobe catalog installed once: products={products.Length}");
         }
     }
 

@@ -90,12 +90,12 @@ internal static class ChairWallThrowFixRuntime
         [HarmonyPostfix]
         private static void Postfix(
             EntityInteractiveComponent __instance,
-            NetworkId networkId,
-            InteractionType interactionType,
+            NetworkId __0,
+            InteractionType __1,
             ref bool __result)
         {
             if (__result
-                || interactionType != InteractionType.Throw
+                || __1 != InteractionType.Throw
                 || _configuration?.EnableMod.Value != true)
             {
                 return;
@@ -103,7 +103,7 @@ internal static class ChairWallThrowFixRuntime
 
             try
             {
-                var interactable = __instance._interactableObjectsRegistry?[networkId];
+                var interactable = __instance._interactableObjectsRegistry?[__0];
                 if (interactable is not null && IsSupportedThrowable(interactable))
                 {
                     // Throw is an explicit request for the object already carried by this player.

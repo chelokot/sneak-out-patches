@@ -1197,17 +1197,19 @@ internal static class UnlockEverythingStub
             products.SkinPartProducts ??= new Il2CppCollections.List<SkinPartProduct>();
             products.UnPurchaseAbleSkinParts = new Il2CppCollections.List<SkinPart>();
 
-            var supported = UnlockEverythingCosmeticCatalog.GetSupportedSkinParts();
-            if (supported is null)
-            {
-                return;
-            }
+            // Product availability and ownership are intentionally different sets. Every
+            // concrete SkinPartType is a valid hidden/locked wardrobe product, even when it
+            // is absent from the currently loaded public sprite catalogs. Only player.Skins
+            // controls Owned/Equipped state; adding a product here must never grant it.
+            var purchasable = SkinPartCatalogPolicy
+                .AllConcreteEnumValues(SkinPartType.None)
+                .ToHashSet();
 
             var byType = new Dictionary<SkinPartType, SkinPartProduct>();
             foreach (var product in products.SkinPartProducts)
             {
                 var skinPartType = product?.Product?.SkinPartType ?? SkinPartType.None;
-                if (skinPartType == SkinPartType.None || !supported.Contains(skinPartType))
+                if (skinPartType == SkinPartType.None || !purchasable.Contains(skinPartType))
                 {
                     continue;
                 }
@@ -1217,7 +1219,7 @@ internal static class UnlockEverythingStub
                 SkinPartTypeByProductId[product.Id] = skinPartType;
             }
 
-            foreach (var skinPartType in supported.OrderBy(value => (int)value))
+            foreach (var skinPartType in purchasable.OrderBy(value => (int)value))
             {
                 if (byType.ContainsKey(skinPartType))
                 {

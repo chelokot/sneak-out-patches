@@ -8,7 +8,7 @@ public sealed class StartDelayReducerPlugin : BasePlugin
 {
     public const string PluginGuid = "chelokot.sneakout.start-delay-reducer";
     public const string PluginName = "Start Now";
-    public const string PluginVersion = "0.2.1";
+    public const string PluginVersion = "0.2.2";
 
     public override void Load()
     {

@@ -35,6 +35,7 @@ internal static class KeyboardLayoutFixRuntime
     private static KeyboardLayoutFixConfig? _configuration;
     private static bool _watcherInstalled;
     private static long _lastKeyboardLayout;
+    private static string _lastLayoutSignature = string.Empty;
     private static float _nextLayoutPollAt;
     private static float _bindingRefreshAt = -1f;
     private static float _diagnosticCycleStartedAt;
@@ -111,7 +112,7 @@ internal static class KeyboardLayoutFixRuntime
 
         var pointer = inputController.Pointer;
         var decision = NativeMovementPolicy.Resolve(
-            IsRussianLayout(_lastKeyboardLayout),
+            IsRussianLayout(),
             IsNativeKeyDown(0x57),
             IsNativeKeyDown(0x41),
             IsNativeKeyDown(0x53),
@@ -149,13 +150,15 @@ internal static class KeyboardLayoutFixRuntime
     private static void DetectLayoutChange(bool force, string source)
     {
         var keyboardLayout = GetKeyboardLayout(0).ToInt64();
-        if (!force && keyboardLayout == _lastKeyboardLayout)
+        var keyboard = Keyboard.current;
+        var signature = BuildLayoutSignature(keyboardLayout, keyboard);
+        if (!force && string.Equals(signature, _lastLayoutSignature, StringComparison.Ordinal))
         {
             return;
         }
 
         _lastKeyboardLayout = keyboardLayout;
-        var keyboard = Keyboard.current;
+        _lastLayoutSignature = signature;
         if (keyboard is null)
         {
             _bindingRefreshAt = Time.unscaledTime + BindingRefreshDelay;
@@ -200,7 +203,7 @@ internal static class KeyboardLayoutFixRuntime
         // Gameplay interaction, equipment, skill, and settings views already listen to this
         // stock event. Publishing it avoids hard-coding every UI implementation in the mod.
         GameEventsManager.Publish<AfterControlsOverrideEvent>(null, new AfterControlsOverrideEvent());
-        var refreshedPrompts = RefreshActivePromptLabels(IsRussianLayout(_lastKeyboardLayout));
+        var refreshedPrompts = RefreshActivePromptLabels(IsRussianLayout());
 
         var keyboard = Keyboard.current;
         Log(
@@ -216,7 +219,7 @@ internal static class KeyboardLayoutFixRuntime
 
     private static void ApplyLocalizedPhysicalKeyLabels(KeyBindingController controller)
     {
-        if (!IsRussianLayout(_lastKeyboardLayout))
+        if (!IsRussianLayout())
         {
             return;
         }
@@ -239,11 +242,33 @@ internal static class KeyboardLayoutFixRuntime
         controller._VoiceChatHoldPcKey_k__BackingField = LocalizePhysicalKeys(controller.VoiceChatHoldPcKey);
     }
 
-    private static bool IsRussianLayout(long keyboardLayout)
+    private static string BuildLayoutSignature(long keyboardLayout, Keyboard? keyboard)
     {
-        var lowWord = (int)(keyboardLayout & 0xFFFF);
-        var highWord = (int)((keyboardLayout >> 16) & 0xFFFF);
-        return lowWord == 0x0419 || highWord == 0x0419;
+        return $"{keyboardLayout:X}:{keyboard?.keyboardLayout ?? string.Empty}:"
+            + $"{keyboard?.wKey?.displayName ?? string.Empty}:"
+            + $"{keyboard?.eKey?.displayName ?? string.Empty}:"
+            + $"{keyboard?.aKey?.displayName ?? string.Empty}";
+    }
+
+    private static bool IsRussianLayout()
+    {
+        var lowWord = (int)(_lastKeyboardLayout & 0xFFFF);
+        var highWord = (int)((_lastKeyboardLayout >> 16) & 0xFFFF);
+        if (lowWord == 0x0419 || highWord == 0x0419)
+        {
+            return true;
+        }
+
+        // Wine can keep the Win32 HKL at US while Unity's Input System observes the host's
+        // active XKB layout. Use both sources; otherwise the poller sees a constant HKL and
+        // silently ignores every real GNOME/KDE layout transition.
+        var keyboard = Keyboard.current;
+        var unityLayout = keyboard?.keyboardLayout ?? string.Empty;
+        return unityLayout.Contains("Russian", StringComparison.OrdinalIgnoreCase)
+            || unityLayout.Contains("Cyrillic", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(keyboard?.wKey?.displayName, "Ц", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(keyboard?.eKey?.displayName, "У", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(keyboard?.aKey?.displayName, "Ф", StringComparison.OrdinalIgnoreCase);
     }
 
     private static int RefreshActivePromptLabels(bool useRussianLabels)

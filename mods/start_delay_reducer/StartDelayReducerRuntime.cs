@@ -103,8 +103,11 @@ internal static class StartDelayReducerRuntime
 
             LayoutButton(state);
             state.RootObject.SetActive(true);
-            state.Button.interactable = _skipRequestedForMachine == IntPtr.Zero;
-            state.Label.text = _skipRequestedForMachine == IntPtr.Zero ? "START NOW" : "STARTING...";
+            // A pending request is already idempotent. Keep the stock active appearance instead
+            // of putting the button into Unity's grey disabled state while the state machine
+            // consumes the request on its next network tick.
+            state.Button.interactable = true;
+            state.Label.text = "START NOW";
         }
         catch (Exception exception)
         {
@@ -372,6 +375,11 @@ internal static class StartDelayReducerRuntime
             if (stateMachine is null || !IsHostWaitingToStart(stateMachine))
             {
                 _logger?.LogWarning("Start Now ignored: this client is not the authoritative host in a pre-match waiting phase");
+                return;
+            }
+
+            if (_skipRequestedForMachine == stateMachine.Pointer)
+            {
                 return;
             }
 

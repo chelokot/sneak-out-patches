@@ -42,16 +42,35 @@ internal static class PropBuffRuntime
         _harmony.PatchAll();
     }
 
-    public static bool TryGetPropSpeedMultiplier(SpookedBuffType buffType, out float multiplier)
+    public static void ApplyPropMovementSpeed(PlayerInputController inputController)
     {
-        multiplier = 0f;
-        if (_configuration?.EnableMod.Value != true || buffType != SpookedBuffType.PropChange)
+        if (_configuration?.EnableMod.Value != true)
         {
-            return false;
+            return;
         }
 
-        multiplier = Mathf.Clamp(_configuration.MovementSpeedMultiplier.Value, 0.05f, 0.75f);
-        return true;
+        try
+        {
+            var player = inputController._spookedNetworkPlayer;
+            if (player is null || !player.HasInputAuthority || player.IsBot)
+            {
+                return;
+            }
+
+            var skills = inputController.GetComponent<EntitySkillsComponent>();
+            var registry = skills?._playerPropRegistry;
+            if (registry is null || !registry.IsPlayerProp(player.InternalId))
+            {
+                return;
+            }
+
+            var multiplier = Mathf.Clamp(_configuration.MovementSpeedMultiplier.Value, 0.05f, 0.75f);
+            inputController._moveDirection *= multiplier;
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogError($"Prop movement scaling failed: {exception}");
+        }
     }
 
     public static void TryCycleModel(PlayerInputController inputController)
@@ -171,26 +190,12 @@ internal static class PropBuffRuntime
     }
 }
 
-[HarmonyPatch(typeof(SpookedBuffTypeExtension), nameof(SpookedBuffTypeExtension.GetSpeedMultiplier))]
-internal static class SpookedBuffTypeExtensionGetSpeedMultiplierPatch
-{
-    private static bool Prefix(SpookedBuffType buffType, ref float __result)
-    {
-        if (!PropBuffRuntime.TryGetPropSpeedMultiplier(buffType, out var multiplier))
-        {
-            return true;
-        }
-
-        __result = multiplier;
-        return false;
-    }
-}
-
 [HarmonyPatch(typeof(PlayerInputController), "ResolveLocalInputs")]
 internal static class PlayerInputControllerResolveLocalInputsPatch
 {
     private static void Postfix(PlayerInputController __instance)
     {
+        PropBuffRuntime.ApplyPropMovementSpeed(__instance);
         PropBuffRuntime.TryCycleModel(__instance);
     }
 }

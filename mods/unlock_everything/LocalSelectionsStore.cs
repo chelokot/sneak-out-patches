@@ -168,27 +168,20 @@ internal static class LocalSelectionsStore
         }
 
         var purchaseCount = profileSelections.PurchasedSkinParts.Count;
-        if (_appliedGoldPlayerPointer == player.Pointer
-            && _appliedGoldOverlay is { } previous
-            && gold.Quantity == previous.DisplayedGold)
-        {
-            var newlyUnchargedPurchases = Math.Max(0, purchaseCount - previous.ChargedPurchaseCount);
-            if (newlyUnchargedPurchases == 0)
-            {
-                return;
-            }
-
-            gold.Quantity = LocalSkinEconomy.DisplayedGold(gold.Quantity, newlyUnchargedPurchases);
-        }
-        else
-        {
-            // A new backend payload (or a refreshed value on the same wrapper) contains the
-            // authoritative balance. The durable local purchase ledger is layered over it.
-            gold.Quantity = LocalSkinEconomy.DisplayedGold(gold.Quantity, purchaseCount);
-        }
+        var previous = _appliedGoldPlayerPointer == player.Pointer
+            ? _appliedGoldOverlay
+            : null;
+        var overlay = LocalSkinEconomy.ResolveOverlay(
+            gold.Quantity,
+            purchaseCount,
+            previous?.DisplayedGold,
+            previous?.ChargedPurchaseCount ?? 0);
+        gold.Quantity = overlay.DisplayedGold;
 
         _appliedGoldPlayerPointer = player.Pointer;
-        _appliedGoldOverlay = new AppliedGoldOverlay(gold.Quantity, purchaseCount);
+        _appliedGoldOverlay = new AppliedGoldOverlay(
+            overlay.DisplayedGold,
+            overlay.ChargedPurchaseCount);
     }
 
     private static Resource? FindGold(WebPlayer player)

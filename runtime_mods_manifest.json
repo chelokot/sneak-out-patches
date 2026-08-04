@@ -130,7 +130,7 @@
   {
     "option_id": "pumpkin-radius-indicator-fix",
     "label": "Pumpkin Radius Indicator Fix",
-    "details": "Compensates the pumpkin prefab's parent scale so its visible danger ring matches the authoritative instant-kill radius.",
+    "details": "Matches the persistent hunter ring to the trigger radius, then shows exact kill and 20%-opacity outer stun rings when the pumpkin triggers.",
     "category": "gameplay",
     "default_enabled": true,
     "project_relative_path": "mods/pumpkin_radius_indicator_fix/PumpkinRadiusIndicatorFix.csproj",

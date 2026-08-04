@@ -42,9 +42,11 @@ function parseCsv(content) {
   ));
 }
 
-async function readChangedReport(directory, extension) {
+async function readChangedReport(directory, extension, prefix = "") {
   try {
-    const names = (await readdir(directory)).filter((name) => name.endsWith(extension)).sort();
+    const names = (await readdir(directory))
+      .filter((name) => name.startsWith(prefix) && name.endsWith(extension))
+      .sort();
     return names.length > 0 ? readFile(join(directory, names.at(-1)), "utf8") : "";
   } catch (error) {
     if (error?.code === "ENOENT") {
@@ -52,6 +54,73 @@ async function readChangedReport(directory, extension) {
     }
     throw error;
   }
+}
+
+function summarizeWorldEvents(rows, processSamples) {
+  const spikes = rows
+    .filter((row) => row.event === "frame_spike")
+    .map((row) => ({
+      elapsed_s: Number(row.elapsed_s),
+      frame_ms: Number(row.frame_ms),
+      scene: row.scene,
+      room: row.room,
+      previous_room: row.previous_room,
+      seconds_since_room_change: Number(row.seconds_since_room_change),
+      position: [Number(row.player_x), Number(row.player_y), Number(row.player_z)],
+      managed_mb: Number(row.managed_mb),
+      gc_total: Number(row.gc0_total) + Number(row.gc1_total) + Number(row.gc2_total)
+    }))
+    .sort((left, right) => right.frame_ms - left.frame_ms);
+  const transitions = rows
+    .filter((row) => row.event === "room_change")
+    .map((row) => ({
+      elapsed_s: Number(row.elapsed_s),
+      from: row.previous_room,
+      to: row.room,
+      room_type: row.room_type,
+      lights: Number(row.room_lights),
+      position: [Number(row.player_x), Number(row.player_y), Number(row.player_z)]
+    }));
+  const lightCallbacks = rows
+    .filter((row) => row.event === "room_lights")
+    .map((row) => Number(row.callback_ms))
+    .filter(Number.isFinite);
+  const lightManagerCallbacks = rows
+    .filter((row) => row.event === "rooms_lights_manager")
+    .map((row) => Number(row.callback_ms))
+    .filter(Number.isFinite);
+  const nearRoomTransition = spikes.filter(
+    (spike) => Number.isFinite(spike.seconds_since_room_change)
+      && spike.seconds_since_room_change >= 0
+      && spike.seconds_since_room_change <= 1
+  );
+
+  const topSpikes = spikes.slice(0, 12).map((spike) => {
+    const closestProcessSample = processSamples.reduce((closest, sample) => (
+      !closest
+        || Math.abs(Number(sample.elapsed_s) - spike.elapsed_s)
+          < Math.abs(Number(closest.elapsed_s) - spike.elapsed_s)
+        ? sample
+        : closest
+    ), null);
+    return {
+      ...spike,
+      process_cpu_one_core_100: closestProcessSample?.cpu_pct_one_core_100 ?? null,
+      rss_mb: closestProcessSample?.rss_mb ?? null,
+      gpu_percent: closestProcessSample?.gpu_pct ?? null,
+      cgroup_read_mb: closestProcessSample?.cgroup_read_mb ?? null
+    };
+  });
+
+  return {
+    spike_count: spikes.length,
+    worst_frame_ms: spikes[0]?.frame_ms ?? 0,
+    spikes_within_one_second_of_room_change: nearRoomTransition.length,
+    room_transitions: transitions,
+    room_light_callback_ms: numericSummary(lightCallbacks),
+    rooms_light_manager_callback_ms: numericSummary(lightManagerCallbacks),
+    top_spikes: topSpikes
+  };
 }
 
 function summarizeTelemetry(rows) {
@@ -102,8 +171,18 @@ async function main() {
     .split(/\r?\n/)
     .filter(Boolean)
     .map((line) => JSON.parse(line));
-  const telemetryText = await readChangedReport(join(sessionDirectory, "performance-reports"), ".csv");
+  const telemetryText = await readChangedReport(
+    join(sessionDirectory, "performance-reports"),
+    ".csv",
+    "performance-"
+  );
   const telemetryRows = telemetryText ? parseCsv(telemetryText) : [];
+  const worldEventsText = await readChangedReport(
+    join(sessionDirectory, "performance-reports"),
+    ".csv",
+    "world-events-"
+  );
+  const worldEventRows = worldEventsText ? parseCsv(worldEventsText) : [];
   const playerLog = await readFile(join(sessionDirectory, "Player.log"), "utf8").catch(() => "");
   const bepLog = await readFile(join(sessionDirectory, "LogOutput.log"), "utf8").catch(() => "");
   const firstIo = samples.find((sample) => Number.isFinite(sample.cgroup_read_mb));
@@ -121,6 +200,7 @@ async function main() {
       cgroup_write_mb_delta: firstIo && lastIo ? lastIo.cgroup_write_mb - firstIo.cgroup_write_mb : null
     },
     scenes: summarizeTelemetry(telemetryRows),
+    world_events: summarizeWorldEvents(worldEventRows, samples),
     diagnostics: {
       null_reference_exceptions: (playerLog.match(/NullReferenceException/g) ?? []).length,
       bep_exceptions: (bepLog.match(/\[(?:Error|Fatal)/g) ?? []).length,

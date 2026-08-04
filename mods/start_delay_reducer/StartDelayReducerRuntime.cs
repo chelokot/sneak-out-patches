@@ -32,6 +32,7 @@ internal static class StartDelayReducerRuntime
     private static bool _loggedWatcherUpdate;
     private static bool _loggedStateMachineCapture;
     private static string _lastStateDiagnostic = string.Empty;
+    private static float _nextStyleFallbackSearchAt;
 
     public static void Initialize(ManualLogSource logger, StartDelayReducerConfig configuration)
     {
@@ -284,6 +285,12 @@ internal static class StartDelayReducerRuntime
             return;
         }
 
+        if (Time.unscaledTime < _nextStyleFallbackSearchAt)
+        {
+            return;
+        }
+        _nextStyleFallbackSearchAt = Time.unscaledTime + 1f;
+
         _styleTemplate = null;
         var styleSource = Resources.FindObjectsOfTypeAll<PortalPlayView>()
             .Where(view => view is not null && view.Pointer != IntPtr.Zero)
@@ -295,10 +302,21 @@ internal static class StartDelayReducerRuntime
             .FirstOrDefault(button =>
                 button!.gameObject.name != "StartNowButton"
                 && button.gameObject.name != "StartNowStyleTemplate");
-        if (styleSource is null)
+        CaptureStockButtonStyle(styleSource);
+    }
+
+    public static void CaptureStockButtonStyle(PortalPlayView view)
+    {
+        CaptureStockButtonStyle(view?._playButton as SpookedOutlineButton);
+    }
+
+    private static void CaptureStockButtonStyle(SpookedOutlineButton? styleSource)
+    {
+        if (IsAlive(_styleTemplate) || !IsCompleteStyleSource(styleSource))
         {
             return;
         }
+        var source = styleSource!;
 
         if (!IsAlive(_styleTemplateRoot))
         {
@@ -308,14 +326,15 @@ internal static class StartDelayReducerRuntime
         }
 
         _styleTemplate = UnityEngine.Object.Instantiate(
-            styleSource.gameObject,
+            source.gameObject,
             _styleTemplateRoot!.transform,
             false);
         _styleTemplate.name = "StartNowStyleTemplate";
         _styleTemplate.hideFlags = HideFlags.HideAndDontSave;
         _styleTemplate.SetActive(false);
+        _nextStyleFallbackSearchAt = float.PositiveInfinity;
         _loggedMissingStyleSource = false;
-        LogInfo($"Cached Start Now style from stock button '{styleSource.gameObject.name}'");
+        LogInfo($"Cached Start Now style from stock button '{source.gameObject.name}'");
     }
 
     private static bool IsCompleteStyleSource(SpookedOutlineButton? button)

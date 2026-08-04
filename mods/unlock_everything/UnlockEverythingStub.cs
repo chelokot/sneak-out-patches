@@ -916,7 +916,7 @@ internal static class UnlockEverythingStub
 
             if (existingAvatars.TryGetValue(avatarType, out var avatar))
             {
-                avatar.Id = GetAvatarId(avatarType);
+                avatar.Id = AvatarSelectionPolicy.PreserveOwnedProductId(avatar.Id, GetAvatarId(avatarType));
                 avatar.AvatarType = avatarType;
                 mergedAvatars.Add(avatar);
                 continue;
@@ -954,7 +954,7 @@ internal static class UnlockEverythingStub
 
             if (existingFrames.TryGetValue(avatarFrameType, out var frame))
             {
-                frame.Id = GetAvatarFrameId(avatarFrameType);
+                frame.Id = AvatarSelectionPolicy.PreserveOwnedProductId(frame.Id, GetAvatarFrameId(avatarFrameType));
                 frame.AvatarFrameType = avatarFrameType;
                 mergedFrames.Add(frame);
                 continue;
@@ -992,7 +992,7 @@ internal static class UnlockEverythingStub
 
             if (existingCharacterSkins.TryGetValue(characterSkin, out var skin))
             {
-                skin.Id = GetCharacterSkinId(characterSkin);
+                skin.Id = AvatarSelectionPolicy.PreserveOwnedProductId(skin.Id, GetCharacterSkinId(characterSkin));
                 skin.Skin = characterSkin;
                 mergedCharacterSkins.Add(skin);
                 continue;
@@ -1030,7 +1030,7 @@ internal static class UnlockEverythingStub
 
             if (existingEmotions.TryGetValue(emoteType, out var emote))
             {
-                emote.EmoteId = GetEmoteId(emoteType);
+                emote.EmoteId = AvatarSelectionPolicy.PreserveOwnedProductId(emote.EmoteId, GetEmoteId(emoteType));
                 emote.EmoteType = emoteType;
                 mergedEmotions.Add(emote);
                 continue;
@@ -1071,7 +1071,7 @@ internal static class UnlockEverythingStub
         {
             if (existingSkinParts.TryGetValue(skinPartType, out var skinPart))
             {
-                skinPart.Id = GetSkinPartId(skinPartType);
+                skinPart.Id = AvatarSelectionPolicy.PreserveOwnedProductId(skinPart.Id, GetSkinPartId(skinPartType));
                 skinPart.SkinPartType = skinPartType;
                 skinPart.SkinType = GetSkinTypeForSkinPart(skinPartType);
                 mergedSkinParts.Add(skinPart);

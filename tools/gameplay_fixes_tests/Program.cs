@@ -4,6 +4,7 @@ using SneakOut.MagicWardrobeHookFix;
 using SneakOut.NetworkHostSelector;
 using SneakOut.PumpkinRadiusIndicatorFix;
 using SneakOut.RipperCornerBlinkFix;
+using SneakOut.UnlockEverything;
 
 static void Require(bool condition, string message)
 {
@@ -17,6 +18,25 @@ static void RequireClose(float actual, float expected, string message)
 {
     Require(MathF.Abs(actual - expected) <= 0.0001f, $"{message}: expected {expected}, got {actual}");
 }
+
+Require(
+    AvatarSelectionPolicy.PreserveOwnedProductId(731, 100_004) == 731,
+    "avatar overlay replaced a real backend product id");
+Require(
+    AvatarSelectionPolicy.PreserveOwnedProductId(0, 100_004) == 100_004,
+    "avatar overlay did not assign an id to a synthetic product");
+Require(
+    AvatarSelectionPolicy.GetTitleDisplayText("TITLE_CHAIR_DESTROYER", "chair_destroyer") == "Chair Destroyer",
+    "missing title translation was not humanized");
+Require(
+    AvatarSelectionPolicy.GetTitleDisplayText("Developer", "developer") == "Developer",
+    "existing title translation was replaced");
+Require(
+    AvatarSelectionPolicy.GetTitleDisplayText("TITLE_ARISTOCRATE", "aristocrate") == "Aristocrat",
+    "known misspelled title enum leaked into the UI");
+Require(
+    AvatarSelectionPolicy.GetTitleDisplayText("TITLE_CHAIR_DESTROYER", "TITLE_CHAIR_DESTROYER") == "Chair Destroyer",
+    "title localization key fallback still depended on the boxed IL2CPP enum");
 
 var releaseCandidates = ChairReleasePolicy.CandidateDistances(0.25f).ToArray();
 Require(releaseCandidates.Length == 3, "chair release search did not include its bounded final candidate");
@@ -125,18 +145,43 @@ Require(
     !HostSelectionProtocol.TryParseRequest("999|AABBCCDD|17|4|steam-d", out _),
     "mismatched host selector protocol version was accepted");
 Require(
-    !HostSelectionProtocol.TryParseRequest("1|AABBCCDD|17|4", out _),
+    !HostSelectionProtocol.TryParseRequest("2|AABBCCDD|17|4", out _),
     "truncated host selector request was accepted");
 Require(
-    !HostSelectionProtocol.TryParseRequest("1|AABBCCDD|17|0|steam-d", out _),
+    !HostSelectionProtocol.TryParseRequest("2|AABBCCDD|17|0|steam-d", out _),
     "automatic host request accepted a non-empty user id");
 Require(
-    HostSelectionProtocol.CreateHello("AABBCCDD", "steam-a") == "1|AABBCCDD|steam-a",
+    HostSelectionProtocol.CreateHello("AABBCCDD", "steam-a") == "2|AABBCCDD|steam-a",
     "host selector hello token changed unexpectedly");
 Require(
     HostSelectionProtocol.CreateAck(7, "AABBCCDD", 4, "steam-d")
-        == "1|7|AABBCCDD|4|steam-d",
+        == "2|7|AABBCCDD|4|steam-d",
     "host selector acknowledgement token changed unexpectedly");
+var expectedState = new HostSelectionState(7, 4, "steam-d", "AABBCCDD", true, false);
+var encodedState = HostSelectionProtocol.CreateState(
+    expectedState.Revision,
+    expectedState.TargetPlayerRaw,
+    expectedState.TargetUserId,
+    expectedState.Membership,
+    expectedState.Compatible,
+    expectedState.Ready);
+Require(
+    HostSelectionProtocol.TryParseState(encodedState, out var decodedState),
+    "valid compact host-selection state was rejected");
+Require(decodedState == expectedState, "compact host-selection state did not round-trip");
+Require(
+    !HostSelectionProtocol.TryParseState("2|7|4||AABBCCDD|1|0", out _),
+    "selected host state accepted an empty user id");
+var peerRegistry = HostSelectionProtocol.UpsertPeer(string.Empty, 2, "steam-b", "AABBCCDD", -1);
+peerRegistry = HostSelectionProtocol.UpsertPeer(peerRegistry, 4, "steam-d", "AABBCCDD", 7);
+Require(
+    HostSelectionProtocol.TryGetPeer(peerRegistry, 2, out var peerTwo)
+    && peerTwo == new HostSelectionPeer(2, "steam-b", "AABBCCDD", -1),
+    "compact peer registry lost the first participant");
+Require(
+    HostSelectionProtocol.TryGetPeer(peerRegistry, 4, out var peerFour)
+    && peerFour == new HostSelectionPeer(4, "steam-d", "AABBCCDD", 7),
+    "compact peer registry did not preserve acknowledgement state");
 var signatureA = HostSelectionProtocol.ComputeMembershipSignature(new[]
 {
     (3, "steam-c"),

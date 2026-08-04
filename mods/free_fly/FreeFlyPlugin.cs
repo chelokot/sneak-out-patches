@@ -8,7 +8,7 @@ public sealed class FreeFlyPlugin : BasePlugin
 {
     public const string PluginGuid = "chelokot.sneakout.free-fly";
     public const string PluginName = "Free Fly";
-    public const string PluginVersion = "0.1.0";
+    public const string PluginVersion = "0.2.0";
 
     public override void Load()
     {

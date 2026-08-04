@@ -52,21 +52,35 @@ internal static class SceneSpawnerGetCharacterDataPatch
     }
 }
 
-[HarmonyPatch(typeof(AvatarAndFrameView), "EquipModification")]
-internal static class AvatarAndFrameViewEquipModificationPatch
+[HarmonyPatch(typeof(AvatarAndFrameView), "SetProducts")]
+internal static class AvatarAndFrameViewSetProductsPatch
 {
-    private static bool Prefix(AvatarAndFrameView __instance)
+    private static void Postfix(AvatarAndFrameView __instance)
     {
-        if (__instance is not null && UnlockEverythingSelections.TryParseAvatarProductFromView(__instance, out var avatarType, out var avatarFrameType, out var descriptionType))
+        if (__instance?._titleRecordButtons is null)
         {
-            UnlockEverythingRuntime.LogSkillUiEvent("AvatarAndFrameView.EquipModification", $"avatar={avatarType}, frame={avatarFrameType}, title={descriptionType}");
-        }
-        else
-        {
-            UnlockEverythingRuntime.LogSkillUiEvent("AvatarAndFrameView.EquipModification", "selectionUnavailable");
+            return;
         }
 
-        return true;
+        try
+        {
+            foreach (var button in __instance._titleRecordButtons)
+            {
+                if (button?._titleText is null)
+                {
+                    continue;
+                }
+
+                var currentText = button._titleText.text;
+                button._titleText.text = AvatarSelectionPolicy.GetTitleDisplayText(
+                    currentText,
+                    currentText);
+            }
+        }
+        catch (Exception exception)
+        {
+            UnlockEverythingRuntime.LogError("Failed to apply title display fallbacks", exception);
+        }
     }
 }
 

@@ -1,6 +1,6 @@
-import { cp, mkdir, open, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, open, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { resolveGameDirectory, steamAppId } from "./lib/game-install.mjs";
 import { repositoryRoot, runAndCapture } from "./lib/workspace-tools.mjs";
 
@@ -12,7 +12,9 @@ function parseArguments(argv) {
     sessionName: "profile",
     gameDirectory: process.env.SNEAKOUT_GAME_DIR,
     launch: true,
-    leaveRunning: false
+    leaveRunning: false,
+    focusWindow: true,
+    diagnosticReports: true
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -33,8 +35,14 @@ function parseArguments(argv) {
       case "--leave-running":
         options.leaveRunning = true;
         break;
+      case "--no-focus":
+        options.focusWindow = false;
+        break;
+      case "--no-interval-reports":
+        options.diagnosticReports = false;
+        break;
       case "--help":
-        console.log("Usage: node scripts/performance-session.mjs [--duration-seconds N] [--session NAME] [--game-dir PATH] [--no-launch] [--leave-running]");
+        console.log("Usage: node scripts/performance-session.mjs [--duration-seconds N] [--session NAME] [--game-dir PATH] [--no-launch] [--leave-running] [--no-focus] [--no-interval-reports]");
         process.exit(0);
         break;
       default:
@@ -54,6 +62,22 @@ function sleep(milliseconds) {
 
 function timestampLabel() {
   return new Date().toISOString().replaceAll(":", "-").replaceAll(".", "-");
+}
+
+function enableDiagnosticIntervalReports(content) {
+  if (/^WriteReportsDuringGameplay\s*=/m.test(content)) {
+    return content.replace(
+      /^WriteReportsDuringGameplay\s*=.*$/m,
+      "WriteReportsDuringGameplay = true"
+    );
+  }
+  if (/^\[telemetry\]\s*$/m.test(content)) {
+    return content.replace(
+      /^(\[telemetry\]\s*\r?\n)/m,
+      "$1WriteReportsDuringGameplay = true\n"
+    );
+  }
+  return `${content.trimEnd()}\n\n[telemetry]\nWriteReportsDuringGameplay = true\n`;
 }
 
 async function runHost(command, argumentsList) {
@@ -96,7 +120,7 @@ async function findSneakOutPid() {
   return 0;
 }
 
-async function waitForSneakOutPid(timeoutSeconds = 60) {
+async function waitForSneakOutPid(timeoutSeconds = 90) {
   const deadline = Date.now() + timeoutSeconds * 1000;
   while (Date.now() < deadline) {
     const pid = await findSneakOutPid();
@@ -363,6 +387,28 @@ async function main() {
   const sampleHandle = await open(join(sessionDirectory, "process-samples.jsonl"), "w");
   const performanceReportDirectory = join(gameDirectory, "BepInEx", "performance-reports");
   const profileReportDirectory = join(gameDirectory, "BepInEx", "profile-reports");
+  const performanceConfigPath = join(
+    gameDirectory,
+    "BepInEx",
+    "config",
+    "chelokot.sneakout.performance-optimizer.cfg"
+  );
+  let originalPerformanceConfig = null;
+  if (options.launch && options.diagnosticReports) {
+    try {
+      originalPerformanceConfig = await readFile(performanceConfigPath, "utf8");
+    } catch (error) {
+      if (error?.code !== "ENOENT") {
+        throw error;
+      }
+    }
+    await mkdir(dirname(performanceConfigPath), { recursive: true });
+    await writeFile(
+      performanceConfigPath,
+      enableDiagnosticIntervalReports(originalPerformanceConfig ?? ""),
+      "utf8"
+    );
+  }
   const initialPerformanceReports = await snapshotDirectoryState(performanceReportDirectory);
   const initialProfileReports = await snapshotDirectoryState(profileReportDirectory);
   const startedAt = Date.now();
@@ -382,7 +428,9 @@ async function main() {
       await runHostDetached(`flatpak run --command=/app/bin/steam com.valvesoftware.Steam steam://rungameid/${steamAppId}`);
     }
     pid = await waitForSneakOutPid();
-    await activateGameWindowOnce();
+    if (options.focusWindow) {
+      await activateGameWindowOnce();
+    }
     const { stdout: clockTicksText } = await runAndCapture("getconf", ["CLK_TCK"]);
     const clockTicks = Number.parseInt(clockTicksText.trim(), 10);
     const deadline = startedAt + options.durationSeconds * 1000;
@@ -405,10 +453,20 @@ async function main() {
       await sleep(sampleIntervalMs);
     }
   } finally {
-    if (pid > 0 && !options.leaveRunning) {
-      await closeGame(pid);
-      await sleep(1000);
-      await cleanupSneakOutLaunchers();
+    try {
+      if (pid > 0 && !options.leaveRunning) {
+        await closeGame(pid);
+        await sleep(1000);
+        await cleanupSneakOutLaunchers();
+      }
+    } finally {
+      if (options.launch && options.diagnosticReports) {
+        if (originalPerformanceConfig === null) {
+          await rm(performanceConfigPath, { force: true });
+        } else {
+          await writeFile(performanceConfigPath, originalPerformanceConfig, "utf8");
+        }
+      }
     }
     await sampleHandle.close();
     await snapshotPath(join(gameDirectory, "BepInEx", "LogOutput.log"), sessionDirectory);

@@ -13,6 +13,7 @@ using System.IO;
 using UI.Views;
 using System.Collections.Generic;
 using ClientCharacterType = Types.CharacterType;
+using CharacterDataRuntime = Types.Structs.CharacterData;
 
 namespace SneakOut.UnlockEverything;
 
@@ -24,6 +25,7 @@ internal static class UnlockEverythingRuntime
     private static ClientCache? _currentClientCache;
     private static readonly object ResearchLogLock = new();
     private static string? _researchLogPath;
+    private static bool _startupSkinValidationLogged;
 
     public static void Initialize(ManualLogSource logger, UnlockEverythingConfig configuration)
     {
@@ -383,6 +385,20 @@ internal static class UnlockEverythingRuntime
         var formattedMessage = $"{message}: {exception}";
         _logger?.LogError(formattedMessage);
         WriteResearchLog("ERROR", formattedMessage, force: true);
+    }
+
+    public static void LogStartupSkinValidation(int internalId, CharacterDataRuntime characterData, bool changed)
+    {
+        if (_startupSkinValidationLogged)
+        {
+            return;
+        }
+        _startupSkinValidationLogged = true;
+        LogInfo(
+            "Persistent startup outfit validated: "
+            + $"internalId={internalId}, changed={changed}, "
+            + $"outfit={characterData.HeadType}/{characterData.TorsoType}/{characterData.ArmsType}/"
+            + $"{characterData.LegsType}/{characterData.BackType}/{characterData.WholeType}");
     }
 
     private static int GetLength(string? value)

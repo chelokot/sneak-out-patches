@@ -23,7 +23,6 @@ const legacyBackupSuffix = ".codex-sneak-out.bak";
 const legacyAbsentSuffix = ".codex-sneak-out.absent";
 const protonInputEnvironment = "XMODIFIERS=@im=none";
 const protonLoaderEnvironment = 'WINEDLLOVERRIDES="winhttp=n,b"';
-const protonLaunchOptions = `${protonInputEnvironment} ${protonLoaderEnvironment} %command%`;
 const loaderRootNames = [
   "BepInEx",
   "dotnet",
@@ -175,7 +174,20 @@ export async function compatibilityIssues(gameDirectory, supportedBuild) {
   return issues;
 }
 
-function mergeProtonLaunchOptions(current) {
+async function gameModeAvailable(gameDirectory) {
+  if (gameDirectory.includes(`${sep}.var${sep}app${sep}com.valvesoftware.Steam${sep}`)) {
+    // The Flatpak Steam runtime ships gamemoderun even though it is not visible from
+    // every toolbox/container that invokes this installer.
+    return true;
+  }
+  return exists("/usr/bin/gamemoderun");
+}
+
+function defaultProtonLaunchOptions(useGameMode) {
+  return `${protonInputEnvironment} ${protonLoaderEnvironment} ${useGameMode ? "gamemoderun " : ""}%command%`;
+}
+
+function mergeProtonLaunchOptions(current, useGameMode) {
   let updated = current.trim();
   if (!(updated.includes("WINEDLLOVERRIDES") && updated.includes("winhttp"))) {
     if (updated.includes("%command%")) {
@@ -186,6 +198,11 @@ function mergeProtonLaunchOptions(current) {
   }
   if (!/(?:^|\s)XMODIFIERS=/.test(updated)) {
     updated = `${protonInputEnvironment} ${updated}`.trim();
+  }
+  if (useGameMode && !/(?:^|\s)gamemoderun(?:\s|$)/.test(updated)) {
+    updated = updated.includes("%command%")
+      ? updated.replace("%command%", "gamemoderun %command%")
+      : `${updated} gamemoderun %command%`.trim();
   }
   return updated;
 }
@@ -256,7 +273,7 @@ export async function protonLaunchConfigurationRequired() {
   return false;
 }
 
-function updateLaunchOptions(content) {
+function updateLaunchOptions(content, useGameMode) {
   const lines = content.split(/\r?\n/);
   const stack = [];
   let pendingKey = null;
@@ -306,14 +323,14 @@ function updateLaunchOptions(content) {
       return content;
     }
     const current = unescapeVdfString(match[2]);
-    const updated = escapeVdfString(mergeProtonLaunchOptions(current));
+    const updated = escapeVdfString(mergeProtonLaunchOptions(current, useGameMode));
     lines[launchOptionsIndex] = `${match[1]}"LaunchOptions"\t\t"${updated}"`;
   } else if (appClosingIndex !== null) {
     const indent = lines[appClosingIndex].match(/^\s*/)?.[0] ?? "";
     lines.splice(
       appClosingIndex,
       0,
-      `${indent}\t"LaunchOptions"\t\t"${escapeVdfString(protonLaunchOptions)}"`
+      `${indent}\t"LaunchOptions"\t\t"${escapeVdfString(defaultProtonLaunchOptions(useGameMode))}"`
     );
   } else if (appsClosingIndex !== null) {
     const indent = lines[appsClosingIndex].match(/^\s*/)?.[0] ?? "";
@@ -322,7 +339,7 @@ function updateLaunchOptions(content) {
       0,
       `${indent}"${STEAM_APP_ID}"`,
       `${indent}{`,
-      `${indent}\t"LaunchOptions"\t\t"${escapeVdfString(protonLaunchOptions)}"`,
+      `${indent}\t"LaunchOptions"\t\t"${escapeVdfString(defaultProtonLaunchOptions(useGameMode))}"`,
       `${indent}}`
     );
   } else {
@@ -332,6 +349,7 @@ function updateLaunchOptions(content) {
 }
 
 async function configureProton(gameDirectory, state) {
+  const useGameMode = await gameModeAvailable(gameDirectory);
   const activePaths = await steamActiveLocalConfigPaths();
   const paths = activePaths.length > 0 ? activePaths : await steamLocalConfigPaths();
   if (paths.length === 0) {
@@ -339,7 +357,7 @@ async function configureProton(gameDirectory, state) {
   }
   for (const path of paths) {
     const original = await readFile(path);
-    const updated = updateLaunchOptions(original.toString("utf8"));
+    const updated = updateLaunchOptions(original.toString("utf8"), useGameMode);
     if (updated === original.toString("utf8")) {
       continue;
     }

@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <Compile Include="../../mods/chair_wall_throw_fix/ChairReleasePolicy.cs" Link="ChairReleasePolicy.cs" />
+    <Compile Include="../../mods/unlock_everything/AvatarSelectionPolicy.cs" Link="AvatarSelectionPolicy.cs" />
     <Compile Include="../../mods/keyboard_layout_fix/NativeMovementPolicy.cs" Link="NativeMovementPolicy.cs" />
     <Compile Include="../../mods/magic_wardrobe_hook_fix/MagicWardrobeHookPolicy.cs" Link="MagicWardrobeHookPolicy.cs" />
     <Compile Include="../../mods/network_host_selector/HostSelectionProtocol.cs" Link="HostSelectionProtocol.cs" />

@@ -196,6 +196,7 @@ internal static class SpookedNetworkPlayerSpawnedRememberPatch
     private static void Postfix(SpookedNetworkPlayerRuntime __instance)
     {
         UnlockEverythingSelections.RememberNetworkPlayer(__instance);
+        UnlockEverythingSelections.ApplyPersistedSkinToLocalNetworkPlayer(__instance);
     }
 }
 
@@ -205,6 +206,7 @@ internal static class SpookedNetworkPlayerSpawnedReadyStartupSkinPatch
     private static void Postfix(SpookedNetworkPlayerRuntime __instance)
     {
         UnlockEverythingSelections.RememberNetworkPlayer(__instance);
+        UnlockEverythingSelections.ApplyPersistedSkinToLocalNetworkPlayer(__instance);
         UnlockEverythingSelections.ApplyStartupSkinSelectionsToLivePreview();
     }
 }
@@ -235,6 +237,8 @@ internal static class SpookedNetworkPlayerInitSkillPayloadPatch
 
     private static void Postfix(SpookedNetworkPlayerRuntime __instance)
     {
+        UnlockEverythingSelections.RememberNetworkPlayer(__instance);
+        UnlockEverythingSelections.ApplyPersistedSkinToLocalNetworkPlayer(__instance);
         if (!UnlockEverythingRuntime.UseProfileOverlay)
         {
             return;

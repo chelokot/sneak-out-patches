@@ -4,6 +4,10 @@ using System.Text;
 using BepInEx;
 using BepInEx.Logging;
 using Fusion;
+using Gameplay.Camera;
+using Gameplay.Enviro;
+using Gameplay.Match.MatchState;
+using Gameplay.Player.Components;
 using HarmonyLib;
 using Il2CppInterop.Runtime.Injection;
 using Il2CppInterop.Runtime;
@@ -12,6 +16,7 @@ using Networking.Photon;
 using Unity.Profiling;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
 
 namespace SneakOut.PerformanceOptimizer;
@@ -22,12 +27,14 @@ internal static class PerformanceOptimizerRuntime
     private static readonly FrameTimeAccumulator FrameTimes = new();
     private static readonly FrameTimingAccumulator EngineFrameTimings = new();
     private static readonly List<RecorderMetric> RecorderMetrics = new();
+    private static readonly List<WorldEvent> PendingWorldEvents = new();
     private static readonly object ReportGate = new();
 
     private static ManualLogSource? _logger;
     private static PerformanceOptimizerConfig? _configuration;
     private static Harmony? _harmony;
     private static string? _reportPath;
+    private static string? _worldEventPath;
     private static NetworkRunner? _networkRunner;
     private static double _nextNetworkSampleSeconds;
     private static double _lastRttMilliseconds;
@@ -50,6 +57,8 @@ internal static class PerformanceOptimizerRuntime
     private static bool _networkSampleFailureLogged;
     private static bool _adaptiveShadowFallbackApplied;
     private static bool _adaptiveVSyncDisabled;
+    private static int _adaptiveLowFpsIntervals;
+    private static int _activeSceneHandle = -1;
     private static string _activeSceneName = string.Empty;
     private static double _activeSceneStartedSeconds;
     private static int _removedNullRoomLights;
@@ -58,6 +67,15 @@ internal static class PerformanceOptimizerRuntime
     private static Il2CppStructArray<FrameTiming>? _frameTimingBuffer;
     private static bool _sceneCensusComplete;
     private static int _zeroEngineTimingSamples;
+    private static SceneCameraManager? _sceneCameraManager;
+    private static SpookedNetworkPlayer? _localPlayer;
+    private static IntPtr _currentRoomPointer;
+    private static string _currentRoomName = string.Empty;
+    private static string _previousRoomName = string.Empty;
+    private static string _currentRoomType = string.Empty;
+    private static double _lastRoomTransitionSeconds = double.NegativeInfinity;
+    private static bool _worldEventHeaderWritten;
+    private static int _droppedWorldEvents;
 
     public static void Initialize(ManualLogSource logger, PerformanceOptimizerConfig configuration)
     {
@@ -87,14 +105,18 @@ internal static class PerformanceOptimizerRuntime
             QualitySettings.maxQueuedFrames = Math.Clamp(configuration.MaxQueuedFrames.Value, 1, 4);
         }
 
-        if (configuration.TargetFrameRate.Value > 0)
+        var targetFrameRate = ResolveTargetFrameRate(configuration.TargetFrameRate.Value);
+        if (targetFrameRate.HasValue)
         {
-            Application.targetFrameRate = Math.Clamp(configuration.TargetFrameRate.Value, 30, 360);
+            Application.targetFrameRate = targetFrameRate.Value;
         }
 
         _logger?.LogInfo(
             $"Frame pacing: target={Application.targetFrameRate}, vSync={QualitySettings.vSyncCount}, "
-            + $"maxQueuedFrames={QualitySettings.maxQueuedFrames}");
+            + $"maxQueuedFrames={QualitySettings.maxQueuedFrames}, "
+            + $"renderInterval={OnDemandRendering.renderFrameInterval}, "
+            + $"effectiveRenderFps={OnDemandRendering.effectiveRenderFrameRate:F1}, "
+            + $"captureFps={Time.captureFramerate}");
 
         Application.add_quitting(new Action(WriteFinalReport));
         _harmony = new Harmony(PerformanceOptimizerPlugin.PluginGuid);
@@ -121,6 +143,109 @@ internal static class PerformanceOptimizerRuntime
         _photonPingServer = photonPingServer;
     }
 
+    public static void CaptureSceneCameraManager(SceneCameraManager sceneCameraManager)
+    {
+        _sceneCameraManager = sceneCameraManager;
+        _currentRoomPointer = IntPtr.Zero;
+    }
+
+    public static void CaptureLocalPlayer(SpookedNetworkPlayer networkPlayer)
+    {
+        if (networkPlayer is not null
+            && networkPlayer.Pointer != IntPtr.Zero
+            && networkPlayer.HasInputAuthority
+            && !networkPlayer.IsBot)
+        {
+            _localPlayer = networkPlayer;
+            try
+            {
+                _networkRunner = networkPlayer.Runner;
+            }
+            catch
+            {
+                _networkRunner = null;
+            }
+        }
+    }
+
+    public static void ForgetLocalPlayer(SpookedNetworkPlayer networkPlayer)
+    {
+        if (_localPlayer is not null && _localPlayer.Pointer == networkPlayer.Pointer)
+        {
+            _localPlayer = null;
+            _networkRunner = null;
+        }
+    }
+
+    public static bool DetailedTelemetryEnabled =>
+        _telemetryInitialized && _configuration?.WriteReportsDuringGameplay.Value == true;
+
+    public static void ReportRoomLightTransition(
+        Room room,
+        bool enableLights,
+        bool forTest,
+        double callbackMilliseconds)
+    {
+        if (!_telemetryInitialized || room is null || room.Pointer == IntPtr.Zero)
+        {
+            return;
+        }
+
+        QueueWorldEvent(
+            "room_lights",
+            room,
+            0d,
+            callbackMilliseconds,
+            $"enable={enableLights};for_test={forTest}");
+    }
+
+    public static void ReportRoomsLightsManagerTransition(
+        RoomsLightsManager manager,
+        Types.RoomType roomType,
+        bool enableLights,
+        bool forTest,
+        double callbackMilliseconds)
+    {
+        if (!_telemetryInitialized || manager is null || manager.Pointer == IntPtr.Zero)
+        {
+            return;
+        }
+
+        var roomCount = 0;
+        try
+        {
+            roomCount = manager._rooms?.Length ?? 0;
+        }
+        catch
+        {
+            roomCount = 0;
+        }
+        QueueWorldEvent(
+            "rooms_lights_manager",
+            null,
+            0d,
+            callbackMilliseconds,
+            $"target={roomType};enable={enableLights};for_test={forTest};rooms={roomCount}");
+    }
+
+    public static void ReportMatchStateTransition(
+        MatchStateMachine stateMachine,
+        double callbackMilliseconds)
+    {
+        if (!_telemetryInitialized || stateMachine is null || stateMachine.Pointer == IntPtr.Zero)
+        {
+            return;
+        }
+
+        var stateType = (Types.MatchStateType)stateMachine.MatchStateType;
+        QueueWorldEvent(
+            "match_state",
+            null,
+            0d,
+            callbackMilliseconds,
+            $"state={stateType};state_end_tick={stateMachine.StateEndTick};match_started_tick={stateMachine.MatchStartedTick}");
+    }
+
     public static void ReportSanitizedRoomLights(int removedCount)
     {
         if (removedCount <= 0)
@@ -133,6 +258,8 @@ internal static class PerformanceOptimizerRuntime
             $"Removed {removedCount} null serialized light reference(s) before Room.OnAwake "
             + $"({_removedNullRoomLights} total); room light caching can continue normally");
     }
+
+
 
     public static void ReportResolutionSelectorRecovery(
         int currentWidth,
@@ -237,6 +364,9 @@ internal static class PerformanceOptimizerRuntime
         _reportPath = Path.Combine(
             reportDirectory,
             $"performance-{DateTime.UtcNow:yyyyMMdd-HHmmss}.csv");
+        _worldEventPath = Path.Combine(
+            reportDirectory,
+            $"world-events-{DateTime.UtcNow:yyyyMMdd-HHmmss}.csv");
         _nextReportSeconds = Math.Max(2, _configuration!.ReportIntervalSeconds.Value);
         _lastGeneration0Collections = GC.CollectionCount(0);
         _lastGeneration1Collections = GC.CollectionCount(1);
@@ -277,7 +407,7 @@ internal static class PerformanceOptimizerRuntime
 
         try
         {
-            if (FrameTimingManager.IsFeatureEnabled())
+            if (_configuration.WriteReportsDuringGameplay.Value && FrameTimingManager.IsFeatureEnabled())
             {
                 _frameTimingBuffer = new Il2CppStructArray<FrameTiming>(1);
                 _logger?.LogInfo("Native CPU/GPU frame timing telemetry is available");
@@ -288,10 +418,11 @@ internal static class PerformanceOptimizerRuntime
             _logger?.LogDebug($"Native frame timing telemetry unavailable: {exception.Message}");
         }
 
-        _logger?.LogInfo(
-            $"Performance telemetry initialized with {RecorderMetrics.Count(metric => metric.Valid)} Unity recorders; "
-            + $"report={_reportPath}");
         _telemetryInitialized = true;
+        _logger?.LogInfo(
+            _configuration.WriteReportsDuringGameplay.Value
+                ? $"Diagnostic performance telemetry initialized with {RecorderMetrics.Count(metric => metric.Valid)} Unity recorders; report={_reportPath}"
+                : "Performance frame histogram initialized in memory; interval file and detailed world/network sampling are disabled");
     }
 
     private static void AddRecorder(string columnName, ProfilerCategory category, string markerName)
@@ -344,18 +475,30 @@ internal static class PerformanceOptimizerRuntime
         _lastObservedFrame = frame;
 
         var elapsedSeconds = SessionClock.Elapsed.TotalSeconds;
-        var activeSceneName = SceneManager.GetActiveScene().name;
-        if (!string.Equals(activeSceneName, _activeSceneName, StringComparison.Ordinal))
+        var activeScene = SceneManager.GetActiveScene();
+        if (activeScene.handle != _activeSceneHandle)
         {
             FrameTimes.SnapshotAndReset();
             EngineFrameTimings.SnapshotAndReset();
-            _activeSceneName = activeSceneName;
+            _activeSceneHandle = activeScene.handle;
+            _activeSceneName = activeScene.name;
             _activeSceneStartedSeconds = elapsedSeconds;
+            _adaptiveLowFpsIntervals = 0;
             _sceneCensusComplete = false;
+            _currentRoomPointer = IntPtr.Zero;
+            _previousRoomName = _currentRoomName;
+            _currentRoomName = string.Empty;
+            _currentRoomType = string.Empty;
+            _lastRoomTransitionSeconds = double.NegativeInfinity;
         }
 
-        FrameTimes.Record(Time.unscaledDeltaTime * 1000d);
-        CaptureEngineFrameTiming();
+        var frameMilliseconds = Time.unscaledDeltaTime * 1000d;
+        if (DetailedTelemetryEnabled)
+        {
+            ObserveWorldContext(elapsedSeconds, frameMilliseconds);
+            CaptureEngineFrameTiming();
+        }
+        FrameTimes.Record(frameMilliseconds);
         if (_configuration.EnableSceneCensus.Value
             && !_sceneCensusComplete
             && elapsedSeconds - _activeSceneStartedSeconds >= 12d)
@@ -369,7 +512,7 @@ internal static class PerformanceOptimizerRuntime
             _nextFramePacingCheckSeconds = elapsedSeconds + 2d;
         }
 
-        if (elapsedSeconds >= _nextNetworkSampleSeconds)
+        if (DetailedTelemetryEnabled && elapsedSeconds >= _nextNetworkSampleSeconds)
         {
             SampleNetwork();
             _nextNetworkSampleSeconds = elapsedSeconds + 1d;
@@ -379,6 +522,141 @@ internal static class PerformanceOptimizerRuntime
         {
             WriteIntervalReport();
             _nextReportSeconds = elapsedSeconds + Math.Max(2, _configuration.ReportIntervalSeconds.Value);
+        }
+    }
+
+    private static void ObserveWorldContext(double elapsedSeconds, double frameMilliseconds)
+    {
+        Room? currentRoom = null;
+        try
+        {
+            if (_sceneCameraManager is not null && _sceneCameraManager.Pointer != IntPtr.Zero)
+            {
+                currentRoom = _sceneCameraManager.CurrentRoom;
+            }
+        }
+        catch
+        {
+            _sceneCameraManager = null;
+        }
+
+        var roomPointer = currentRoom?.Pointer ?? IntPtr.Zero;
+        if (roomPointer != _currentRoomPointer)
+        {
+            _previousRoomName = _currentRoomName;
+            _currentRoomPointer = roomPointer;
+            _currentRoomName = SafeRoomName(currentRoom);
+            _currentRoomType = SafeRoomType(currentRoom);
+            _lastRoomTransitionSeconds = elapsedSeconds;
+            QueueWorldEvent("room_change", currentRoom, frameMilliseconds, 0d, string.Empty);
+        }
+
+        var spikeThreshold = Math.Clamp(
+            _configuration?.FrameSpikeThresholdMilliseconds.Value ?? 80,
+            34,
+            5000);
+        if (frameMilliseconds >= spikeThreshold)
+        {
+            QueueWorldEvent("frame_spike", currentRoom, frameMilliseconds, 0d, string.Empty);
+        }
+    }
+
+    private static void QueueWorldEvent(
+        string eventName,
+        Room? room,
+        double frameMilliseconds,
+        double callbackMilliseconds,
+        string detail)
+    {
+        if (!_telemetryInitialized || _configuration?.WriteReportsDuringGameplay.Value != true)
+        {
+            return;
+        }
+
+        var position = GetLocalPlayerPosition();
+        var roomName = room is not null ? SafeRoomName(room) : _currentRoomName;
+        var roomType = room is not null ? SafeRoomType(room) : _currentRoomType;
+        var lightCount = 0;
+        try
+        {
+            lightCount = room?.Lights?.Length ?? 0;
+        }
+        catch
+        {
+            lightCount = 0;
+        }
+
+        var elapsedSeconds = SessionClock.Elapsed.TotalSeconds;
+        var worldEvent = new WorldEvent(
+            elapsedSeconds,
+            eventName,
+            SceneManager.GetActiveScene().name,
+            roomName,
+            _previousRoomName,
+            roomType,
+            position.x,
+            position.y,
+            position.z,
+            frameMilliseconds,
+            callbackMilliseconds,
+            lightCount,
+            GC.GetTotalMemory(false) / 1048576d,
+            GC.CollectionCount(0),
+            GC.CollectionCount(1),
+            GC.CollectionCount(2),
+            double.IsNegativeInfinity(_lastRoomTransitionSeconds)
+                ? -1d
+                : Math.Max(0d, elapsedSeconds - _lastRoomTransitionSeconds),
+            detail);
+
+        lock (ReportGate)
+        {
+            if (PendingWorldEvents.Count >= 2048)
+            {
+                _droppedWorldEvents++;
+                return;
+            }
+            PendingWorldEvents.Add(worldEvent);
+        }
+    }
+
+    private static Vector3 GetLocalPlayerPosition()
+    {
+        try
+        {
+            if (_localPlayer is not null && _localPlayer.Pointer != IntPtr.Zero)
+            {
+                return _localPlayer.transform.position;
+            }
+        }
+        catch
+        {
+            _localPlayer = null;
+        }
+        return new Vector3(float.NaN, float.NaN, float.NaN);
+    }
+
+    private static string SafeRoomName(Room? room)
+    {
+        try
+        {
+            return room is not null && room.Pointer != IntPtr.Zero ? room.name ?? string.Empty : string.Empty;
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    private static string SafeRoomType(Room? room)
+    {
+        try
+        {
+            return room is not null && room.Pointer != IntPtr.Zero ? room.RoomType.ToString() : string.Empty;
+        }
+        catch
+        {
+            return string.Empty;
         }
     }
 
@@ -392,7 +670,8 @@ internal static class PerformanceOptimizerRuntime
         try
         {
             FrameTimingManager.CaptureFrameTimings();
-            if (FrameTimingManager.GetLatestTimings(1, _frameTimingBuffer) > 0)
+            var timingCount = FrameTimingManager.GetLatestTimings(1, _frameTimingBuffer);
+            if (timingCount > 0)
             {
                 var timing = _frameTimingBuffer[0];
                 if (timing.cpuFrameTime > 0d || timing.gpuFrameTime > 0d)
@@ -400,11 +679,14 @@ internal static class PerformanceOptimizerRuntime
                     EngineFrameTimings.Record(timing);
                     _zeroEngineTimingSamples = 0;
                 }
-                else if (++_zeroEngineTimingSamples >= 120)
+                else
                 {
-                    _frameTimingBuffer = null;
-                    _logger?.LogInfo("Native frame timings return no data on this graphics backend; sampling disabled");
+                    RecordEmptyEngineTimingSample();
                 }
+            }
+            else
+            {
+                RecordEmptyEngineTimingSample();
             }
         }
         catch (Exception exception)
@@ -412,6 +694,17 @@ internal static class PerformanceOptimizerRuntime
             _frameTimingBuffer = null;
             _logger?.LogDebug($"Native frame timing telemetry stopped: {exception.Message}");
         }
+    }
+
+    private static void RecordEmptyEngineTimingSample()
+    {
+        if (++_zeroEngineTimingSamples < 120)
+        {
+            return;
+        }
+
+        _frameTimingBuffer = null;
+        _logger?.LogInfo("Native frame timings return no data on this graphics backend; sampling disabled");
     }
 
     private static void CaptureSceneCensus()
@@ -508,6 +801,20 @@ internal static class PerformanceOptimizerRuntime
             var particles = UnityEngine.Object.FindObjectsOfType<ParticleSystem>();
             var lodGroups = UnityEngine.Object.FindObjectsOfType<LODGroup>();
             var cameras = UnityEngine.Object.FindObjectsOfType<Camera>();
+            var behaviours = UnityEngine.Object.FindObjectsOfType<MonoBehaviour>();
+            var behaviourTypes = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (var behaviour in behaviours)
+            {
+                if (behaviour is null
+                    || behaviour.Pointer == IntPtr.Zero
+                    || !behaviour.isActiveAndEnabled)
+                {
+                    continue;
+                }
+
+                var typeName = behaviour.GetType().FullName ?? behaviour.GetType().Name;
+                behaviourTypes[typeName] = behaviourTypes.GetValueOrDefault(typeName) + 1;
+            }
             var layerSummary = string.Join(
                 ';',
                 rendererLayers.OrderByDescending(entry => entry.Value)
@@ -521,7 +828,16 @@ internal static class PerformanceOptimizerRuntime
                 + $"particleRenderers={particleRenderers}, shadowCasters={shadowCasters}, lights={lights.Length}, "
                 + $"colliders={colliders.Length}, animators={animators.Length}, alwaysAnimating={alwaysAnimating}, "
                 + $"particles={particles.Length}, "
-                + $"lodGroups={lodGroups.Length}, cameras={cameras.Length}, layers=[{layerSummary}]");
+                + $"lodGroups={lodGroups.Length}, cameras={cameras.Length}, behaviours={behaviours.Length}, "
+                + $"layers=[{layerSummary}]");
+            _logger?.LogInfo(
+                "Active behaviour census: "
+                + string.Join(
+                    ';',
+                    behaviourTypes.OrderByDescending(entry => entry.Value)
+                        .ThenBy(entry => entry.Key, StringComparer.Ordinal)
+                        .Take(40)
+                        .Select(entry => $"{entry.Key}={entry.Value}")));
             foreach (var camera in cameras)
             {
                 _logger?.LogInfo(
@@ -569,9 +885,10 @@ internal static class PerformanceOptimizerRuntime
             }
         }
 
-        if (_configuration.TargetFrameRate.Value > 0)
+        var targetFrameRate = ResolveTargetFrameRate(_configuration.TargetFrameRate.Value);
+        if (targetFrameRate.HasValue)
         {
-            var expectedTargetFrameRate = Math.Clamp(_configuration.TargetFrameRate.Value, 30, 360);
+            var expectedTargetFrameRate = targetFrameRate.Value;
             if (Application.targetFrameRate != expectedTargetFrameRate)
             {
                 Application.targetFrameRate = expectedTargetFrameRate;
@@ -675,15 +992,16 @@ internal static class PerformanceOptimizerRuntime
                 || !_networkRunner.IsConnectedToServer)
             {
                 _networkRunner = null;
-                foreach (var runner in UnityEngine.Object.FindObjectsOfType<NetworkRunner>())
+                var localPlayer = _localPlayer;
+                if (localPlayer is not null && localPlayer.Pointer != IntPtr.Zero)
                 {
+                    var runner = localPlayer.Runner;
                     if (runner is not null
                         && runner.Pointer != IntPtr.Zero
                         && runner.IsRunning
                         && runner.IsConnectedToServer)
                     {
                         _networkRunner = runner;
-                        break;
                     }
                 }
             }
@@ -741,7 +1059,7 @@ internal static class PerformanceOptimizerRuntime
         }
     }
 
-    private static void WriteIntervalReport()
+    private static void WriteIntervalReport(bool forceWrite = false)
     {
         lock (ReportGate)
         {
@@ -752,6 +1070,14 @@ internal static class PerformanceOptimizerRuntime
 
             try
             {
+                if (!forceWrite && _configuration?.WriteReportsDuringGameplay.Value != true)
+                {
+                    var adaptiveSnapshot = FrameTimes.SnapshotAndReset();
+                    EngineFrameTimings.SnapshotAndReset();
+                    EvaluateAdaptiveTuning(adaptiveSnapshot);
+                    return;
+                }
+
                 if (!_reportHeaderWritten)
                 {
                     File.AppendAllText(_reportPath, BuildHeader(), Encoding.UTF8);
@@ -760,6 +1086,7 @@ internal static class PerformanceOptimizerRuntime
 
                 var row = BuildRow(out var frameSnapshot);
                 File.AppendAllText(_reportPath, row, Encoding.UTF8);
+                FlushWorldEvents();
                 EvaluateAdaptiveTuning(frameSnapshot);
             }
             catch (Exception exception)
@@ -767,6 +1094,61 @@ internal static class PerformanceOptimizerRuntime
                 _logger?.LogError($"Failed to append performance report: {exception.Message}");
             }
         }
+    }
+
+    private static void FlushWorldEvents()
+    {
+        if (_worldEventPath is null || PendingWorldEvents.Count == 0 && _droppedWorldEvents == 0)
+        {
+            return;
+        }
+
+        var builder = new StringBuilder();
+        if (!_worldEventHeaderWritten)
+        {
+            builder.AppendLine(
+                "elapsed_s,event,scene,room,previous_room,room_type,player_x,player_y,player_z,"
+                + "frame_ms,callback_ms,room_lights,managed_mb,gc0_total,gc1_total,gc2_total,"
+                + "seconds_since_room_change,detail");
+            _worldEventHeaderWritten = true;
+        }
+
+        foreach (var worldEvent in PendingWorldEvents)
+        {
+            builder.Append(Format(worldEvent.ElapsedSeconds)).Append(',')
+                .Append(EscapeCsv(worldEvent.EventName)).Append(',')
+                .Append(EscapeCsv(worldEvent.Scene)).Append(',')
+                .Append(EscapeCsv(worldEvent.Room)).Append(',')
+                .Append(EscapeCsv(worldEvent.PreviousRoom)).Append(',')
+                .Append(EscapeCsv(worldEvent.RoomType)).Append(',')
+                .Append(Format(worldEvent.PlayerX)).Append(',')
+                .Append(Format(worldEvent.PlayerY)).Append(',')
+                .Append(Format(worldEvent.PlayerZ)).Append(',')
+                .Append(Format(worldEvent.FrameMilliseconds)).Append(',')
+                .Append(Format(worldEvent.CallbackMilliseconds)).Append(',')
+                .Append(worldEvent.RoomLights.ToString(CultureInfo.InvariantCulture)).Append(',')
+                .Append(Format(worldEvent.ManagedMegabytes)).Append(',')
+                .Append(worldEvent.Generation0Collections.ToString(CultureInfo.InvariantCulture)).Append(',')
+                .Append(worldEvent.Generation1Collections.ToString(CultureInfo.InvariantCulture)).Append(',')
+                .Append(worldEvent.Generation2Collections.ToString(CultureInfo.InvariantCulture)).Append(',')
+                .Append(Format(worldEvent.SecondsSinceRoomChange)).Append(',')
+                .Append(EscapeCsv(worldEvent.Detail))
+                .AppendLine();
+        }
+
+        if (_droppedWorldEvents > 0)
+        {
+            builder.Append(Format(SessionClock.Elapsed.TotalSeconds))
+                .Append(",events_dropped,")
+                .Append(EscapeCsv(SceneManager.GetActiveScene().name))
+                .Append(",,,,,,,,,,,,,,,")
+                .Append(EscapeCsv($"count={_droppedWorldEvents}"))
+                .AppendLine();
+        }
+
+        File.AppendAllText(_worldEventPath, builder.ToString(), Encoding.UTF8);
+        PendingWorldEvents.Clear();
+        _droppedWorldEvents = 0;
     }
 
     private static string BuildHeader()
@@ -777,6 +1159,7 @@ internal static class PerformanceOptimizerRuntime
             "engine_cpu_ms", "engine_main_ms", "engine_present_wait_ms", "engine_render_thread_ms", "engine_gpu_ms",
             "frames_over_33ms", "frames_over_100ms", "gc0", "gc1", "gc2", "managed_mb", "working_set_mb",
             "private_mb", "process_cpu_one_core_100", "process_threads", "target_fps", "vsync_count", "quality_level",
+            "render_frame_interval", "effective_render_fps", "capture_fps", "maximum_delta_ms",
             "screen_width", "screen_height", "fullscreen", "run_in_background", "photon_region_ping_ms",
             "fusion_rtt_ms", "fusion_tick_rate", "pipeline", "render_scale", "hdr", "depth_texture",
             "opaque_texture", "main_shadows", "additional_lights", "additional_shadows", "soft_shadows",
@@ -824,6 +1207,10 @@ internal static class PerformanceOptimizerRuntime
             Application.targetFrameRate.ToString(CultureInfo.InvariantCulture),
             QualitySettings.vSyncCount.ToString(CultureInfo.InvariantCulture),
             QualitySettings.GetQualityLevel().ToString(CultureInfo.InvariantCulture),
+            OnDemandRendering.renderFrameInterval.ToString(CultureInfo.InvariantCulture),
+            Format(OnDemandRendering.effectiveRenderFrameRate),
+            Time.captureFramerate.ToString(CultureInfo.InvariantCulture),
+            Format(Time.maximumDeltaTime * 1000d),
             Screen.width.ToString(CultureInfo.InvariantCulture),
             Screen.height.ToString(CultureInfo.InvariantCulture),
             Screen.fullScreen ? "1" : "0",
@@ -863,12 +1250,46 @@ internal static class PerformanceOptimizerRuntime
             || _configuration.Preset.Value != PerformancePreset.Auto
             || !_configuration.AdaptivePerformance.Value
             || _adaptiveShadowFallbackApplied
-            || SessionClock.Elapsed.TotalSeconds < 35d
-            || SessionClock.Elapsed.TotalSeconds - _activeSceneStartedSeconds < 15d
-            || string.IsNullOrWhiteSpace(SceneManager.GetActiveScene().name)
-            || SceneManager.GetActiveScene().name == "Initialization"
-            || frameSnapshot.Frames < 100
-            || frameSnapshot.AverageFps >= Math.Clamp(_configuration.AdaptiveMinimumFps.Value, 30, 120))
+            || SessionClock.Elapsed.TotalSeconds < 25d
+            || SessionClock.Elapsed.TotalSeconds - _activeSceneStartedSeconds < 8d
+            || string.IsNullOrWhiteSpace(_activeSceneName)
+            || _activeSceneName == "Initialization"
+            // A fixed 100-frame gate deadlocked the fallback at genuinely bad frame rates:
+            // a five-second report interval only contains 65-95 frames at 13-19 FPS.
+            // Thirty samples are enough to reject a transient frame while still allowing
+            // the existing 15-second scene-settle window to protect loading transitions.
+            || frameSnapshot.Frames < 30)
+        {
+            return;
+        }
+
+        var configuredMinimumFps = Math.Clamp(_configuration.AdaptiveMinimumFps.Value, 30, 120);
+        var targetFrameRate = ResolveTargetFrameRate(_configuration.TargetFrameRate.Value);
+        var targetAwareMinimumFps = targetFrameRate.HasValue
+            ? (int)Math.Ceiling(targetFrameRate.Value * 0.65d)
+            : configuredMinimumFps;
+        var minimumFps = Math.Clamp(
+            Math.Max(configuredMinimumFps, targetAwareMinimumFps),
+            30,
+            120);
+        if (frameSnapshot.AverageFps >= minimumFps)
+        {
+            _adaptiveLowFpsIntervals = 0;
+            return;
+        }
+
+        // A single interval far below the display target is already decisive after the
+        // 15-second scene-settle guard. Marginal deficits still require two intervals so
+        // ordinary shader warmup cannot permanently change a visual setting.
+        var severeDeficit = targetFrameRate.HasValue
+            && frameSnapshot.AverageFps < targetFrameRate.Value * 0.5d;
+        if (!severeDeficit
+            && SessionClock.Elapsed.TotalSeconds - _activeSceneStartedSeconds < 15d)
+        {
+            return;
+        }
+
+        if (++_adaptiveLowFpsIntervals < (severeDeficit ? 1 : 2))
         {
             return;
         }
@@ -885,10 +1306,42 @@ internal static class PerformanceOptimizerRuntime
         ApplyPipelineOverrides();
         MaintainFramePacingOverrides();
         _logger?.LogWarning(
-            $"Adaptive tuning applied after {frameSnapshot.AverageFps:F1} FPS: "
+            $"Adaptive tuning applied after {_adaptiveLowFpsIntervals} settled interval(s) below {minimumFps} FPS "
+            + $"(latest {frameSnapshot.AverageFps:F1} FPS): "
             + "disabled additional-light shadows"
             + (_adaptiveVSyncDisabled ? " and vSync" : string.Empty));
     }
+
+    private static int? ResolveTargetFrameRate(int configuredTargetFrameRate)
+    {
+        if (configuredTargetFrameRate < 0)
+        {
+            return null;
+        }
+
+        if (configuredTargetFrameRate > 0)
+        {
+            return Math.Clamp(configuredTargetFrameRate, 30, 360);
+        }
+
+        try
+        {
+            var displayRefreshRate = Screen.currentResolution.refreshRateRatio.value;
+            if (double.IsFinite(displayRefreshRate) && displayRefreshRate >= 30d)
+            {
+                return Math.Clamp((int)Math.Round(displayRefreshRate), 30, 360);
+            }
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogDebug($"Could not resolve display refresh rate: {exception.Message}");
+        }
+
+        return Application.targetFrameRate >= 30
+            ? Math.Clamp(Application.targetFrameRate, 30, 360)
+            : 60;
+    }
+
 
     private static PipelineSnapshot GetPipelineSnapshot()
     {
@@ -958,7 +1411,7 @@ internal static class PerformanceOptimizerRuntime
             return;
         }
 
-        WriteIntervalReport();
+        WriteIntervalReport(forceWrite: true);
         foreach (var metric in RecorderMetrics)
         {
             metric.Dispose();
@@ -1065,6 +1518,28 @@ internal static class PerformanceOptimizerRuntime
         double PrivateMegabytes,
         double CpuPercent,
         int ThreadCount);
+
+    private readonly record struct WorldEvent(
+        double ElapsedSeconds,
+        string EventName,
+        string Scene,
+        string Room,
+        string PreviousRoom,
+        string RoomType,
+        double PlayerX,
+        double PlayerY,
+        double PlayerZ,
+        double FrameMilliseconds,
+        double CallbackMilliseconds,
+        int RoomLights,
+        double ManagedMegabytes,
+        int Generation0Collections,
+        int Generation1Collections,
+        int Generation2Collections,
+        double SecondsSinceRoomChange,
+        string Detail);
+
+
 
     private readonly record struct PipelineSnapshot(
         string Name,

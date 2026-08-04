@@ -1,5 +1,6 @@
 using BepInEx;
 using Kinguinverse.WebServiceProvider.Types_v2;
+using Types.Structs;
 using Il2CppCollections = Il2CppSystem.Collections.Generic;
 using System.Text.Json;
 
@@ -157,6 +158,67 @@ internal static class LocalSelectionsStore
                 || selection.HandsSkinPartType.HasValue
                 || selection.BackSkinPartType.HasValue
                 || selection.WholeSkinPartType.HasValue;
+        }
+    }
+
+    public static bool TryApplyPersistedPenguinSkin(ref CharacterData characterData, out bool changed)
+    {
+        lock (Sync)
+        {
+            changed = false;
+            var profileSelections = GetExistingProfileSelections();
+            if (profileSelections is null
+                || !profileSelections.Characters.TryGetValue(((int)CharacterType.Penguin).ToString(), out var selection))
+            {
+                return false;
+            }
+
+            var before = characterData;
+            if (selection.WholeSkinPartType.HasValue
+                && selection.WholeSkinPartType.Value != (int)SkinPartType.None)
+            {
+                characterData.HeadType = SkinPartType.None;
+                characterData.TorsoType = SkinPartType.None;
+                characterData.ArmsType = SkinPartType.None;
+                characterData.LegsType = SkinPartType.None;
+                characterData.BackType = SkinPartType.None;
+                characterData.WholeType = (SkinPartType)selection.WholeSkinPartType.Value;
+            }
+            else
+            {
+                var hasIndividualSelection = selection.HeadSkinPartType.HasValue
+                    || selection.ChestSkinPartType.HasValue
+                    || selection.LegsSkinPartType.HasValue
+                    || selection.HandsSkinPartType.HasValue
+                    || selection.BackSkinPartType.HasValue;
+                if (!hasIndividualSelection)
+                {
+                    return false;
+                }
+
+                characterData.WholeType = SkinPartType.None;
+                ApplyPersistedPart(selection.HeadSkinPartType, ref characterData.HeadType);
+                ApplyPersistedPart(selection.ChestSkinPartType, ref characterData.TorsoType);
+                ApplyPersistedPart(selection.HandsSkinPartType, ref characterData.ArmsType);
+                ApplyPersistedPart(selection.LegsSkinPartType, ref characterData.LegsType);
+                ApplyPersistedPart(selection.BackSkinPartType, ref characterData.BackType);
+            }
+
+            changed = before.HeadType != characterData.HeadType
+                || before.TorsoType != characterData.TorsoType
+                || before.ArmsType != characterData.ArmsType
+                || before.LegsType != characterData.LegsType
+                || before.BackType != characterData.BackType
+                || before.WholeType != characterData.WholeType;
+            return true;
+        }
+    }
+
+    private static void ApplyPersistedPart(int? persistedValue, ref SkinPartType target)
+    {
+        if (persistedValue.HasValue)
+        {
+            target = (SkinPartType)persistedValue.Value;
         }
     }
 

@@ -93,7 +93,9 @@ const presets = new Map([
         ".PostMappingMeshUpdate("
       ],
       maxPatchedMethods: 24,
-      includeConstructors: false
+      includeConstructors: false,
+      warmupSeconds: 45,
+      reportAfterSeconds: 60
     }
   ],
   [
@@ -173,6 +175,90 @@ const presets = new Map([
       ],
       maxPatchedMethods: 48,
       includeConstructors: false
+    }
+  ],
+  [
+    "vanilla-core-frame",
+    {
+      enableMod: true,
+      enableLogging: true,
+      includeNamespacePrefixes: [
+        "Base.",
+        "Gameplay.Camera.",
+        "Gameplay.Enviro.",
+        "Gameplay.SpookedAudio",
+        "Modules.",
+        "SteamManager"
+      ],
+      targetMethodPatterns: [".Update(", ".LateUpdate(", ".FixedUpdate(", ".Tick("],
+      maxPatchedMethods: 64,
+      includeConstructors: false,
+      warmupSeconds: 45,
+      reportAfterSeconds: 60
+    }
+  ],
+  [
+    "vanilla-interactions-frame",
+    {
+      enableMod: true,
+      enableLogging: true,
+      includeNamespacePrefixes: ["Gameplay.Interactions."],
+      targetMethodPatterns: [".Update(", ".LateUpdate(", ".FixedUpdate(", ".Tick(", ".Render("],
+      maxPatchedMethods: 96,
+      includeConstructors: false,
+      warmupSeconds: 45,
+      reportAfterSeconds: 60
+    }
+  ],
+  [
+    "vanilla-gameplay-frame",
+    {
+      enableMod: true,
+      enableLogging: true,
+      includeNamespacePrefixes: [
+        "Gameplay.AI.",
+        "Gameplay.Buffs.",
+        "Gameplay.Match.",
+        "Gameplay.Skills."
+      ],
+      targetMethodPatterns: [
+        ".Update(",
+        ".LateUpdate(",
+        ".FixedUpdate(",
+        ".FixedUpdateNetwork(",
+        ".Tick(",
+        ".Render("
+      ],
+      maxPatchedMethods: 96,
+      includeConstructors: false,
+      warmupSeconds: 45,
+      reportAfterSeconds: 60
+    }
+  ],
+  [
+    "vanilla-ui-frame",
+    {
+      enableMod: true,
+      enableLogging: true,
+      includeNamespacePrefixes: ["UI.", "Assets._Scripts.UI."],
+      targetMethodPatterns: [".Update(", ".LateUpdate(", ".FixedUpdate(", ".Tick("],
+      maxPatchedMethods: 96,
+      includeConstructors: false,
+      warmupSeconds: 45,
+      reportAfterSeconds: 60
+    }
+  ],
+  [
+    "vanilla-external-frame",
+    {
+      enableMod: true,
+      enableLogging: true,
+      includeNamespacePrefixes: ["zz_External."],
+      targetMethodPatterns: [".Update(", ".LateUpdate(", ".FixedUpdate(", ".Tick("],
+      maxPatchedMethods: 64,
+      includeConstructors: false,
+      warmupSeconds: 45,
+      reportAfterSeconds: 60
     }
   ],
   [
@@ -266,6 +352,7 @@ async function main() {
   content = replaceOrAppendSetting(content, "targeting", "IncludeCompilerGenerated", "false");
   content = replaceOrAppendSetting(content, "targeting", "MaxPatchedMethods", `${preset.maxPatchedMethods}`);
   content = replaceOrAppendSetting(content, "report", "WarmupSeconds", `${preset.warmupSeconds ?? 0}`);
+  content = replaceOrAppendSetting(content, "report", "ReportAfterSeconds", `${preset.reportAfterSeconds ?? 60}`);
 
   await writeFile(configPath, content);
   console.log(configPath);

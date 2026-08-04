@@ -100,7 +100,7 @@ select them with `--interactive`.
 
 | Mod id | Name | Default | What it does |
 | --- | --- | :---: | --- |
-| `performance-optimizer` | Performance Optimizer | Yes | Reduces measured startup and runtime overhead, adds adaptive frame pacing and weak-PC presets, and records low-overhead FPS, loading, memory, render, GC and Fusion network telemetry. It does not blindly lower graphics while performance is healthy. |
+| `performance-optimizer` | Performance Optimizer | Yes | Preserves compatible interop caches for faster starts, follows the display refresh rate, removes measured main-thread scans and adapts the expensive additional-light shadows/vSync only under sustained low FPS. Normal play keeps its frame histogram in memory and performs no periodic telemetry writes. |
 | `uniform-seeker-random` | Uniform Seeker Random | Yes | Replaces the game's biased/default seeker selection with an equal random choice between eligible real players. |
 | `portal-mode-selector` | Portal Mode Selector | Yes | Adds a stock-styled portal menu for choosing Classic or Crown and the available map before matchmaking, without permanently editing Unity scenes. |
 | `network-host-selector` | Network Host Selector | Yes | Lets the party leader choose which real player receives Fusion network authority for the next match. It activates only when every real participant confirms the same protocol; bots are ignored and incompatible lobbies fall back to automatic host selection. |
@@ -217,7 +217,7 @@ When the target install is the Proton Windows build, BepInEx also needs:
 XMODIFIERS=@im=none WINEDLLOVERRIDES="winhttp=n,b" %command%
 ```
 
-The patcher configures that launch option automatically on Linux Steam installs by updating Steam `localconfig.vdf` for app `2410490`. Disabling XIM only for the game keeps GNOME/IBus character translation from swallowing physical gameplay bindings; it does not change the desktop input sources.
+The patcher configures that launch option automatically on Linux Steam installs by updating Steam `localconfig.vdf` for app `2410490`. Disabling XIM only for the game keeps GNOME/IBus character translation from swallowing physical gameplay bindings; it does not change the desktop input sources. When Linux GameMode is available, the same per-game command uses `gamemoderun`; the measured Map02 route improved from 71.49 to 88.40 FPS without lowering render scale or quality.
 
 ## Runtime automation
 
@@ -234,7 +234,7 @@ npm run runtime:profiler:off
 
 The performance runner samples the exact game PID, GPU and cgroup I/O, captures only newly changed in-game reports, restores temporary window-manager compatibility state, and closes the test client. The runtime session tooling snapshots multiple real log channels because `BepInEx/LogOutput.log` is not always populated during automated launches.
 
-See [the measured performance report](docs/performance/performance-overhaul.md) before enabling aggressive graphics overrides. The default `Auto` preset retains normal visuals until sustained low frame rate triggers the measured additional-shadow/vSync fallback; heavyweight scene census and experimental Unity recorders are opt-in.
+See [the measured performance report](docs/performance/performance-overhaul.md) before enabling aggressive graphics overrides. The default `Auto` preset retains normal visuals until sustained low frame rate triggers the measured additional-shadow/vSync fallback. Heavyweight scene census, interval CSV writes and experimental Unity recorders are opt-in because profiling work can itself cause hitches.
 
 ## Interop inspection
 

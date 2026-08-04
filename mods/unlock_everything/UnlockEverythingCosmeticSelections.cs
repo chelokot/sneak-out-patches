@@ -1,6 +1,5 @@
 using Collections;
 using Events;
-using HarmonyLib;
 using Kinguinverse.DataUtils.Events;
 using Kinguinverse.WebServiceProvider.Responses;
 using Kinguinverse.WebServiceProvider.Types.Games;
@@ -88,34 +87,32 @@ internal static partial class UnlockEverythingSelections
             return false;
         }
 
-        var runtimeType = productType.GetType();
-        var typeName = runtimeType.Name;
-        var hasValue = TryGetIl2CppEnumValue(productType, out var value);
-        UnlockEverythingRuntime.LogSkillUiEvent("UnlockEverythingSelections.TryParseAvatarProduct", $"typeName={typeName}, value={value}");
-        if (!hasValue)
+        string productName;
+        try
         {
+            productName = productType.ToString();
+        }
+        catch (Exception exception)
+        {
+            UnlockEverythingRuntime.LogError("Failed to read avatar product enum", exception);
             return false;
         }
 
-        if (string.Equals(typeName, nameof(AvatarType), StringComparison.Ordinal) && System.Enum.IsDefined(typeof(AvatarType), value))
+        UnlockEverythingRuntime.LogSkillUiEvent("UnlockEverythingSelections.TryParseAvatarProduct", $"name={productName}");
+        if (System.Enum.TryParse(productName, out avatarType) && avatarType != AvatarType.None)
         {
-            avatarType = (AvatarType)value;
-            return avatarType != AvatarType.None;
+            return true;
         }
 
-        if (string.Equals(typeName, nameof(AvatarFrameType), StringComparison.Ordinal) && System.Enum.IsDefined(typeof(AvatarFrameType), value))
+        avatarType = AvatarType.None;
+        if (System.Enum.TryParse(productName, out avatarFrameType) && avatarFrameType != AvatarFrameType.None)
         {
-            avatarFrameType = (AvatarFrameType)value;
-            return avatarFrameType != AvatarFrameType.None;
+            return true;
         }
 
-        if (string.Equals(typeName, nameof(DescriptionType), StringComparison.Ordinal) && System.Enum.IsDefined(typeof(DescriptionType), value))
-        {
-            descriptionType = (DescriptionType)value;
-            return descriptionType != DescriptionType.none;
-        }
-
-        return false;
+        avatarFrameType = AvatarFrameType.None;
+        return System.Enum.TryParse(productName, out descriptionType)
+            && descriptionType != DescriptionType.none;
     }
 
     internal static bool TryParseAvatarProductFromView(AvatarAndFrameView view, out AvatarType avatarType, out AvatarFrameType avatarFrameType, out DescriptionType descriptionType)
@@ -140,39 +137,28 @@ internal static partial class UnlockEverythingSelections
             return false;
         }
 
-        if (!TryGetIl2CppEnumValue(selectedProduct, out var value))
+        string productName;
+        try
         {
+            productName = selectedProduct.ToString();
+        }
+        catch (Exception exception)
+        {
+            UnlockEverythingRuntime.LogError("Failed to read selected avatar product", exception);
             return false;
         }
 
         switch (category)
         {
-            case 0 when System.Enum.IsDefined(typeof(AvatarType), value):
-                avatarType = (AvatarType)value;
+            case 0 when System.Enum.TryParse(productName, out avatarType):
                 return avatarType != AvatarType.None;
-            case 1 when System.Enum.IsDefined(typeof(AvatarFrameType), value):
-                avatarFrameType = (AvatarFrameType)value;
+            case 1 when System.Enum.TryParse(productName, out avatarFrameType):
                 return avatarFrameType != AvatarFrameType.None;
-            case 2 when System.Enum.IsDefined(typeof(DescriptionType), value):
-                descriptionType = (DescriptionType)value;
+            case 2 when System.Enum.TryParse(productName, out descriptionType):
                 return descriptionType != DescriptionType.none;
         }
 
         return false;
-    }
-
-    private static bool TryGetIl2CppEnumValue(Il2CppSystem.Enum value, out int numericValue)
-    {
-        numericValue = AccessTools.Field(value.GetType(), "value__")?.GetValue(value) switch
-        {
-            int intValue => intValue,
-            byte byteValue => byteValue,
-            short shortValue => shortValue,
-            long longValue => unchecked((int)longValue),
-            _ => int.MinValue
-        };
-
-        return numericValue != int.MinValue;
     }
 
     private static Il2CppSystem.Enum? TryGetSelectedAvatarProductFromButtons(AvatarAndFrameView view)
@@ -257,11 +243,16 @@ internal static partial class UnlockEverythingSelections
             return false;
         }
 
+        ClearPendingAvatarSelection();
+        UnlockEverythingRuntime.LogSkillUiEvent("UnlockEverythingSelections.TryConsumePendingAvatarSelection", $"avatar={avatarType}, frame={avatarFrameType}, title={descriptionType}");
+        return true;
+    }
+
+    private static void ClearPendingAvatarSelection()
+    {
         _pendingAvatarType = AvatarType.None;
         _pendingAvatarFrameType = AvatarFrameType.None;
         _pendingDescriptionType = DescriptionType.none;
-        UnlockEverythingRuntime.LogSkillUiEvent("UnlockEverythingSelections.TryConsumePendingAvatarSelection", $"avatar={avatarType}, frame={avatarFrameType}, title={descriptionType}");
-        return true;
     }
 
     internal static bool TryParseAvatarProductFromAnyOpenView(out AvatarType avatarType, out AvatarFrameType avatarFrameType, out DescriptionType descriptionType)
@@ -323,6 +314,37 @@ internal static partial class UnlockEverythingSelections
         return false;
     }
 
+    private static bool ApplyAvatarTypeSelection(int characterId, AvatarType avatarType)
+    {
+        if (!UnlockEverythingRuntime.UsePersistentSelections)
+        {
+            return false;
+        }
+
+        var player = GetPlayer();
+        var character = GetCharacterById(characterId);
+        var avatars = player?.Avatars?.Avatars;
+        if (character is null || avatars is null)
+        {
+            return false;
+        }
+
+        foreach (var avatar in avatars)
+        {
+            if (avatar is null || avatar.AvatarType != avatarType)
+            {
+                continue;
+            }
+
+            character.Avatar = avatar;
+            SyncLivePlayerAvatarState(character);
+            SaveSelection(character);
+            return true;
+        }
+
+        return false;
+    }
+
     public static bool ApplyAvatarFrameSelection(int characterId, int avatarFrameId)
     {
         if (!UnlockEverythingRuntime.UsePersistentSelections)
@@ -341,6 +363,37 @@ internal static partial class UnlockEverythingSelections
         foreach (var avatarFrame in avatarFrames)
         {
             if (avatarFrame is null || avatarFrame.Id != avatarFrameId)
+            {
+                continue;
+            }
+
+            character.AvatarFrame = avatarFrame;
+            SyncLivePlayerAvatarState(character);
+            SaveSelection(character);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool ApplyAvatarFrameTypeSelection(int characterId, AvatarFrameType avatarFrameType)
+    {
+        if (!UnlockEverythingRuntime.UsePersistentSelections)
+        {
+            return false;
+        }
+
+        var player = GetPlayer();
+        var character = GetCharacterById(characterId);
+        var avatarFrames = player?.AvatarFrames?.AvatarFrames;
+        if (character is null || avatarFrames is null)
+        {
+            return false;
+        }
+
+        foreach (var avatarFrame in avatarFrames)
+        {
+            if (avatarFrame is null || avatarFrame.AvatarFrameType != avatarFrameType)
             {
                 continue;
             }
@@ -378,6 +431,45 @@ internal static partial class UnlockEverythingSelections
         SyncLivePlayerAvatarState(character);
         SaveSelection(character);
         return true;
+    }
+
+    internal static bool ApplyAvatarModificationSelection(AvatarAndFrameView view)
+    {
+        if (!UnlockEverythingRuntime.UsePersistentSelections || !TryGetAvatarMenuCharacterId(out var characterId))
+        {
+            return false;
+        }
+
+        var parsed = TryConsumePendingAvatarSelection(out var avatarType, out var avatarFrameType, out var descriptionType);
+        UnlockEverythingRuntime.LogSkillUiEvent(
+            "UnlockEverythingSelections.ApplyAvatarModificationSelection:viewDirect",
+            $"parsed={parsed}, avatar={avatarType}, frame={avatarFrameType}, title={descriptionType}");
+        if (!parsed)
+        {
+            parsed = TryParseAvatarProductFromView(view, out avatarType, out avatarFrameType, out descriptionType);
+        }
+
+        return parsed && ApplyParsedAvatarModification(characterId, avatarType, avatarFrameType, descriptionType);
+    }
+
+    private static bool ApplyParsedAvatarModification(
+        int characterId,
+        AvatarType avatarType,
+        AvatarFrameType avatarFrameType,
+        DescriptionType descriptionType)
+    {
+        if (avatarType != AvatarType.None)
+        {
+            return ApplyAvatarTypeSelection(characterId, avatarType);
+        }
+
+        if (avatarFrameType != AvatarFrameType.None)
+        {
+            return ApplyAvatarFrameTypeSelection(characterId, avatarFrameType);
+        }
+
+        return descriptionType != DescriptionType.none
+            && ApplyTitleSelection(characterId, descriptionType);
     }
 
     public static bool ApplyDanceSelection(int characterId, EmoteType emoteType)
@@ -498,7 +590,7 @@ internal static partial class UnlockEverythingSelections
 
         player.CharacterSkins ??= new PlayerCharacterSkins(new Il2CppCollections.List<PlayerCharacterSkin>());
         player.CharacterSkins.Skins ??= new Il2CppCollections.List<PlayerCharacterSkin>();
-        var skinId = UnlockEverythingStub.GetCharacterSkinId(characterSkin);
+        var syntheticSkinId = UnlockEverythingStub.GetCharacterSkinId(characterSkin);
         var existingSkin = false;
         foreach (var skin in player.CharacterSkins.Skins)
         {
@@ -507,14 +599,14 @@ internal static partial class UnlockEverythingSelections
                 continue;
             }
 
-            skin.Id = skinId;
+            skin.Id = AvatarSelectionPolicy.PreserveOwnedProductId(skin.Id, syntheticSkinId);
             existingSkin = true;
             break;
         }
 
         if (!existingSkin)
         {
-            player.CharacterSkins.Skins.Add(new PlayerCharacterSkin(skinId, characterSkin));
+            player.CharacterSkins.Skins.Add(new PlayerCharacterSkin(syntheticSkinId, characterSkin));
         }
 
         character.CharacterSkin = characterSkin;
@@ -622,7 +714,9 @@ internal static partial class UnlockEverythingSelections
         }
         else
         {
-            selectedSkinPart.Id = UnlockEverythingStub.GetSkinPartId(skinPartType);
+            selectedSkinPart.Id = AvatarSelectionPolicy.PreserveOwnedProductId(
+                selectedSkinPart.Id,
+                UnlockEverythingStub.GetSkinPartId(skinPartType));
             selectedSkinPart.SkinType = skinType;
             selectedSkinPart.SkinPartType = skinPartType;
         }
@@ -831,41 +925,21 @@ internal static partial class UnlockEverythingSelections
             return false;
         }
 
-        var parsed = TryParseAvatarProduct(productType, out var avatarType, out var avatarFrameType, out var descriptionType);
-        UnlockEverythingRuntime.LogSkillUiEvent("UnlockEverythingSelections.ApplyAvatarModificationSelection:direct", $"parsed={parsed}, avatar={avatarType}, frame={avatarFrameType}, title={descriptionType}");
-        if (!parsed)
-        {
-            parsed = TryParseAvatarProductFromAnyOpenView(out avatarType, out avatarFrameType, out descriptionType);
-            UnlockEverythingRuntime.LogSkillUiEvent("UnlockEverythingSelections.ApplyAvatarModificationSelection:view", $"parsed={parsed}, avatar={avatarType}, frame={avatarFrameType}, title={descriptionType}");
-        }
-
-        if (!parsed)
-        {
-            parsed = TryConsumePendingAvatarSelection(out avatarType, out avatarFrameType, out descriptionType);
-            UnlockEverythingRuntime.LogSkillUiEvent("UnlockEverythingSelections.ApplyAvatarModificationSelection:pending", $"parsed={parsed}, avatar={avatarType}, frame={avatarFrameType}, title={descriptionType}");
-        }
+        // The boxed IL2CPP enum supplied to this async inventory method can already
+        // be invalid by the time Harmony enters managed code. The record-button
+        // patches capture and parse it while its native lifetime is still valid.
+        // Never call a virtual method (ToString/GetHashCode/etc.) on productType here.
+        var parsed = TryConsumePendingAvatarSelection(out var avatarType, out var avatarFrameType, out var descriptionType);
+        UnlockEverythingRuntime.LogSkillUiEvent("UnlockEverythingSelections.ApplyAvatarModificationSelection:pending", $"parsed={parsed}, avatar={avatarType}, frame={avatarFrameType}, title={descriptionType}");
 
         if (!parsed)
         {
             return false;
         }
 
-        if (avatarType != AvatarType.None)
-        {
-            return ApplyAvatarSelection(characterId, UnlockEverythingStub.GetAvatarId(avatarType));
-        }
+        ClearPendingAvatarSelection();
 
-        if (avatarFrameType != AvatarFrameType.None)
-        {
-            return ApplyAvatarFrameSelection(characterId, UnlockEverythingStub.GetAvatarFrameId(avatarFrameType));
-        }
-
-        if (descriptionType != DescriptionType.none)
-        {
-            return ApplyTitleSelection(characterId, descriptionType);
-        }
-
-        return false;
+        return ApplyParsedAvatarModification(characterId, avatarType, avatarFrameType, descriptionType);
     }
 
     public static void SaveCurrentCharacterSelection(CharacterType characterType)

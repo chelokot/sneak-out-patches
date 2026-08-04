@@ -5,6 +5,7 @@ using CharactersSkillsRuntime = Types.Structs.CharactersSkills;
 using EntitySkillsComponentRuntime = Gameplay.Player.Components.EntitySkillsComponent;
 using NetworkPlayerRegistryRuntime = Gameplay.Player.Components.NetworkPlayerRegistry;
 using SpookedNetworkPlayerRuntime = Gameplay.Player.Components.SpookedNetworkPlayer;
+using RuntimeCharacterType = Types.CharacterType;
 
 namespace SneakOut.UnlockEverything;
 
@@ -34,6 +35,41 @@ internal static partial class UnlockEverythingSelections
         }
 
         _currentNetworkPlayer = networkPlayer;
+    }
+
+    internal static bool ApplyPersistedSkinToLocalNetworkPlayer(SpookedNetworkPlayerRuntime networkPlayer)
+    {
+        if (!UnlockEverythingRuntime.UsePersistentSelections
+            || networkPlayer is null
+            || networkPlayer.Pointer == IntPtr.Zero
+            || !networkPlayer.HasInputAuthority
+            || networkPlayer.IsBot
+            || networkPlayer.CharacterType != RuntimeCharacterType.victim_penguin)
+        {
+            return false;
+        }
+
+        try
+        {
+            var characterData = networkPlayer.CharacterData;
+            if (!LocalSelectionsStore.TryApplyPersistedPenguinSkin(ref characterData, out var changed))
+            {
+                return false;
+            }
+
+            if (changed)
+            {
+                NormalizeCharacterData(ref characterData);
+                networkPlayer.ChangeCharacterData(characterData);
+            }
+            UnlockEverythingRuntime.LogStartupSkinValidation(networkPlayer.InternalId, characterData, changed);
+            return changed;
+        }
+        catch (Exception exception)
+        {
+            UnlockEverythingRuntime.LogError("Applying persisted skin to local network player failed", exception);
+            return false;
+        }
     }
 
     private static MyPlayerRegistry? GetMyPlayerRegistry(PlayerNewMetaInventory? preferredInventory = null)

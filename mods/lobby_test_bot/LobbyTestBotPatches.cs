@@ -75,6 +75,16 @@ internal static class GameUiManagerOnAwakePatch
     }
 }
 
+[HarmonyPatch(typeof(SceneSpawner), nameof(SceneSpawner.Spawn))]
+internal static class SceneSpawnerSpawnCachePatch
+{
+    [HarmonyPostfix]
+    private static void Postfix(SceneSpawner __instance)
+    {
+        LobbyTestBotRuntime.RememberSceneSpawner(__instance);
+    }
+}
+
 [HarmonyPatch(typeof(SpookedNetworkPlayer), nameof(SpookedNetworkPlayer.Despawned))]
 internal static class SpookedNetworkPlayerDespawnedPatch
 {

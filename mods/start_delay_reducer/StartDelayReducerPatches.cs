@@ -1,5 +1,6 @@
 using Gameplay.Match.MatchState;
 using HarmonyLib;
+using UI.Views.Lobby;
 
 namespace SneakOut.StartDelayReducer;
 
@@ -27,5 +28,14 @@ internal static class MatchStateMachineCapturePatch
     private static void Prefix(MatchStateMachine __instance)
     {
         StartDelayReducerRuntime.CaptureStateMachine(__instance);
+    }
+}
+
+[HarmonyPatch(typeof(PortalPlayView), "OnAwake")]
+internal static class PortalPlayViewStyleCapturePatch
+{
+    private static void Postfix(PortalPlayView __instance)
+    {
+        StartDelayReducerRuntime.CaptureStockButtonStyle(__instance);
     }
 }

@@ -1,4 +1,8 @@
+using System.Diagnostics;
+using Gameplay.Camera;
 using Gameplay.Enviro;
+using Gameplay.Match.MatchState;
+using Gameplay.Player.Components;
 using HarmonyLib;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using Networking.Photon;
@@ -16,6 +20,36 @@ internal static class PhotonPingServerRefreshPatch
     private static void Prefix(PhotonPingServer __instance)
     {
         PerformanceOptimizerRuntime.CapturePhotonPingServer(__instance);
+    }
+}
+
+[HarmonyPatch(typeof(SceneCameraManager), "OnAwake")]
+internal static class SceneCameraManagerTelemetryPatch
+{
+    [HarmonyPostfix]
+    private static void Postfix(SceneCameraManager __instance)
+    {
+        PerformanceOptimizerRuntime.CaptureSceneCameraManager(__instance);
+    }
+}
+
+[HarmonyPatch(typeof(SpookedNetworkPlayer), nameof(SpookedNetworkPlayer.Spawned))]
+internal static class PerformancePlayerSpawnedPatch
+{
+    [HarmonyPostfix]
+    private static void Postfix(SpookedNetworkPlayer __instance)
+    {
+        PerformanceOptimizerRuntime.CaptureLocalPlayer(__instance);
+    }
+}
+
+[HarmonyPatch(typeof(SpookedNetworkPlayer), nameof(SpookedNetworkPlayer.Despawned))]
+internal static class PerformancePlayerDespawnedPatch
+{
+    [HarmonyPrefix]
+    private static void Prefix(SpookedNetworkPlayer __instance)
+    {
+        PerformanceOptimizerRuntime.ForgetLocalPlayer(__instance);
     }
 }
 
@@ -58,6 +92,93 @@ internal static class RoomNullLightsPatch
 
         __instance.Lights = filteredLights;
         PerformanceOptimizerRuntime.ReportSanitizedRoomLights(lights.Length - validLightCount);
+    }
+
+}
+
+[HarmonyPatch(typeof(Room), nameof(Room.EnableOrDisableRoomLights))]
+internal static class RoomLightTransitionTelemetryPatch
+{
+    [HarmonyPrefix]
+    private static void Prefix(out long __state)
+    {
+        __state = PerformanceOptimizerRuntime.DetailedTelemetryEnabled
+            ? Stopwatch.GetTimestamp()
+            : 0L;
+    }
+
+    [HarmonyPostfix]
+    private static void Postfix(Room __instance, bool enableLights, bool forTest, long __state)
+    {
+        if (__state == 0L)
+        {
+            return;
+        }
+
+        var elapsedMilliseconds = (Stopwatch.GetTimestamp() - __state) * 1000d / Stopwatch.Frequency;
+        PerformanceOptimizerRuntime.ReportRoomLightTransition(
+            __instance,
+            enableLights,
+            forTest,
+            elapsedMilliseconds);
+    }
+}
+
+[HarmonyPatch(typeof(RoomsLightsManager), "HandleLightsActivation")]
+internal static class RoomsLightsManagerTelemetryPatch
+{
+    [HarmonyPrefix]
+    private static void Prefix(out long __state)
+    {
+        __state = PerformanceOptimizerRuntime.DetailedTelemetryEnabled
+            ? Stopwatch.GetTimestamp()
+            : 0L;
+    }
+
+    [HarmonyPostfix]
+    private static void Postfix(
+        RoomsLightsManager __instance,
+        Types.RoomType roomType,
+        bool enableLights,
+        bool forTest,
+        long __state)
+    {
+        if (__state == 0L)
+        {
+            return;
+        }
+
+        var elapsedMilliseconds = (Stopwatch.GetTimestamp() - __state) * 1000d / Stopwatch.Frequency;
+        PerformanceOptimizerRuntime.ReportRoomsLightsManagerTransition(
+            __instance,
+            roomType,
+            enableLights,
+            forTest,
+            elapsedMilliseconds);
+    }
+}
+
+[HarmonyPatch(typeof(MatchStateMachine), "OnMatchStateTypeChange")]
+internal static class MatchStateTransitionTelemetryPatch
+{
+    [HarmonyPrefix]
+    private static void Prefix(out long __state)
+    {
+        __state = PerformanceOptimizerRuntime.DetailedTelemetryEnabled
+            ? Stopwatch.GetTimestamp()
+            : 0L;
+    }
+
+    [HarmonyPostfix]
+    private static void Postfix(MatchStateMachine __instance, long __state)
+    {
+        if (__state == 0L)
+        {
+            return;
+        }
+
+        var elapsedMilliseconds = (Stopwatch.GetTimestamp() - __state) * 1000d / Stopwatch.Frequency;
+        PerformanceOptimizerRuntime.ReportMatchStateTransition(__instance, elapsedMilliseconds);
     }
 }
 

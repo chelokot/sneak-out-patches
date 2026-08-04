@@ -38,6 +38,12 @@ Require(
 Require(
     AvatarSelectionPolicy.GetTitleDisplayText("TITLE_CHAIR_DESTROYER", "TITLE_CHAIR_DESTROYER") == "Chair Destroyer",
     "title localization key fallback still depended on the boxed IL2CPP enum");
+Require(LocalSkinEconomy.DisplayedGold(5_000, 3) == 2_000, "local skin ledger did not reduce displayed Gold");
+Require(LocalSkinEconomy.DisplayedGold(500, 1) == 0, "local skin ledger allowed a negative displayed balance");
+Require(LocalSkinEconomy.DisplayedGold(5_000, 0) == 5_000, "empty local skin ledger changed server Gold");
+Require(LocalSkinEconomy.DisplayedGold(int.MaxValue, int.MaxValue) == 0, "local skin ledger overflowed");
+Require(LocalSkinEconomy.CanPurchase(1_000), "exactly 1000 Gold could not buy a skin part");
+Require(!LocalSkinEconomy.CanPurchase(999), "skin purchase accepted less than 1000 Gold");
 
 var releaseCandidates = ChairReleasePolicy.CandidateDistances(0.25f).ToArray();
 Require(releaseCandidates.Length == 3, "chair release search did not include its bounded final candidate");

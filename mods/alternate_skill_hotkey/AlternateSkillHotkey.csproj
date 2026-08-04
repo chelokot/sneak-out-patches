@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>SneakOut.AlternateSkillHotkey</AssemblyName>
+    <RootNamespace>SneakOut.AlternateSkillHotkey</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="Fusion.Runtime">
+      <HintPath>$(InteropDir)/Fusion.Runtime.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(InteropDir)/UnityEngine.CoreModule.dll</HintPath>
+    </Reference>
+    <Reference Include="Unity.InputSystem">
+      <HintPath>$(InteropDir)/Unity.InputSystem.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+</Project>

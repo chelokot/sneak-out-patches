@@ -94,9 +94,9 @@ External prerequisites:
 
 ## Runtime mod catalog
 
-The normal install enables every stable mod below. `Lobby Test Bot`, `Free Fly`, and
-`Runtime Profiler` are development tools and remain opt-in; install them with `--all` or
-select them with `--interactive`.
+The normal install enables every stable mod below. `Alternate Skill Hotkey` is an opt-in
+gameplay modifier; `Lobby Test Bot`, `Free Fly`, and `Runtime Profiler` are development
+tools. Install any of them with `--all` or select them with `--interactive`.
 
 | Mod id | Name | Default | What it does |
 | --- | --- | :---: | --- |
@@ -105,7 +105,9 @@ select them with `--interactive`.
 | `portal-mode-selector` | Portal Mode Selector | Yes | Adds a stock-styled portal menu for choosing Classic or Crown and the available map before matchmaking, without permanently editing Unity scenes. |
 | `network-host-selector` | Network Host Selector | Yes | Lets the party leader choose which real player receives Fusion network authority for the next match. It activates only when every real participant confirms the same protocol; bots are ignored and incompatible lobbies fall back to automatic host selection. |
 | `mummy-unlock` | Mummy Unlock | Yes | Restores Mummy as a selectable hunter, including its shop entry, localized text, abilities and current-client selection flow. |
-| `unlock-everything` | Unlock Everything | Yes | Exposes supported characters, emotes and skill cards, makes every supported skin part locally purchasable for exactly 1000 Gold, persists purchases/loadouts, restricts live outfit writes to the local input-authority player, and maps Left Alt to the alternate active perk. |
+| `unlock-everything` | Unlock Everything | Yes | Exposes supported characters, emotes and skill cards, makes every supported skin part locally purchasable for exactly 1000 Gold, persists the purchase ledger and subtracts it from the authoritative Gold balance after every refresh, persists loadouts, and restricts live outfit writes to the local input-authority player. |
+| `alternate-skill-hotkey` | Alternate Skill Hotkey | No | Maps Left Alt to the character's unequipped alternate active perk through the ordinary skill dispatch path. It is deliberately separate and disabled by default. |
+| `prop-buff` | Prop Buff | Yes | Lets a transformed prop move at 25% speed and cycle through the game's supported prop models with the mouse wheel. Rerolls use the stock all-client prop RPC and preserve the current ability duration and cooldown. |
 | `start-delay-reducer` | Start Now | Yes | Keeps the normal 30-second connection grace period for slow clients but gives the authoritative host a `Start now` button once the lobby is ready. |
 | `locker-stun-fix` | Locker Stun Fix | Yes | Arms Boo only when the locker is closed at the instant the penguin starts leaving. Leaving an already-open locker cannot stun the hunter and does not consume Boo's cooldown. |
 | `magic-wardrobe-hook-fix` | Magic Wardrobe Hook Fix | Yes | Cancels a pending magic-wardrobe teleport when a Butcher hook interrupts entry, so the pulled player is not snapped back to the wardrobe after the animation finishes. |

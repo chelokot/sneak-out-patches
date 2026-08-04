@@ -10,6 +10,7 @@ using Gameplay.Player.Customization;
 using Gameplay.Spawn;
 using HarmonyLib;
 using Il2CppInterop.Runtime.Injection;
+using Kinguinverse.DataUtils.Events;
 using Networking;
 using Networking.Matchmaking;
 using Networking.Matchmaking.Match;
@@ -99,6 +100,8 @@ internal static class LobbyTestBotRuntime
     private static bool _managedMatchJoinStarted;
     private static bool _carryBotIntoMatch;
     private static GameModeType _managedMatchMode;
+    private static bool _managedHunterConfirmationSent;
+    private static float _managedHunterConfirmationRetryAt;
     [ThreadStatic]
     private static bool _managedMatchStartGuardScope;
     [ThreadStatic]
@@ -276,6 +279,9 @@ internal static class LobbyTestBotRuntime
 
     private static string BotNickname => _configuration!.BotNickname.Value.Trim();
 
+    private static bool BotPrefersHunter =>
+        _configuration?.RolePreference.Value == BotRolePreference.HunterPriority;
+
     public static void OpenPortal(PortalPlayView view)
     {
         if (!Enabled)
@@ -343,7 +349,9 @@ internal static class LobbyTestBotRuntime
         if (state.IsAlive)
         {
             state.Button.onClick.RemoveListener(state.ClickAction);
+            state.RoleButton.onClick.RemoveListener(state.RoleClickAction);
             UnityEngine.Object.Destroy(state.RootObject);
+            UnityEngine.Object.Destroy(state.RoleRootObject);
         }
     }
 
@@ -430,6 +438,8 @@ internal static class LobbyTestBotRuntime
             _managedMatchMode = requestedMode;
             _managedMatchJoinStarted = true;
             _carryBotIntoMatch = true;
+            _managedHunterConfirmationSent = false;
+            _managedHunterConfirmationRetryAt = 0f;
             gameState!.GameMode = requestedMode;
         }
         return shouldHandle;
@@ -848,16 +858,7 @@ internal static class LobbyTestBotRuntime
             return null;
         }
 
-        label.fontSize = 15f;
-        label.fontSizeMin = 10f;
-        label.fontSizeMax = 15f;
-        label.enableAutoSizing = true;
-        label.enableWordWrapping = false;
-        label.overflowMode = TextOverflowModes.Ellipsis;
-        label.fontStyle = FontStyles.Bold;
-        label.alignment = TextAlignmentOptions.Center;
-        label.color = Color.white;
-        label.raycastTarget = false;
+        ConfigureButtonLabel(label);
         FitStockButtonLayers(buttonRect, button, label);
 
         var clickAction = (UnityAction)ToggleBot;
@@ -865,11 +866,35 @@ internal static class LobbyTestBotRuntime
         button.onClick.AddListener(clickAction);
         buttonRect.SetAsLastSibling();
 
+        var roleButtonObject = UnityEngine.Object.Instantiate(view._playButton.gameObject, playSection, false);
+        roleButtonObject.name = "LobbyTestBotRoleButton";
+        var roleButtonRect = roleButtonObject.GetComponent<RectTransform>();
+        var roleButton = roleButtonObject.GetComponent<SpookedOutlineButton>();
+        var roleLabel = roleButtonObject.GetComponentInChildren<TMP_Text>(true);
+        if (roleButtonRect is null || roleButton is null || roleLabel is null)
+        {
+            UnityEngine.Object.Destroy(buttonObject);
+            UnityEngine.Object.Destroy(roleButtonObject);
+            _logger?.LogWarning("Lobby bot role-button setup skipped: the stock button clone was incomplete");
+            return null;
+        }
+
+        ConfigureButtonLabel(roleLabel);
+        FitStockButtonLayers(roleButtonRect, roleButton, roleLabel);
+        var roleClickAction = (UnityAction)ToggleBotRole;
+        roleButton.onClick = new Button.ButtonClickedEvent();
+        roleButton.onClick.AddListener(roleClickAction);
+        roleButtonRect.SetAsLastSibling();
+
         var state = new LobbyTestBotUiState(
             buttonObject,
             button,
             clickAction,
-            label);
+            label,
+            roleButtonObject,
+            roleButton,
+            roleClickAction,
+            roleLabel);
         UiStateByView[view.Pointer] = state;
 
         LayoutButton(view, state);
@@ -882,7 +907,12 @@ internal static class LobbyTestBotRuntime
         var playSection = playButton?.transform.parent?.GetComponent<RectTransform>();
         var playRect = playButton?.GetComponent<RectTransform>();
         var buttonRect = state.RootObject.GetComponent<RectTransform>();
-        if (playButton is null || playSection is null || playRect is null || buttonRect is null)
+        var roleButtonRect = state.RoleRootObject.GetComponent<RectTransform>();
+        if (playButton is null
+            || playSection is null
+            || playRect is null
+            || buttonRect is null
+            || roleButtonRect is null)
         {
             return;
         }
@@ -891,21 +921,44 @@ internal static class LobbyTestBotRuntime
         {
             state.RootObject.transform.SetParent(playSection, false);
         }
+        if (state.RoleRootObject.transform.parent != playSection)
+        {
+            state.RoleRootObject.transform.SetParent(playSection, false);
+        }
 
+        var playWidth = playRect.rect.width;
+        var buttonWidth = Mathf.Max(72f, (playWidth - ButtonGap * 2f) / 3f);
+        var playHeight = playRect.rect.height;
+        var buttonY = playHeight * 0.5f + ButtonHeight * 0.5f + 10f;
+        LayoutPortalButton(buttonRect, playRect.localPosition + new Vector3(buttonWidth + ButtonGap, buttonY, 0f), buttonWidth);
+        LayoutPortalButton(roleButtonRect, playRect.localPosition + new Vector3(-buttonWidth - ButtonGap, buttonY, 0f), buttonWidth);
+        buttonRect.SetAsLastSibling();
+        roleButtonRect.SetAsLastSibling();
+    }
+
+    private static void ConfigureButtonLabel(TMP_Text label)
+    {
+        label.fontSize = 15f;
+        label.fontSizeMin = 9f;
+        label.fontSizeMax = 15f;
+        label.enableAutoSizing = true;
+        label.enableWordWrapping = false;
+        label.overflowMode = TextOverflowModes.Ellipsis;
+        label.fontStyle = FontStyles.Bold;
+        label.alignment = TextAlignmentOptions.Center;
+        label.color = Color.white;
+        label.raycastTarget = false;
+    }
+
+    private static void LayoutPortalButton(RectTransform buttonRect, Vector3 localPosition, float width)
+    {
         buttonRect.anchorMin = new Vector2(0.5f, 0.5f);
         buttonRect.anchorMax = new Vector2(0.5f, 0.5f);
         buttonRect.pivot = new Vector2(0.5f, 0.5f);
         buttonRect.localScale = Vector3.one;
         buttonRect.localRotation = Quaternion.identity;
-        var playWidth = playRect.rect.width;
-        var buttonWidth = Mathf.Max(72f, (playWidth - ButtonGap * 2f) / 3f);
-        buttonRect.sizeDelta = new Vector2(buttonWidth, ButtonHeight);
-        var playHeight = playRect.rect.height;
-        buttonRect.localPosition = playRect.localPosition + new Vector3(
-            buttonWidth + ButtonGap,
-            playHeight * 0.5f + ButtonHeight * 0.5f + 10f,
-            0f);
-        buttonRect.SetAsLastSibling();
+        buttonRect.sizeDelta = new Vector2(width, ButtonHeight);
+        buttonRect.localPosition = localPosition;
     }
 
     private static void FitStockButtonLayers(
@@ -960,6 +1013,96 @@ internal static class LobbyTestBotRuntime
             LogError("Lobby bot toggle failed", exception);
             ClearPendingOperation();
             RefreshAllButtons();
+        }
+    }
+
+    private static void ToggleBotRole()
+    {
+        if (!Enabled || _configuration is null || _pendingOperation != PendingOperation.None)
+        {
+            return;
+        }
+
+        _configuration.RolePreference.Value = BotPrefersHunter
+            ? BotRolePreference.Penguin
+            : BotRolePreference.HunterPriority;
+
+        var bot = FindManagedBot();
+        if (bot is not null)
+        {
+            bot.CanBeSeeker = BotPrefersHunter;
+        }
+
+        if (LoggingEnabled)
+        {
+            _logger?.LogInfo($"Managed bot role preference changed to {_configuration.RolePreference.Value}");
+        }
+        RefreshAllButtons();
+    }
+
+    public static bool TryPrioritizeManagedBotAsSeeker(
+        Gameplay.Match.MatchState.ShouldStartState shouldStartState,
+        ref int result)
+    {
+        if (!Enabled
+            || !BotPrefersHunter
+            || shouldStartState._gameState.GameMode == GameModeType.Berek)
+        {
+            return false;
+        }
+
+        var bot = FindManagedBot();
+        if (bot is null
+            || bot.InternalId < 0
+            || !bot.CanBeSeeker
+            || shouldStartState._networkPlayerRegistry._components.All(
+                player => player is null || player.Pointer != bot.Pointer))
+        {
+            return false;
+        }
+
+        result = bot.InternalId;
+        _managedHunterConfirmationSent = false;
+        _managedHunterConfirmationRetryAt = 0f;
+        _logger?.LogInfo($"Prioritized managed test bot as hunter: internalId={result}");
+        return true;
+    }
+
+    public static void ConfirmManagedBotHunter(
+        Gameplay.Match.MatchState.SelectionState selectionState)
+    {
+        if (!Enabled
+            || !BotPrefersHunter
+            || _managedHunterConfirmationSent
+            || Time.unscaledTime < _managedHunterConfirmationRetryAt
+            || selectionState._gameState.GameMode == GameModeType.Berek)
+        {
+            return;
+        }
+
+        var bot = FindManagedBot();
+        if (bot is null || selectionState._gameState.ChosenSeekerId != bot.InternalId)
+        {
+            return;
+        }
+
+        try
+        {
+            // A managed bot has no input authority and cannot operate the hunter-selection UI.
+            // Publish the same authoritative confirmation event that SeekerComponent publishes
+            // after a real player confirms. The stock state and start controllers still own the
+            // transition, character replacement, positioning, and replication.
+            GameEventsManager.Publish<ConfirmSeekerCharacterEvent>(
+                null,
+                new ConfirmSeekerCharacterEvent(bot.InternalId, CharacterType.murderer_ripper));
+            _managedHunterConfirmationSent = true;
+            _logger?.LogInfo(
+                $"Confirmed managed test bot hunter through the stock event path: internalId={bot.InternalId}, character={CharacterType.murderer_ripper}");
+        }
+        catch (Exception exception)
+        {
+            _managedHunterConfirmationRetryAt = Time.unscaledTime + 0.5f;
+            LogError("Managed bot hunter confirmation failed", exception);
         }
     }
 
@@ -1470,6 +1613,7 @@ internal static class LobbyTestBotRuntime
         }
 
         bot.InternalId = registeredInternalId;
+        bot.CanBeSeeker = BotPrefersHunter;
         if (bot.EntityNetworkAnimatorComponent is null)
         {
             var animator = FindNetworkAnimator(bot);
@@ -1677,6 +1821,8 @@ internal static class LobbyTestBotRuntime
         _managedPrefabRefreshRequested = false;
         _managedPrefabRefreshRequestedAt = -1f;
         _managedDirectPrefabSpawnRequested = false;
+        _managedHunterConfirmationSent = false;
+        _managedHunterConfirmationRetryAt = 0f;
         if (!RefreshManagedBotOutfit(player))
         {
             _nextManagedOutfitRefreshAt = Time.unscaledTime + 0.25f;
@@ -2163,6 +2309,7 @@ internal static class LobbyTestBotRuntime
     {
         var canManageBot = ResolveAuthoritativeLobbySpawner() is not null;
         state.RootObject.SetActive(canManageBot);
+        state.RoleRootObject.SetActive(canManageBot);
         if (!canManageBot)
         {
             return;
@@ -2171,10 +2318,15 @@ internal static class LobbyTestBotRuntime
         var hasBot = FindManagedBot() is not null;
         var pending = _pendingOperation != PendingOperation.None;
         state.Button.interactable = !pending;
+        state.RoleButton.interactable = !pending;
         state.Label.text = pending ? "PLEASE WAIT" : hasBot ? "REMOVE BOT" : "ADD BOT";
+        state.RoleLabel.text = BotPrefersHunter ? "BOT: HUNTER" : "BOT: PENGUIN";
         var labelColor = state.Label.color;
         labelColor.a = pending ? 0.45f : 1f;
         state.Label.color = labelColor;
+        var roleLabelColor = state.RoleLabel.color;
+        roleLabelColor.a = pending ? 0.45f : 1f;
+        state.RoleLabel.color = roleLabelColor;
     }
 
     private static void ClearPendingOperation()

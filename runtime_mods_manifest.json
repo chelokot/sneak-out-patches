@@ -207,7 +207,7 @@
   {
     "option_id": "lobby-test-bot",
     "label": "Lobby Test Bot",
-    "details": "Installs the host-only portal tool that spawns one inert Fusion player through the game's native bot initializer and starts private test matches with it.",
+    "details": "Installs the host-only portal tool that spawns one inert Fusion player, lets the host prioritize it as the Classic-mode hunter, and starts private test matches with it.",
     "category": "debug",
     "default_enabled": false,
     "project_relative_path": "mods/lobby_test_bot/LobbyTestBot.csproj",

@@ -105,6 +105,30 @@ internal static class PgosLobbyTeamCountPatch
     }
 }
 
+[HarmonyPatch(typeof(Gameplay.Match.MatchState.ShouldStartState), "GetRandomSeeker")]
+[HarmonyBefore("chelokot.sneakout.uniform-seeker-random")]
+internal static class ManagedBotHunterPriorityPatch
+{
+    [HarmonyPrefix]
+    [HarmonyPriority(Priority.First)]
+    private static bool Prefix(
+        Gameplay.Match.MatchState.ShouldStartState __instance,
+        ref int __result)
+    {
+        return !LobbyTestBotRuntime.TryPrioritizeManagedBotAsSeeker(__instance, ref __result);
+    }
+}
+
+[HarmonyPatch(typeof(Gameplay.Match.MatchState.SelectionState), nameof(Gameplay.Match.MatchState.SelectionState.Tick))]
+internal static class ManagedBotHunterConfirmationPatch
+{
+    [HarmonyPostfix]
+    private static void Postfix(Gameplay.Match.MatchState.SelectionState __instance)
+    {
+        LobbyTestBotRuntime.ConfirmManagedBotHunter(__instance);
+    }
+}
+
 [HarmonyPatch(typeof(Matchmaker), "OnStartMatchmaking")]
 internal static class MatchmakerOnStartMatchmakingPatch
 {

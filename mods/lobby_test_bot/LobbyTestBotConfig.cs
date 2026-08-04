@@ -22,6 +22,12 @@ internal enum DiagnosticGameMode
     Crown,
 }
 
+internal enum BotRolePreference
+{
+    Penguin,
+    HunterPriority,
+}
+
 internal sealed class LobbyTestBotConfig
 {
     private LobbyTestBotConfig(
@@ -37,6 +43,7 @@ internal sealed class LobbyTestBotConfig
         ConfigEntry<DiagnosticGameMode> autoStartGameMode,
         ConfigEntry<DiagnosticMap> autoStartMap,
         ConfigEntry<string> botNickname,
+        ConfigEntry<BotRolePreference> rolePreference,
         ConfigEntry<bool> enableLogging)
     {
         EnableMod = enableMod;
@@ -51,6 +58,7 @@ internal sealed class LobbyTestBotConfig
         AutoStartGameMode = autoStartGameMode;
         AutoStartMap = autoStartMap;
         BotNickname = botNickname;
+        RolePreference = rolePreference;
         EnableLogging = enableLogging;
     }
 
@@ -77,6 +85,8 @@ internal sealed class LobbyTestBotConfig
     public ConfigEntry<DiagnosticMap> AutoStartMap { get; }
 
     public ConfigEntry<string> BotNickname { get; }
+
+    public ConfigEntry<BotRolePreference> RolePreference { get; }
 
     public ConfigEntry<bool> EnableLogging { get; }
 
@@ -142,6 +152,11 @@ internal sealed class LobbyTestBotConfig
             "Nickname",
             "TEST BOT",
             "Nickname used for the managed lobby bot.");
+        var rolePreference = configFile.Bind(
+            "bot",
+            "RolePreference",
+            BotRolePreference.Penguin,
+            "Role requested through the portal control. HunterPriority makes this bot the first eligible hunter in Classic mode.");
         var enableLogging = configFile.Bind(
             "diagnostics",
             "EnableLogging",
@@ -161,6 +176,7 @@ internal sealed class LobbyTestBotConfig
             autoStartGameMode,
             autoStartMap,
             botNickname,
+            rolePreference,
             enableLogging);
     }
 }

@@ -93,6 +93,24 @@ RequireClose(releaseCandidates[0], 0.1f, "chair release first step changed");
 RequireClose(releaseCandidates[1], 0.2f, "chair release second step changed");
 RequireClose(releaseCandidates[2], 0.25f, "chair release maximum was exceeded");
 Require(!ChairReleasePolicy.CandidateDistances(float.NaN).Any(), "chair release accepted a non-finite maximum");
+Require(
+    ChairReleasePolicy.ShouldOverrideBlockedRelease(true, true, 7, 7, false, true),
+    "held chair remained blocked by the forward detector on release");
+Require(
+    !ChairReleasePolicy.ShouldOverrideBlockedRelease(false, true, 7, 7, false, true),
+    "valid stock throw was unnecessarily overridden");
+Require(
+    !ChairReleasePolicy.ShouldOverrideBlockedRelease(true, false, 7, 7, false, true),
+    "non-release input was converted into a throw");
+Require(
+    !ChairReleasePolicy.ShouldOverrideBlockedRelease(true, true, 8, 7, false, true),
+    "another player's held item was converted into a local throw");
+Require(
+    !ChairReleasePolicy.ShouldOverrideBlockedRelease(true, true, 7, 7, true, true),
+    "possessed chair action was replaced with a throw");
+Require(
+    !ChairReleasePolicy.ShouldOverrideBlockedRelease(true, true, 7, 7, false, false),
+    "unrelated stock None result was treated as a forward-detector block");
 Require(LockerBooPolicy.CanArmBoo(false), "closed locker no longer arms Boo on exit");
 Require(!LockerBooPolicy.CanArmBoo(true), "open locker still arms Boo on exit");
 

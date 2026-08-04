@@ -1,6 +1,6 @@
 {
   "name": "@chelokot/sneak-out-patches",
-  "version": "0.6.6",
+  "version": "0.6.7",
   "description": "Sneak Out reverse-engineering, patching, and runtime mod tooling.",
   "repository": {
     "type": "git",

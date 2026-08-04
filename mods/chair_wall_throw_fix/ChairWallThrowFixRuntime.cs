@@ -4,8 +4,11 @@ using Gameplay.Interactions;
 using Gameplay.Interactions.Tasks.PotTask;
 using Gameplay.Player.Components;
 using HarmonyLib;
+using Il2CppInterop.Runtime;
 using Types;
+using UI.Interactions;
 using UnityEngine;
+using SneakOutGame = Game.Game;
 
 namespace SneakOut.ChairWallThrowFix;
 
@@ -15,6 +18,8 @@ internal static class ChairWallThrowFixRuntime
     private static ChairWallThrowFixConfig? _configuration;
     private static Harmony? _harmony;
     private static bool _loggedFailure;
+    private static bool _frontBlockOverlaySuppressed;
+    private static readonly HashSet<string> LoggedPatchFailures = new(StringComparer.Ordinal);
 
     public static void Initialize(ManualLogSource logger, ChairWallThrowFixConfig configuration)
     {
@@ -22,6 +27,99 @@ internal static class ChairWallThrowFixRuntime
         _configuration = configuration;
         _harmony ??= new Harmony(ChairWallThrowFixPlugin.PluginGuid);
         _harmony.PatchAll();
+    }
+
+    [HarmonyPatch(typeof(Chair), nameof(Chair.GetInteraction))]
+    private static class ChairGetInteractionPatch
+    {
+        [HarmonyPostfix]
+        private static void Postfix(
+            Chair __instance,
+            int internalId,
+            InputActionType actionType,
+            ref InteractionType __result)
+        {
+            TryOverrideBlockedRelease(
+                __instance,
+                __instance._interactionTargets,
+                __instance.IsPossessed,
+                internalId,
+                actionType,
+                "chair",
+                ref __result);
+        }
+    }
+
+    [HarmonyPatch(typeof(Barrel), nameof(Barrel.GetInteraction))]
+    private static class BarrelGetInteractionPatch
+    {
+        [HarmonyPostfix]
+        private static void Postfix(
+            Barrel __instance,
+            int internalId,
+            InputActionType actionType,
+            ref InteractionType __result)
+        {
+            TryOverrideBlockedRelease(
+                __instance,
+                __instance._interactionTargets,
+                __instance.IsPossessed,
+                internalId,
+                actionType,
+                "barrel",
+                ref __result);
+        }
+    }
+
+    [HarmonyPatch(typeof(ChairInteractionView), nameof(ChairInteractionView.UpdateView))]
+    private static class ChairInteractionViewUpdatePatch
+    {
+        [HarmonyPostfix]
+        private static void Postfix(ChairInteractionView __instance, NetworkId interactableId)
+        {
+            if (_configuration?.EnableMod.Value != true)
+            {
+                _frontBlockOverlaySuppressed = false;
+                return;
+            }
+
+            try
+            {
+                var currentInteractable = __instance._currentInteractable;
+                var localInternalId = SneakOutGame.InternalId;
+                if (!__instance._isInputBlocked
+                    || localInternalId < 0
+                    || !IsHeldThrowableOwnedBy(currentInteractable, localInternalId))
+                {
+                    _frontBlockOverlaySuppressed = false;
+                    return;
+                }
+
+                // The stock view reads InteractionTargets.IsSomethingInFrontOfPlayer and turns
+                // this overlay on without consulting IsAvailableInteraction. Keep the shared
+                // detector intact for other mechanics and suppress only this held-item view.
+                __instance._isInputBlocked = false;
+                var blockImage = __instance._blockImage;
+                if (blockImage is not null && blockImage.gameObject.activeSelf)
+                {
+                    blockImage.gameObject.SetActive(false);
+                }
+
+                if (!_frontBlockOverlaySuppressed && _configuration.EnableLogging.Value)
+                {
+                    _logger?.LogInfo(
+                        $"Suppressed held-throwable front-obstacle overlay: "
+                        + $"interactable={interactableId}, player={localInternalId}.");
+                }
+
+                _frontBlockOverlaySuppressed = true;
+            }
+            catch (Exception exception)
+            {
+                _frontBlockOverlaySuppressed = false;
+                LogPatchFailureOnce("ChairInteractionView.UpdateView", exception);
+            }
+        }
     }
 
     [HarmonyPatch(typeof(Chair), nameof(Chair.IsAvailableInteraction))]
@@ -109,6 +207,82 @@ internal static class ChairWallThrowFixRuntime
                     _logger?.LogWarning($"Chair overlap correction failed; using the stock release position: {exception}");
                 }
             }
+        }
+    }
+
+    private static void TryOverrideBlockedRelease(
+        Interactable interactable,
+        Collections.InteractionTargets? interactionTargets,
+        bool isPossessed,
+        int internalId,
+        InputActionType actionType,
+        string kind,
+        ref InteractionType result)
+    {
+        if (_configuration?.EnableMod.Value != true)
+        {
+            return;
+        }
+
+        try
+        {
+            var isReleaseInput = actionType is InputActionType.ActionRelease
+                or InputActionType.ActionReleaseAfterHold;
+            var frontBlocked = interactionTargets is not null
+                && internalId >= 0
+                && interactionTargets[internalId].IsSomethingInFrontOfPlayer;
+            if (!ChairReleasePolicy.ShouldOverrideBlockedRelease(
+                    result == InteractionType.None,
+                    isReleaseInput,
+                    interactable.PlayerCurrentlyUsing,
+                    internalId,
+                    isPossessed,
+                    frontBlocked))
+            {
+                return;
+            }
+
+            result = InteractionType.Throw;
+            _logger?.LogInfo(
+                $"Overrode stock front-obstacle throw block: kind={kind}, "
+                + $"interactable={interactable.NetworkObjectId}, player={internalId}, action={actionType}.");
+        }
+        catch (Exception exception)
+        {
+            LogPatchFailureOnce($"{kind}.GetInteraction", exception);
+        }
+    }
+
+    private static bool IsHeldThrowableOwnedBy(Interactable? interactable, int localInternalId)
+    {
+        if (interactable is null)
+        {
+            return false;
+        }
+
+        if (interactable.TryCast<Chair>() is { } chair)
+        {
+            return chair.PlayerCurrentlyUsing == localInternalId && !chair.IsPossessed;
+        }
+
+        if (interactable.TryCast<Barrel>() is { } barrel)
+        {
+            return barrel.PlayerCurrentlyUsing == localInternalId && !barrel.IsPossessed;
+        }
+
+        if (interactable.TryCast<Ingredient>() is { } ingredient)
+        {
+            return ingredient.PlayerCurrentlyUsing == localInternalId;
+        }
+
+        return false;
+    }
+
+    private static void LogPatchFailureOnce(string stage, Exception exception)
+    {
+        if (LoggedPatchFailures.Add(stage))
+        {
+            _logger?.LogWarning($"{stage} patch failed; preserving stock behavior: {exception}");
         }
     }
 

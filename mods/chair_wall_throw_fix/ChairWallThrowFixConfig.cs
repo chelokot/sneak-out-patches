@@ -38,7 +38,7 @@ internal sealed class ChairWallThrowFixConfig
             "general",
             "EnableLogging",
             false,
-            "Log each corrected chair release position.");
+            "Log front-obstacle UI suppression and corrected release positions. Actual blocked throw overrides are always logged once per input attempt.");
 
         return new ChairWallThrowFixConfig(enableMod, maximumReleaseCorrection, enableLogging);
     }

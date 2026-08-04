@@ -11,6 +11,7 @@ using Il2CppTimeSpan = Il2CppSystem.TimeSpan;
 using Il2CppCollections = Il2CppSystem.Collections.Generic;
 using Il2CppTasks = Il2CppSystem.Threading.Tasks;
 using Il2CppNet = Il2CppSystem.Net;
+using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using System.Linq;
 using ClientCharacterType = Types.CharacterType;
 
@@ -28,6 +29,7 @@ internal static class UnlockEverythingStub
     private static readonly object Sync = new();
     private static readonly Il2CppCollections.Dictionary<string, string> Metadata = new();
     private static readonly Dictionary<int, SkinPartType> SkinPartTypeByProductId = new();
+    private static SkinPartProduct[] _cachedSkinPartProducts = Array.Empty<SkinPartProduct>();
 
     private static int _userId = 424242;
     private static string _authorizationToken = System.Guid.NewGuid().ToString("N");
@@ -1195,21 +1197,13 @@ internal static class UnlockEverythingStub
         lock (Sync)
         {
             products.SkinPartProducts ??= new Il2CppCollections.List<SkinPartProduct>();
-            products.UnPurchaseAbleSkinParts = new Il2CppCollections.List<SkinPart>();
-
-            // Product availability and ownership are intentionally different sets. Every
-            // concrete SkinPartType is a valid hidden/locked wardrobe product, even when it
-            // is absent from the currently loaded public sprite catalogs. Only player.Skins
-            // controls Owned/Equipped state; adding a product here must never grant it.
-            var purchasable = SkinPartCatalogPolicy
-                .AllConcreteEnumValues(SkinPartType.None)
-                .ToHashSet();
+            products.UnPurchaseAbleSkinParts ??= new Il2CppCollections.List<SkinPart>();
 
             var byType = new Dictionary<SkinPartType, SkinPartProduct>();
             foreach (var product in products.SkinPartProducts)
             {
                 var skinPartType = product?.Product?.SkinPartType ?? SkinPartType.None;
-                if (skinPartType == SkinPartType.None || !purchasable.Contains(skinPartType))
+                if (skinPartType == SkinPartType.None)
                 {
                     continue;
                 }
@@ -1219,7 +1213,32 @@ internal static class UnlockEverythingStub
                 SkinPartTypeByProductId[product.Id] = skinPartType;
             }
 
-            foreach (var skinPartType in purchasable.OrderBy(value => (int)value))
+            // The backend puts unreleased and otherwise non-purchasable cosmetics in a
+            // separate list. Promote those exact SkinPart records into the shop instead of
+            // inventing products for every enum member. The real records are important: the
+            // wardrobe can bind their actual ids and sprites, while enum-only products turn
+            // into blank cards and make every category rebuild unnecessarily expensive.
+            foreach (var skinPart in products.UnPurchaseAbleSkinParts)
+            {
+                var skinPartType = skinPart?.SkinPartType ?? SkinPartType.None;
+                if (skinPartType == SkinPartType.None || byType.ContainsKey(skinPartType))
+                {
+                    continue;
+                }
+
+                var productId = GetSkinPartProductId(skinPartType);
+                var product = new SkinPartProduct(productId, skinPart!, CreateSkinPartPrice());
+                products.SkinPartProducts.Add(product);
+                byType[skinPartType] = product;
+                SkinPartTypeByProductId[productId] = skinPartType;
+            }
+
+            products.UnPurchaseAbleSkinParts = new Il2CppCollections.List<SkinPart>();
+
+            // Keep product availability separate from ownership. Enum entries not advertised
+            // by the backend are the unreleased/hidden wardrobe pieces this mod intentionally
+            // exposes; adding a product here does not add it to player.Skins.
+            foreach (var skinPartType in SkinPartCatalogPolicy.AllConcreteEnumValues(SkinPartType.None))
             {
                 if (byType.ContainsKey(skinPartType))
                 {
@@ -1228,9 +1247,33 @@ internal static class UnlockEverythingStub
 
                 var productId = GetSkinPartProductId(skinPartType);
                 var skinPart = new SkinPart(GetSkinPartId(skinPartType), GetSkinTypeForSkinPart(skinPartType), skinPartType);
-                products.SkinPartProducts.Add(new SkinPartProduct(productId, skinPart, CreateSkinPartPrice()));
+                var product = new SkinPartProduct(productId, skinPart, CreateSkinPartPrice());
+                products.SkinPartProducts.Add(product);
+                byType[skinPartType] = product;
                 SkinPartTypeByProductId[productId] = skinPartType;
             }
+
+            _cachedSkinPartProducts = products.SkinPartProducts.ToArray();
+        }
+    }
+
+    public static void ApplySkinProductsToShop(Collections.SpookedShopNewMeta shop)
+    {
+        lock (Sync)
+        {
+            if (_cachedSkinPartProducts.Length == 0
+                || shop.SkinPartProducts?.Length == _cachedSkinPartProducts.Length)
+            {
+                return;
+            }
+
+            var products = new Il2CppReferenceArray<SkinPartProduct>(_cachedSkinPartProducts.Length);
+            for (var index = 0; index < _cachedSkinPartProducts.Length; index++)
+            {
+                products[index] = _cachedSkinPartProducts[index];
+            }
+
+            shop.SkinPartProducts = products;
         }
     }
 

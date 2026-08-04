@@ -41,6 +41,22 @@ internal static class PumpkinRadiusIndicatorFixRuntime
         {
             PrepareIndicatorsFailOpen(__instance);
         }
+
+        [HarmonyPostfix]
+        private static void Postfix(PumpkinBomb __instance, bool isSeeker)
+        {
+            try
+            {
+                if (_configuration?.EnableMod.Value == true && __instance._bombRange is not null)
+                {
+                    __instance._bombRange.SetActive(isSeeker && IsOwnedByLocalPlayer(__instance));
+                }
+            }
+            catch (Exception exception)
+            {
+                LogFailureOnce("Pumpkin owner-only trigger indicator failed", exception);
+            }
+        }
     }
 
     [HarmonyPatch(typeof(PumpkinBomb), "OnPumpkinBombExplodingEvent")]
@@ -58,16 +74,6 @@ internal static class PumpkinRadiusIndicatorFixRuntime
             }
 
             ShowExplosionIndicatorsFailOpen(__instance);
-        }
-    }
-
-    [HarmonyPatch(typeof(PumpkinBomb), nameof(PumpkinBomb.Hide))]
-    private static class PumpkinBombHidePatch
-    {
-        [HarmonyPostfix]
-        private static void Postfix(PumpkinBomb __instance)
-        {
-            HideExplosionIndicators(__instance);
         }
     }
 
@@ -101,6 +107,8 @@ internal static class PumpkinRadiusIndicatorFixRuntime
 
             RestartEffect(indicators.Kill);
             RestartEffect(indicators.Stun);
+            DetachAndExpire(indicators.Kill);
+            DetachAndExpire(indicators.Stun);
         }
         catch (Exception exception)
         {
@@ -140,6 +148,7 @@ internal static class PumpkinRadiusIndicatorFixRuntime
             return;
         }
 
+        var created = false;
         if (!ExplosionIndicatorsByPumpkin.TryGetValue(pumpkin.Pointer, out var indicators) || !indicators.IsAlive)
         {
             var kill = CloneRangeEffect(rangeObject, parent, "PumpkinKillRadius");
@@ -147,12 +156,16 @@ internal static class PumpkinRadiusIndicatorFixRuntime
             SetOpacity(stun, PumpkinIndicatorScalePolicy.StunIndicatorOpacity);
             indicators = new ExplosionIndicators(kill, stun);
             ExplosionIndicatorsByPumpkin[pumpkin.Pointer] = indicators;
+            created = true;
         }
 
         AlignScale(indicators.Kill.transform, parent, radii.Kill);
         AlignScale(indicators.Stun.transform, parent, radii.Stun);
-        indicators.Kill.SetActive(false);
-        indicators.Stun.SetActive(false);
+        if (created)
+        {
+            indicators.Kill.SetActive(false);
+            indicators.Stun.SetActive(false);
+        }
 
         if (_configuration.EnableLogging.Value)
         {
@@ -240,15 +253,27 @@ internal static class PumpkinRadiusIndicatorFixRuntime
         }
     }
 
-    private static void HideExplosionIndicators(PumpkinBomb pumpkin)
+    private static void DetachAndExpire(GameObject effect)
     {
-        if (pumpkin.Pointer != IntPtr.Zero
-            && ExplosionIndicatorsByPumpkin.TryGetValue(pumpkin.Pointer, out var indicators)
-            && indicators.IsAlive)
+        effect.transform.SetParent(null, true);
+        UnityEngine.Object.Destroy(effect, PumpkinIndicatorScalePolicy.ExplosionIndicatorDurationSeconds);
+    }
+
+    private static bool IsOwnedByLocalPlayer(PumpkinBomb pumpkin)
+    {
+        var player = pumpkin._networkPlayerRegistry?[pumpkin.InternalId];
+        return player is not null && player.HasInputAuthority;
+    }
+
+    private static void LogFailureOnce(string message, Exception exception)
+    {
+        if (_loggedFailure)
         {
-            indicators.Kill.SetActive(false);
-            indicators.Stun.SetActive(false);
+            return;
         }
+
+        _loggedFailure = true;
+        _logger?.LogWarning($"{message}; preserving the stock visual for this call: {exception}");
     }
 
     private sealed class ExplosionIndicators

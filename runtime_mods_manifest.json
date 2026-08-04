@@ -35,7 +35,7 @@
     "label": "Network Host Selector",
     "details": "Lets the party leader choose the actual Fusion match host before PLAY, but only after every real participant confirms the same mod protocol.",
     "category": "quality-of-life",
-    "default_enabled": true,
+    "default_enabled": false,
     "project_relative_path": "mods/network_host_selector/NetworkHostSelector.csproj",
     "assembly_name": "SneakOut.NetworkHostSelector",
     "config_relative_path": "BepInEx/config/chelokot.sneakout.network-host-selector.cfg",

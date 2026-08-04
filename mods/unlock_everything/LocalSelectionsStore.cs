@@ -8,6 +8,8 @@ namespace SneakOut.UnlockEverything;
 
 internal static class LocalSelectionsStore
 {
+    private sealed record AppliedGoldOverlay(int DisplayedGold, int ChargedPurchaseCount);
+
     private static readonly object Sync = new();
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -17,6 +19,8 @@ internal static class LocalSelectionsStore
     private static readonly string StoragePath = Path.Combine(Paths.ConfigPath, "chelokot.sneakout.persistent-selections.json");
 
     private static PersistedSelectionsRoot? _root;
+    private static IntPtr _appliedGoldPlayerPointer;
+    private static AppliedGoldOverlay? _appliedGoldOverlay;
 
     public static void Initialize()
     {
@@ -123,6 +127,24 @@ internal static class LocalSelectionsStore
         }
     }
 
+    public static void RecordPurchasedSkinPartBalance(WebPlayer player)
+    {
+        lock (Sync)
+        {
+            var profileSelections = GetExistingProfileSelections();
+            var gold = FindGold(player);
+            if (profileSelections is null || gold is null || player.Pointer == IntPtr.Zero)
+            {
+                return;
+            }
+
+            _appliedGoldPlayerPointer = player.Pointer;
+            _appliedGoldOverlay = new AppliedGoldOverlay(
+                gold.Quantity,
+                profileSelections.PurchasedSkinParts.Count);
+        }
+    }
+
     public static void ApplySelections(WebPlayer player)
     {
         lock (Sync)
@@ -133,6 +155,7 @@ internal static class LocalSelectionsStore
                 return;
             }
 
+            ApplyLocalPurchaseBalance(player, profileSelections);
             ApplyPurchasedSkinParts(player, profileSelections);
 
             foreach (var character in player.Characters ?? new Il2CppCollections.List<Character>())
@@ -152,6 +175,56 @@ internal static class LocalSelectionsStore
                 UnlockEverythingRuntime.LogSkinSelectionSnapshot("LocalSelectionsStore.ApplySelections:applied", character);
             }
         }
+    }
+
+    private static void ApplyLocalPurchaseBalance(WebPlayer player, PersistedProfileSelections profileSelections)
+    {
+        var gold = FindGold(player);
+        if (gold is null || player.Pointer == IntPtr.Zero)
+        {
+            return;
+        }
+
+        var purchaseCount = profileSelections.PurchasedSkinParts.Count;
+        if (_appliedGoldPlayerPointer == player.Pointer
+            && _appliedGoldOverlay is { } previous
+            && gold.Quantity == previous.DisplayedGold)
+        {
+            var newlyUnchargedPurchases = Math.Max(0, purchaseCount - previous.ChargedPurchaseCount);
+            if (newlyUnchargedPurchases == 0)
+            {
+                return;
+            }
+
+            gold.Quantity = LocalSkinEconomy.DisplayedGold(gold.Quantity, newlyUnchargedPurchases);
+        }
+        else
+        {
+            // A new backend payload (or a refreshed value on the same wrapper) contains the
+            // authoritative balance. The durable local purchase ledger is layered over it.
+            gold.Quantity = LocalSkinEconomy.DisplayedGold(gold.Quantity, purchaseCount);
+        }
+
+        _appliedGoldPlayerPointer = player.Pointer;
+        _appliedGoldOverlay = new AppliedGoldOverlay(gold.Quantity, purchaseCount);
+    }
+
+    private static Resource? FindGold(WebPlayer player)
+    {
+        if (player.Resources?.Resources is null)
+        {
+            return null;
+        }
+
+        foreach (var resource in player.Resources.Resources)
+        {
+            if (resource is not null && resource.ResourceType == ResourceType.Gold)
+            {
+                return resource;
+            }
+        }
+
+        return null;
     }
 
     private static void ApplyPurchasedSkinParts(WebPlayer player, PersistedProfileSelections profileSelections)

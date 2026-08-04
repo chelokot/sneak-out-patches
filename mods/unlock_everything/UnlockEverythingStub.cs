@@ -22,7 +22,6 @@ internal static class UnlockEverythingStub
     private const int MaxExperienceAmount = 9_999_999;
     private const int MaxSkillTier = 5;
     private const int MaxSkillExperience = 9_999;
-    private const int SkinPartGoldPrice = 1_000;
     private const string CommunityEmail = "community@local";
     private const string CommunityServerName = "community-local";
 
@@ -1270,17 +1269,18 @@ internal static class UnlockEverythingStub
                 }
             }
 
-            if (gold is null || gold.Quantity < SkinPartGoldPrice)
+            if (gold is null || !LocalSkinEconomy.CanPurchase(gold.Quantity))
             {
                 return false;
             }
 
-            gold.Quantity -= SkinPartGoldPrice;
+            gold.Quantity -= LocalSkinEconomy.SkinPartGoldPrice;
             player.Skins.SkinParts.Add(new SkinPart(
                 GetSkinPartId(skinPartType),
                 GetSkinTypeForSkinPart(skinPartType),
                 skinPartType));
             LocalSelectionsStore.SavePurchasedSkinPart(skinPartType);
+            LocalSelectionsStore.RecordPurchasedSkinPartBalance(player);
             return true;
         }
     }
@@ -1296,7 +1296,7 @@ internal static class UnlockEverythingStub
     private static ProductPrice CreateSkinPartPrice()
     {
         return new ProductPrice(
-            new Resource(ResourceType.Gold, SkinPartGoldPrice),
+            new Resource(ResourceType.Gold, LocalSkinEconomy.SkinPartGoldPrice),
             new Resource(ResourceType.None, 0),
             new Resource(ResourceType.None, 0));
     }

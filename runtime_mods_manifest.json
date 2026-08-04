@@ -53,13 +53,35 @@
   {
     "option_id": "unlock-everything",
     "label": "Unlock Everything",
-    "details": "Provides profile unlocks, 1000-Gold local skin purchases, persisted selections, local-authority-only outfit sync, and a Left Alt alternate-active-perk hotkey.",
+    "details": "Provides profile unlocks, durable 1000-Gold local skin purchases, persisted selections, and local-authority-only outfit sync.",
     "category": "progression",
     "default_enabled": true,
     "project_relative_path": "mods/unlock_everything/UnlockEverything.csproj",
     "assembly_name": "SneakOut.UnlockEverything",
     "config_relative_path": "BepInEx/config/chelokot.sneakout.unlock-everything.cfg",
     "default_config_template_path": "config_templates/runtime_mods/unlock-everything.cfg"
+  },
+  {
+    "option_id": "alternate-skill-hotkey",
+    "label": "Alternate Skill Hotkey",
+    "details": "Maps Left Alt to the character's unequipped alternate active perk through the stock skill dispatch path.",
+    "category": "gameplay",
+    "default_enabled": false,
+    "project_relative_path": "mods/alternate_skill_hotkey/AlternateSkillHotkey.csproj",
+    "assembly_name": "SneakOut.AlternateSkillHotkey",
+    "config_relative_path": "BepInEx/config/chelokot.sneakout.alternate-skill-hotkey.cfg",
+    "default_config_template_path": "config_templates/runtime_mods/alternate-skill-hotkey.cfg"
+  },
+  {
+    "option_id": "prop-buff",
+    "label": "Prop Buff",
+    "details": "Allows slow stock-networked movement while disguised and cycles the active prop model with the mouse wheel without restarting the ability.",
+    "category": "gameplay",
+    "default_enabled": true,
+    "project_relative_path": "mods/prop_buff/PropBuff.csproj",
+    "assembly_name": "SneakOut.PropBuff",
+    "config_relative_path": "BepInEx/config/chelokot.sneakout.prop-buff.cfg",
+    "default_config_template_path": "config_templates/runtime_mods/prop-buff.cfg"
   },
   {
     "option_id": "start-delay-reducer",

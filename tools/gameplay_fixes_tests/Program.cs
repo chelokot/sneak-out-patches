@@ -72,8 +72,20 @@ Require(
     "authoritative server refresh did not preserve the local-only purchase debit");
 var completeSkinCatalog = SkinPartCatalogPolicy.AllConcreteEnumValues(TestSkinPart.None);
 Require(
-    completeSkinCatalog.SequenceEqual(new[] { TestSkinPart.VisibleHead, TestSkinPart.HiddenWhole }),
-    "skin product catalog omitted a declared hidden/locked enum value");
+    completeSkinCatalog.SequenceEqual(new[]
+    {
+        TestSkinPart.VisibleHead,
+        TestSkinPart.HiddenWhole,
+        TestSkinPart.RenderableBack,
+        TestSkinPart.EnumOnlyWithoutAsset
+    }),
+    "skin product catalog omitted a hidden enum item without a client-side asset");
+Require(
+    SkinPartCatalogPolicy.IsLocallyPurchasable(TestSkinPart.EnumOnlyWithoutAsset, TestSkinPart.None),
+    "hidden skin part was rejected by the local wardrobe purchase policy");
+Require(
+    !SkinPartCatalogPolicy.IsLocallyPurchasable(TestSkinPart.None, TestSkinPart.None),
+    "empty skin sentinel was exposed as a purchasable product");
 
 var releaseCandidates = ChairReleasePolicy.CandidateDistances(0.25f).ToArray();
 Require(releaseCandidates.Length == 3, "chair release search did not include its bounded final candidate");
@@ -258,5 +270,7 @@ internal enum TestSkinPart
 {
     None,
     VisibleHead,
-    HiddenWhole
+    HiddenWhole,
+    RenderableBack,
+    EnumOnlyWithoutAsset
 }

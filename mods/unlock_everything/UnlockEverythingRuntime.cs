@@ -44,6 +44,11 @@ internal static class UnlockEverythingRuntime
     public static bool UsePersistentSelections => _configuration is not null && _configuration.EnablePersistentSelections.Value;
     public static ClientCache? CurrentClientCache => _currentClientCache;
 
+    public static void LogOperational(string message)
+    {
+        _logger?.LogInfo(message);
+    }
+
     public static void ContinueOnMainThread(Il2CppTasks.Task task, Action continuation, string errorSource)
     {
         try

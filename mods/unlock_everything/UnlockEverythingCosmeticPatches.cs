@@ -6,20 +6,66 @@ using UI;
 using UI.Buttons;
 using UI.Views;
 using Gameplay.Spawn;
+using Scriptables;
 using Types.Structs;
+using UnityEngine;
 using ClientCharacterType = Types.CharacterType;
 using Il2CppTasks = Il2CppSystem.Threading.Tasks;
 
 namespace SneakOut.UnlockEverything;
 
-[HarmonyPatch(typeof(SpookedShopNewMeta), nameof(SpookedShopNewMeta.GetAllSkinTypeProducts))]
-internal static class SpookedShopNewMetaGetAllSkinTypeProductsPatch
+[HarmonyPatch(typeof(TypesUtils), nameof(TypesUtils.IsPurchasable), new[] { typeof(SkinPartType) })]
+internal static class TypesUtilsSkinPartIsPurchasablePatch
 {
-    private static void Prefix(SpookedShopNewMeta __instance)
+    private static void Postfix(SkinPartType skinPartType, ref bool __result)
     {
         if (UnlockEverythingRuntime.UseProfileOverlay)
         {
-            UnlockEverythingStub.ApplySkinProductsToShop(__instance);
+            __result = SkinPartCatalogPolicy.IsLocallyPurchasable(skinPartType, SkinPartType.None);
+        }
+    }
+}
+
+[HarmonyPatch(typeof(SpookedSkinSprites), nameof(SpookedSkinSprites.GetSprite))]
+internal static class SpookedSkinSpritesGetSpritePatch
+{
+    private static bool Prefix(SpookedSkinSprites __instance, SkinPartType skinPartyType, ref Sprite __result)
+    {
+        if (!UnlockEverythingRuntime.UseProfileOverlay
+            || __instance?._skinReference is null)
+        {
+            return true;
+        }
+
+        foreach (var reference in __instance._skinReference)
+        {
+            if (reference is not null
+                && reference.Pointer != IntPtr.Zero
+                && reference.SkinPartType == skinPartyType
+                && !string.IsNullOrWhiteSpace(reference.SpriteName))
+            {
+                return true;
+            }
+        }
+
+        // Synthetic hidden products legitimately have no atlas entry in this client build.
+        // The stock lookup logs an error and performs a costly failed atlas search for every
+        // such card. Its eventual result is null, so return that result immediately while
+        // keeping the product visible in the wardrobe.
+        __result = null!;
+        return false;
+    }
+}
+
+[HarmonyPatch(typeof(CustomizeCharacterNewMetaView), "ShowCostume")]
+internal static class CustomizeCharacterNewMetaViewShowCostumePatch
+{
+    private static void Prefix(CustomizeCharacterNewMetaView __instance)
+    {
+        var shop = __instance?._spookedShopNewMeta;
+        if (UnlockEverythingRuntime.UseProfileOverlay && shop is not null)
+        {
+            UnlockEverythingStub.ApplySkinProductsToShop(shop);
         }
     }
 }

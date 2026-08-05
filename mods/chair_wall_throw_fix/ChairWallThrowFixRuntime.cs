@@ -5,6 +5,7 @@ using Gameplay.Interactions.Tasks.PotTask;
 using Gameplay.Player.Components;
 using HarmonyLib;
 using Il2CppInterop.Runtime;
+using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using Types;
 using UI.Interactions;
 using UnityEngine;
@@ -15,7 +16,9 @@ namespace SneakOut.ChairWallThrowFix;
 internal static class ChairWallThrowFixRuntime
 {
     private const float SweepClearance = 0.03f;
-    private const float VerticalOverlapTolerance = 0.08f;
+    private const float SweepSampleInset = 0.8f;
+    private const int RaycastBufferSize = 32;
+    private static readonly Il2CppStructArray<RaycastHit> RaycastBuffer = new(RaycastBufferSize);
     private static ManualLogSource? _logger;
     private static ChairWallThrowFixConfig? _configuration;
     private static Harmony? _harmony;
@@ -306,7 +309,10 @@ internal static class ChairWallThrowFixRuntime
             return;
         }
 
-        ClampReleaseToNearSide(chair, chairCollider, chairTransform, registry, throwerTransform);
+        if (ClampReleaseToNearSide(chair, chairCollider, chairTransform, registry, throwerTransform))
+        {
+            return;
+        }
 
         var bounds = chairCollider.bounds;
         if (!HasBlockingOverlap(bounds.center, bounds.extents, chair, registry))
@@ -347,7 +353,7 @@ internal static class ChairWallThrowFixRuntime
         }
     }
 
-    private static void ClampReleaseToNearSide(
+    private static bool ClampReleaseToNearSide(
         Chair chair,
         Collider chairCollider,
         Transform chairTransform,
@@ -364,42 +370,71 @@ internal static class ChairWallThrowFixRuntime
         var desiredDistance = toDesired.magnitude;
         if (desiredDistance < 0.001f)
         {
-            return;
+            return false;
         }
 
         var direction = toDesired / desiredDistance;
         var projectedRadius = ProjectedRadius(halfExtents, orientation, direction);
-        var startBackoff = projectedRadius + SweepClearance;
-        var castStart = playerSideAnchor - direction * startBackoff;
-        var castDistance = desiredDistance + startBackoff;
-        var hits = Physics.BoxCastAll(
-            castStart,
-            halfExtents * 0.98f,
+        var lateral = new Vector3(-direction.z, 0f, direction.x);
+        var lateralRadius = ProjectedRadius(halfExtents, orientation, lateral) * SweepSampleInset;
+        var verticalRadius = halfExtents.y * SweepSampleInset;
+        var castDistance = desiredDistance + projectedRadius + SweepClearance;
+        var safeCenterDistance = desiredDistance;
+        var blockingHit = default(RaycastHit);
+        var foundBlockingHit = false;
+
+        FindNearestReleaseObstacle(
+            playerSideAnchor,
             direction,
-            orientation,
             castDistance,
-            Physics.AllLayers,
-            QueryTriggerInteraction.Ignore);
+            projectedRadius,
+            chair,
+            registry,
+            ref safeCenterDistance,
+            ref blockingHit,
+            ref foundBlockingHit);
+        FindNearestReleaseObstacle(
+            playerSideAnchor + lateral * lateralRadius,
+            direction,
+            castDistance,
+            projectedRadius,
+            chair,
+            registry,
+            ref safeCenterDistance,
+            ref blockingHit,
+            ref foundBlockingHit);
+        FindNearestReleaseObstacle(
+            playerSideAnchor - lateral * lateralRadius,
+            direction,
+            castDistance,
+            projectedRadius,
+            chair,
+            registry,
+            ref safeCenterDistance,
+            ref blockingHit,
+            ref foundBlockingHit);
+        FindNearestReleaseObstacle(
+            playerSideAnchor + Vector3.up * verticalRadius,
+            direction,
+            castDistance,
+            projectedRadius,
+            chair,
+            registry,
+            ref safeCenterDistance,
+            ref blockingHit,
+            ref foundBlockingHit);
+        FindNearestReleaseObstacle(
+            playerSideAnchor - Vector3.up * verticalRadius,
+            direction,
+            castDistance,
+            projectedRadius,
+            chair,
+            registry,
+            ref safeCenterDistance,
+            ref blockingHit,
+            ref foundBlockingHit);
 
-        RaycastHit? firstBlockingHit = null;
-        for (var index = 0; index < hits.Length; index++)
-        {
-            var hit = hits[index];
-            var candidate = hit.collider;
-            if (candidate is null
-                || IsIgnoredCollider(candidate, chair, registry)
-                || !OverlapsChairVertically(candidate.bounds, desiredCenter, halfExtents))
-            {
-                continue;
-            }
-
-            if (firstBlockingHit is null || hit.distance < firstBlockingHit.Value.distance)
-            {
-                firstBlockingHit = hit;
-            }
-        }
-
-        if (firstBlockingHit is not { } blockingHit)
+        if (!foundBlockingHit || safeCenterDistance >= desiredDistance)
         {
             if (_configuration?.EnableLogging.Value == true)
             {
@@ -408,11 +443,10 @@ internal static class ChairWallThrowFixRuntime
                     + $"player={chair.PlayerCurrentlyUsing}, distance={desiredDistance:0.000}m.");
             }
 
-            return;
+            return false;
         }
 
-        var safeCastDistance = ChairReleasePolicy.SafeTravelDistance(blockingHit.distance, SweepClearance);
-        var safeCenter = castStart + direction * safeCastDistance;
+        var safeCenter = playerSideAnchor + direction * safeCenterDistance;
         var offset = safeCenter - desiredCenter;
         chairTransform.position += offset;
         Physics.SyncTransforms();
@@ -422,6 +456,49 @@ internal static class ChairWallThrowFixRuntime
             + $"player={chair.PlayerCurrentlyUsing}, obstacle={blockingHit.collider?.name ?? "<unknown>"}, "
             + $"desired={desiredDistance:0.000}m, hit={blockingHit.distance:0.000}m, "
             + $"moved={offset.magnitude:0.000}m.");
+        return true;
+    }
+
+    private static void FindNearestReleaseObstacle(
+        Vector3 origin,
+        Vector3 direction,
+        float castDistance,
+        float projectedRadius,
+        Chair chair,
+        NetworkPlayerRegistry registry,
+        ref float safeCenterDistance,
+        ref RaycastHit blockingHit,
+        ref bool foundBlockingHit)
+    {
+        var hitCount = Physics.RaycastNonAlloc(
+            origin,
+            direction,
+            RaycastBuffer,
+            castDistance,
+            Physics.AllLayers,
+            QueryTriggerInteraction.Ignore);
+        for (var index = 0; index < hitCount; index++)
+        {
+            var hit = RaycastBuffer[index];
+            var candidate = hit.collider;
+            if (candidate is null || IsIgnoredCollider(candidate, chair, registry))
+            {
+                continue;
+            }
+
+            var candidateSafeDistance = ChairReleasePolicy.SafeCenterDistance(
+                hit.distance,
+                projectedRadius,
+                SweepClearance);
+            if (foundBlockingHit && candidateSafeDistance >= safeCenterDistance)
+            {
+                continue;
+            }
+
+            safeCenterDistance = candidateSafeDistance;
+            blockingHit = hit;
+            foundBlockingHit = true;
+        }
     }
 
     private static void GetSweepBox(
@@ -452,14 +529,6 @@ internal static class ChairWallThrowFixRuntime
         return Mathf.Abs(Vector3.Dot(direction, orientation * Vector3.right)) * halfExtents.x
             + Mathf.Abs(Vector3.Dot(direction, orientation * Vector3.up)) * halfExtents.y
             + Mathf.Abs(Vector3.Dot(direction, orientation * Vector3.forward)) * halfExtents.z;
-    }
-
-    private static bool OverlapsChairVertically(Bounds candidate, Vector3 chairCenter, Vector3 chairHalfExtents)
-    {
-        var chairMinY = chairCenter.y - chairHalfExtents.y;
-        var chairMaxY = chairCenter.y + chairHalfExtents.y;
-        return candidate.max.y > chairMinY + VerticalOverlapTolerance
-            && candidate.min.y < chairMaxY - VerticalOverlapTolerance;
     }
 
     private static bool HasBlockingOverlap(

@@ -4,14 +4,18 @@ internal static class ChairReleasePolicy
 {
     internal const float SearchStep = 0.1f;
 
-    public static float SafeTravelDistance(float hitDistance, float clearance)
+    public static float SafeCenterDistance(float hitDistance, float projectedRadius, float clearance)
     {
-        if (!float.IsFinite(hitDistance) || !float.IsFinite(clearance))
+        if (!float.IsFinite(hitDistance)
+            || !float.IsFinite(projectedRadius)
+            || !float.IsFinite(clearance))
         {
             return 0f;
         }
 
-        return MathF.Max(0f, hitDistance - MathF.Max(0f, clearance));
+        return MathF.Max(
+            0f,
+            hitDistance - MathF.Max(0f, projectedRadius) - MathF.Max(0f, clearance));
     }
 
     public static bool ShouldOverrideBlockedRelease(

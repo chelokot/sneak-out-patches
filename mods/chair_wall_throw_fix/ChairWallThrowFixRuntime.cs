@@ -14,6 +14,8 @@ namespace SneakOut.ChairWallThrowFix;
 
 internal static class ChairWallThrowFixRuntime
 {
+    private const float SweepClearance = 0.03f;
+    private const float VerticalOverlapTolerance = 0.08f;
     private static ManualLogSource? _logger;
     private static ChairWallThrowFixConfig? _configuration;
     private static Harmony? _harmony;
@@ -304,6 +306,8 @@ internal static class ChairWallThrowFixRuntime
             return;
         }
 
+        ClampReleaseToNearSide(chair, chairCollider, chairTransform, registry, throwerTransform);
+
         var bounds = chairCollider.bounds;
         if (!HasBlockingOverlap(bounds.center, bounds.extents, chair, registry))
         {
@@ -341,6 +345,121 @@ internal static class ChairWallThrowFixRuntime
 
             return;
         }
+    }
+
+    private static void ClampReleaseToNearSide(
+        Chair chair,
+        Collider chairCollider,
+        Transform chairTransform,
+        NetworkPlayerRegistry registry,
+        Transform throwerTransform)
+    {
+        Physics.SyncTransforms();
+        GetSweepBox(chairCollider, out var desiredCenter, out var halfExtents, out var orientation);
+
+        var playerSideAnchor = throwerTransform.position;
+        playerSideAnchor.y = desiredCenter.y;
+        var toDesired = desiredCenter - playerSideAnchor;
+        toDesired.y = 0f;
+        var desiredDistance = toDesired.magnitude;
+        if (desiredDistance < 0.001f)
+        {
+            return;
+        }
+
+        var direction = toDesired / desiredDistance;
+        var projectedRadius = ProjectedRadius(halfExtents, orientation, direction);
+        var startBackoff = projectedRadius + SweepClearance;
+        var castStart = playerSideAnchor - direction * startBackoff;
+        var castDistance = desiredDistance + startBackoff;
+        var hits = Physics.BoxCastAll(
+            castStart,
+            halfExtents * 0.98f,
+            direction,
+            orientation,
+            castDistance,
+            Physics.AllLayers,
+            QueryTriggerInteraction.Ignore);
+
+        RaycastHit? firstBlockingHit = null;
+        for (var index = 0; index < hits.Length; index++)
+        {
+            var hit = hits[index];
+            var candidate = hit.collider;
+            if (candidate is null
+                || IsIgnoredCollider(candidate, chair, registry)
+                || !OverlapsChairVertically(candidate.bounds, desiredCenter, halfExtents))
+            {
+                continue;
+            }
+
+            if (firstBlockingHit is null || hit.distance < firstBlockingHit.Value.distance)
+            {
+                firstBlockingHit = hit;
+            }
+        }
+
+        if (firstBlockingHit is not { } blockingHit)
+        {
+            if (_configuration?.EnableLogging.Value == true)
+            {
+                _logger?.LogInfo(
+                    $"Chair release sweep clear: chair={chair.NetworkObjectId}, "
+                    + $"player={chair.PlayerCurrentlyUsing}, distance={desiredDistance:0.000}m.");
+            }
+
+            return;
+        }
+
+        var safeCastDistance = ChairReleasePolicy.SafeTravelDistance(blockingHit.distance, SweepClearance);
+        var safeCenter = castStart + direction * safeCastDistance;
+        var offset = safeCenter - desiredCenter;
+        chairTransform.position += offset;
+        Physics.SyncTransforms();
+
+        _logger?.LogInfo(
+            $"Clamped chair release to player side: chair={chair.NetworkObjectId}, "
+            + $"player={chair.PlayerCurrentlyUsing}, obstacle={blockingHit.collider?.name ?? "<unknown>"}, "
+            + $"desired={desiredDistance:0.000}m, hit={blockingHit.distance:0.000}m, "
+            + $"moved={offset.magnitude:0.000}m.");
+    }
+
+    private static void GetSweepBox(
+        Collider chairCollider,
+        out Vector3 center,
+        out Vector3 halfExtents,
+        out Quaternion orientation)
+    {
+        if (chairCollider.TryCast<BoxCollider>() is { } boxCollider)
+        {
+            var scale = boxCollider.transform.lossyScale;
+            center = boxCollider.transform.TransformPoint(boxCollider.center);
+            halfExtents = Vector3.Scale(
+                boxCollider.size * 0.5f,
+                new Vector3(Mathf.Abs(scale.x), Mathf.Abs(scale.y), Mathf.Abs(scale.z)));
+            orientation = boxCollider.transform.rotation;
+            return;
+        }
+
+        var bounds = chairCollider.bounds;
+        center = bounds.center;
+        halfExtents = bounds.extents;
+        orientation = Quaternion.identity;
+    }
+
+    private static float ProjectedRadius(Vector3 halfExtents, Quaternion orientation, Vector3 direction)
+    {
+        return Mathf.Abs(Vector3.Dot(direction, orientation * Vector3.right)) * halfExtents.x
+            + Mathf.Abs(Vector3.Dot(direction, orientation * Vector3.up)) * halfExtents.y
+            + Mathf.Abs(Vector3.Dot(direction, orientation * Vector3.forward)) * halfExtents.z;
+    }
+
+    private static bool OverlapsChairVertically(Bounds candidate, Vector3 chairCenter, Vector3 chairHalfExtents)
+    {
+        var chairMinY = chairCenter.y - chairHalfExtents.y;
+        var chairMaxY = chairCenter.y + chairHalfExtents.y;
+        return candidate.max.y > chairMinY + VerticalOverlapTolerance
+            && candidate.min.y < chairMaxY - VerticalOverlapTolerance;
     }
 
     private static bool HasBlockingOverlap(

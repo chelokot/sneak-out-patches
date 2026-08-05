@@ -93,6 +93,18 @@ RequireClose(releaseCandidates[0], 0.1f, "chair release first step changed");
 RequireClose(releaseCandidates[1], 0.2f, "chair release second step changed");
 RequireClose(releaseCandidates[2], 0.25f, "chair release maximum was exceeded");
 Require(!ChairReleasePolicy.CandidateDistances(float.NaN).Any(), "chair release accepted a non-finite maximum");
+RequireClose(
+    ChairReleasePolicy.SafeTravelDistance(1.25f, 0.03f),
+    1.22f,
+    "chair sweep did not stop before the first wall contact");
+RequireClose(
+    ChairReleasePolicy.SafeTravelDistance(0.01f, 0.03f),
+    0f,
+    "chair sweep moved through a wall closer than its clearance");
+RequireClose(
+    ChairReleasePolicy.SafeTravelDistance(float.NaN, 0.03f),
+    0f,
+    "chair sweep accepted a non-finite hit distance");
 Require(
     ChairReleasePolicy.ShouldOverrideBlockedRelease(true, true, 7, 7, false, true),
     "held chair remained blocked by the forward detector on release");

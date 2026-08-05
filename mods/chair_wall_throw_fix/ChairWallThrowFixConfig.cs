@@ -26,13 +26,13 @@ internal sealed class ChairWallThrowFixConfig
             "general",
             "EnableMod",
             true,
-            "Let a held chair leave the player's hands when its release position slightly overlaps level geometry.");
+            "Let held throwables be released beside obstacles and clamp chairs to the player's side of intervening walls.");
         var maximumReleaseCorrection = configFile.Bind(
             "general",
             "MaximumReleaseCorrection",
             0.65f,
             new ConfigDescription(
-                "Maximum distance in metres that an overlapping held chair may be moved back toward its thrower before the stock throw runs.",
+                "Maximum fallback correction in metres for a chair that still overlaps geometry after its swept release clamp.",
                 new AcceptableValueRange<float>(0.1f, 1f)));
         var enableLogging = configFile.Bind(
             "general",

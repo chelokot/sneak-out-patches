@@ -12,14 +12,19 @@ internal static class VoiceSessionResolver
     private static Type? _sessionInfoType;
     private static PropertyInfo? _sessionNameProperty;
 
-    public static bool TryGetSessionName(SpookedNetworkPlayer localPlayer, out string sessionName)
+    public static bool TryGetSessionName(
+        SpookedNetworkPlayer localPlayer,
+        out string sessionName,
+        out string failureReason)
     {
         sessionName = string.Empty;
+        failureReason = string.Empty;
         try
         {
             NetworkRunner runner = localPlayer.Runner;
             if (runner is null || runner.Pointer == IntPtr.Zero)
             {
+                failureReason = "Fusion runner is not available";
                 return false;
             }
 
@@ -35,6 +40,7 @@ internal static class VoiceSessionResolver
             var sessionInfo = _sessionInfoProperty?.GetValue(runner);
             if (sessionInfo is null)
             {
+                failureReason = "Fusion SessionInfo is not available";
                 return false;
             }
             if (_sessionInfoType != sessionInfo.GetType())
@@ -43,11 +49,17 @@ internal static class VoiceSessionResolver
                 _sessionNameProperty = AccessTools.Property(_sessionInfoType, "Name");
             }
             sessionName = _sessionNameProperty?.GetValue(sessionInfo)?.ToString() ?? string.Empty;
-            return !string.IsNullOrWhiteSpace(sessionName);
+            if (string.IsNullOrWhiteSpace(sessionName))
+            {
+                failureReason = "Fusion session name is empty";
+                return false;
+            }
+            return true;
         }
-        catch
+        catch (Exception exception)
         {
             sessionName = string.Empty;
+            failureReason = $"Fusion session lookup failed: {exception.GetType().Name}";
             return false;
         }
     }

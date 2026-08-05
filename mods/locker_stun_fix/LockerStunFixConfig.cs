@@ -26,8 +26,8 @@ internal sealed class LockerStunFixConfig
         var enableLogging = configFile.Bind(
             "general",
             "EnableLogging",
-            false,
-            "Log seeker-opened locker tracking and suppressed locker stuns.");
+            true,
+            "Log locker opener attribution and every Boo allow/suppress decision without player audio or other payload data.");
 
         return new LockerStunFixConfig(enableMod, enableLogging);
     }

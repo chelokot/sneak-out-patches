@@ -97,7 +97,7 @@
   {
     "option_id": "locker-stun-fix",
     "label": "Locker Stun Fix",
-    "details": "Allows Boo only for exits begun from a closed locker; an already-open locker neither stuns the hunter nor consumes Boo cooldown.",
+    "details": "Preserves Boo for a penguin's own locker exit, but suppresses stun and cooldown when another player opened the occupied locker first.",
     "category": "gameplay",
     "default_enabled": true,
     "project_relative_path": "mods/locker_stun_fix/LockerStunFix.csproj",

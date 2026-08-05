@@ -65,6 +65,11 @@ count, memory, and expiry limits before reassembly.
 Transport uses a dedicated P2P channel and closes only that channel during teardown; it never
 closes another mod's or the game's whole Steam peer session.
 
+The initial `Hello` uses Steam's connection-establishing unreliable mode, which may queue that
+small control packet while NAT traversal or relay negotiation completes. Encoded speech switches
+to no-delay unreliable delivery only after the authenticated handshake, so stale voice is dropped
+instead of accumulating latency. Teardown remains reliable.
+
 Each remote speaker owns:
 
 - an adaptive packet-jitter buffer based on arrival/capture delta variation
@@ -79,6 +84,18 @@ The implementation prefers dropping stale speech and resynchronizing over accumu
 latency. All packet, fragment, PCM, and per-tick decode work is bounded.
 Per-peer packet and byte budgets prevent a malformed client from monopolizing the Unity update
 loop or growing unbounded receive state.
+
+## Runtime diagnostics
+
+Normal logs contain deduplicated state transitions for Steam initialization, local Fusion player
+discovery, room discovery, peer discovery, P2P handshake, microphone capture, first transmission,
+and first playback. An eight-second handshake timeout includes Steam's active/connecting/accepted,
+relay, error, and queued-packet state. A capture timeout distinguishes a working voice route from a
+microphone that returns no encoded frames. Rejected packets log one bounded reason per peer and
+session; encoded audio and microphone samples are never logged.
+
+`Diagnostics.EnableLogging` adds verbose UI/capture details but is not required for the lifecycle
+and failure-boundary messages needed in a bug report.
 
 ## Compatibility state
 

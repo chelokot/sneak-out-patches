@@ -1,14 +1,13 @@
 using BepInEx.Logging;
 using Gameplay.Interactions;
 using HarmonyLib;
+using Kinguinverse.WebServiceProvider.Types_v2;
 
 namespace SneakOut.LockerStunFix;
 
 internal static class LockerStunFixRuntime
 {
-    private readonly record struct ExitState(int PlayerId, bool BooAllowed);
-
-    private static readonly Dictionary<IntPtr, ExitState> PendingExits = new();
+    private static readonly LockerBooPolicy<IntPtr> Policy = new();
 
     private static ManualLogSource? _logger;
     private static Harmony? _harmony;
@@ -22,7 +21,7 @@ internal static class LockerStunFixRuntime
         _harmony.PatchAll();
     }
 
-    public static void BeginExit(Locker locker, int playerId)
+    public static void ObserveOpen(Locker locker, int openerPlayerId, string source)
     {
         if (_configuration?.EnableMod.Value != true
             || locker.Pointer == IntPtr.Zero)
@@ -30,11 +29,30 @@ internal static class LockerStunFixRuntime
             return;
         }
 
-        // Capture the state before ComeOut's iterator opens the locker. By the time
-        // HandleBooSkill runs, vanilla has already set IsOpen=true for both paths.
-        var booAllowed = LockerBooPolicy.CanArmBoo(locker.IsOpen);
-        PendingExits[locker.Pointer] = new ExitState(playerId, booAllowed);
-        LogInfo($"Locker exit 0x{locker.Pointer:X} for player {playerId}: closedAtStart={!locker.IsOpen}, booAllowed={booAllowed}");
+        var occupantPlayerId = locker.PlayerCurrentlyUsing;
+        var observation = Policy.ObserveOpen(
+            locker.Pointer,
+            openerPlayerId,
+            occupantPlayerId,
+            locker.IsOpen,
+            locker._duringInteraction,
+            source);
+
+        if (observation is LockerOpenObservation.RecordedExternalOpener
+            or LockerOpenObservation.RefreshedExternalOpener)
+        {
+            LogInfo(
+                $"open-observed locker=0x{locker.Pointer:X} source={source} opener={openerPlayerId} "
+                + $"occupant={occupantPlayerId} isOpen={locker.IsOpen} duringInteraction={locker._duringInteraction} "
+                + $"result={observation}");
+        }
+        else
+        {
+            LogTrace(
+                $"open-ignored locker=0x{locker.Pointer:X} source={source} opener={openerPlayerId} "
+                + $"occupant={occupantPlayerId} isOpen={locker.IsOpen} duringInteraction={locker._duringInteraction} "
+                + $"result={observation}");
+        }
     }
 
     public static bool ShouldApplyLockerStun(Locker locker, int playerId)
@@ -44,33 +62,63 @@ internal static class LockerStunFixRuntime
             return true;
         }
 
-        if (!PendingExits.Remove(locker.Pointer, out var exitState)
-            || exitState.PlayerId != playerId)
+        var decision = Policy.ConsumeForExit(locker.Pointer, playerId, out var externalOpen);
+        var hasBoo = TryGetBooEquipped(locker, playerId, out var equipped) ? equipped.ToString() : "unknown";
+
+        if (decision == LockerBooDecision.SuppressExternalOpen)
         {
-            // Boo is allowed only for an exit that was positively observed to start
-            // from a closed locker. Unknown/stale calls fail closed and therefore do
-            // not consume the skill cooldown either.
-            LogInfo($"Suppressed locker stun for player {playerId}: no matching closed-locker exit");
+            LogInfo(
+                $"boo-decision locker=0x{locker.Pointer:X} exitingPlayer={playerId} hasBoo={hasBoo} "
+                + $"decision=suppress reason=external-opener opener={externalOpen.OpenerPlayerId} source={externalOpen.Source}; "
+                + "vanilla handler and cooldown consumption skipped");
             return false;
         }
 
-        if (!exitState.BooAllowed)
-        {
-            LogInfo($"Suppressed locker stun for player {playerId}: locker 0x{locker.Pointer:X} was already open when exit began");
-        }
+        var reason = decision == LockerBooDecision.AllowVanillaDifferentOccupant
+            ? $"marker-for-other-occupant:{externalOpen.OccupantPlayerId}"
+            : "no-external-opener";
+        LogInfo(
+            $"boo-decision locker=0x{locker.Pointer:X} exitingPlayer={playerId} hasBoo={hasBoo} "
+            + $"decision=allow-vanilla reason={reason}");
 
-        return exitState.BooAllowed;
+        return true;
     }
 
-    public static void ClearCycle(Locker locker)
+    public static void ClearCycle(Locker locker, string source)
     {
-        if (locker.Pointer != IntPtr.Zero)
+        if (locker.Pointer != IntPtr.Zero && Policy.Clear(locker.Pointer))
         {
-            PendingExits.Remove(locker.Pointer);
+            LogTrace($"cycle-cleared locker=0x{locker.Pointer:X} source={source}");
+        }
+    }
+
+    private static bool TryGetBooEquipped(Locker locker, int playerId, out bool equipped)
+    {
+        equipped = false;
+        try
+        {
+            var skills = locker._playersActiveSkills;
+            if (skills is null || skills.Pointer == IntPtr.Zero)
+            {
+                return false;
+            }
+
+            equipped = skills.HaveSkillEquipped(playerId, SkillType.PenguinBoo, Types.CharacterType.victim_penguin);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            LogTrace($"boo-equipment-unavailable player={playerId} error={exception.GetType().Name}");
+            return false;
         }
     }
 
     private static void LogInfo(string message)
+    {
+        _logger?.LogInfo(message);
+    }
+
+    private static void LogTrace(string message)
     {
         if (_configuration?.EnableLogging.Value == true)
         {

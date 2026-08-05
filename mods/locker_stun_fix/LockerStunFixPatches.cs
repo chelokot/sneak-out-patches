@@ -3,12 +3,30 @@ using HarmonyLib;
 
 namespace SneakOut.LockerStunFix;
 
-[HarmonyPatch(typeof(Locker), nameof(Locker.ComeOut))]
-internal static class LockerComeOutPatch
+[HarmonyPatch(typeof(Locker), nameof(Locker.TryToOpen))]
+internal static class LockerTryToOpenPatch
 {
     private static void Prefix(Locker __instance, int playerId)
     {
-        LockerStunFixRuntime.BeginExit(__instance, playerId);
+        LockerStunFixRuntime.ObserveOpen(__instance, playerId, nameof(Locker.TryToOpen));
+    }
+}
+
+[HarmonyPatch(typeof(Locker), nameof(Locker.Open))]
+internal static class LockerOpenPatch
+{
+    private static void Prefix(Locker __instance, int playerId)
+    {
+        LockerStunFixRuntime.ObserveOpen(__instance, playerId, nameof(Locker.Open));
+    }
+}
+
+[HarmonyPatch(typeof(Locker), nameof(Locker.Close))]
+internal static class LockerClosePatch
+{
+    private static void Prefix(Locker __instance)
+    {
+        LockerStunFixRuntime.ClearCycle(__instance, nameof(Locker.Close));
     }
 }
 
@@ -26,7 +44,7 @@ internal static class LockerHidePatch
 {
     private static void Prefix(Locker __instance)
     {
-        LockerStunFixRuntime.ClearCycle(__instance);
+        LockerStunFixRuntime.ClearCycle(__instance, nameof(Locker.Hide));
     }
 }
 
@@ -35,6 +53,6 @@ internal static class LockerHideFastPatch
 {
     private static void Prefix(Locker __instance)
     {
-        LockerStunFixRuntime.ClearCycle(__instance);
+        LockerStunFixRuntime.ClearCycle(__instance, nameof(Locker.HideFast));
     }
 }

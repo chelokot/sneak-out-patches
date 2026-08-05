@@ -8,7 +8,7 @@ public sealed class ProximityVoiceChatPlugin : BasePlugin
 {
     public const string PluginGuid = "chelokot.sneakout.proximity-voice-chat";
     public const string PluginName = "Proximity Voice Chat";
-    public const string PluginVersion = "0.1.2";
+    public const string PluginVersion = "0.1.3";
 
     public override void Load()
     {

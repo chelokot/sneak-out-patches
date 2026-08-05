@@ -1,4 +1,5 @@
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
+using BepInEx.Logging;
 using Steamworks;
 
 namespace SneakOut.ProximityVoiceChat;
@@ -12,11 +13,20 @@ internal sealed class SteamVoiceCapture : IDisposable
 
     private readonly Il2CppStructArray<byte> _compressedBuffer = new(MaximumCompressedBytes);
     private readonly Il2CppStructArray<byte> _pcmBuffer = new(MaximumPcmBytes);
+    private readonly ManualLogSource _logger;
+    private readonly bool _loggingEnabled;
     private Il2CppStructArray<byte>? _discardBuffer;
     private bool _recording;
+    private bool _loggedFirstFrame;
+    private bool _receivedFrameThisRecording;
+    private EVoiceResult? _lastAvailabilityResult;
+    private long _recordingStartedAtMilliseconds;
+    private bool _warnedNoFrames;
 
-    public SteamVoiceCapture()
+    public SteamVoiceCapture(ManualLogSource logger, bool loggingEnabled)
     {
+        _logger = logger;
+        _loggingEnabled = loggingEnabled;
         var requestedRate = SteamUser.GetVoiceOptimalSampleRate();
         SampleRate = requestedRate is 11025 or 22050 or 44100 or 48000
             ? requestedRate
@@ -35,11 +45,20 @@ internal sealed class SteamVoiceCapture : IDisposable
         if (shouldRecord)
         {
             SteamUser.StartVoiceRecording();
+            _lastAvailabilityResult = null;
+            _recordingStartedAtMilliseconds = Environment.TickCount64;
+            _warnedNoFrames = false;
+            _receivedFrameThisRecording = false;
+            _logger.LogInfo($"Proximity voice microphone capture started: sampleRate={SampleRate}");
         }
         else
         {
             SteamUser.StopVoiceRecording();
             DiscardPendingVoice();
+            if (_loggingEnabled)
+            {
+                _logger.LogInfo("Proximity voice microphone capture stopped");
+            }
         }
         _recording = shouldRecord;
     }
@@ -53,8 +72,10 @@ internal sealed class SteamVoiceCapture : IDisposable
         }
 
         var availableResult = SteamUser.GetAvailableVoice(out var availableCompressedBytes);
+        ReportAvailabilityResult(availableResult, availableCompressedBytes);
         if (availableResult != EVoiceResult.k_EVoiceResultOK || availableCompressedBytes == 0)
         {
+            ReportCaptureStall(availableResult, availableCompressedBytes);
             return false;
         }
         if (availableCompressedBytes > MaximumCompressedBytes)
@@ -82,7 +103,47 @@ internal sealed class SteamVoiceCapture : IDisposable
 
         var rootMeanSquare = analyzeLevel ? CalculateRootMeanSquare(encoded) : 1f;
         frame = new CapturedVoiceFrame(encoded, rootMeanSquare);
+        _receivedFrameThisRecording = true;
+        if (!_loggedFirstFrame)
+        {
+            _loggedFirstFrame = true;
+            _logger.LogInfo($"Proximity voice captured first encoded frame: bytes={encoded.Length}");
+        }
         return true;
+    }
+
+    private void ReportCaptureStall(EVoiceResult result, uint availableBytes)
+    {
+        if (_warnedNoFrames
+            || _receivedFrameThisRecording
+            || Environment.TickCount64 - _recordingStartedAtMilliseconds < 3000)
+        {
+            return;
+        }
+        _warnedNoFrames = true;
+        _logger.LogWarning(
+            $"Proximity voice capture produced no encoded frames after 3s: "
+            + $"result={result}, availableBytes={availableBytes}. Check the Steam microphone input.");
+    }
+
+    private void ReportAvailabilityResult(EVoiceResult result, uint availableBytes)
+    {
+        if (_lastAvailabilityResult == result)
+        {
+            return;
+        }
+        _lastAvailabilityResult = result;
+        if (result is EVoiceResult.k_EVoiceResultOK or EVoiceResult.k_EVoiceResultNoData)
+        {
+            if (_loggingEnabled)
+            {
+                _logger.LogInfo(
+                    $"Proximity voice capture state: result={result}, availableBytes={availableBytes}");
+            }
+            return;
+        }
+        _logger.LogWarning(
+            $"Proximity voice capture unavailable: result={result}, availableBytes={availableBytes}");
     }
 
     private float CalculateRootMeanSquare(byte[] encoded)

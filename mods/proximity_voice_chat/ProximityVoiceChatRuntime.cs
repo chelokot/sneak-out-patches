@@ -20,6 +20,7 @@ internal static class ProximityVoiceChatRuntime
     private const int MaximumPeerPacketsPerSecond = 180;
     private const int MaximumPeerBytesPerSecond = 256 * 1024;
     private const int MaximumTrackedTrafficPeers = 64;
+    private const float HandshakeWarningSeconds = 8f;
 
     private static readonly Dictionary<IntPtr, SpookedNetworkPlayer> ObservedPlayers = new();
     private static readonly Dictionary<ulong, RemoteVoicePlayback> Playbacks = new();
@@ -30,6 +31,10 @@ internal static class ProximityVoiceChatRuntime
     private static readonly Queue<BufferedCapture> VoiceActivationPreRoll = new();
     private static readonly List<ulong> PlaybackRemovalBuffer = new();
     private static readonly List<IntPtr> PlayerRemovalBuffer = new();
+    private static readonly Dictionary<ulong, float> HandshakeStartedAt = new();
+    private static readonly HashSet<ulong> HandshakeTimeoutWarnings = new();
+    private static readonly HashSet<string> PacketRejectionWarnings = new();
+    private static readonly HashSet<string> PacketExceptionWarnings = new();
 
     private static ManualLogSource? _logger;
     private static ProximityVoiceChatConfig? _configuration;
@@ -51,6 +56,9 @@ internal static class ProximityVoiceChatRuntime
     private static bool _pushToTalkKeyResolved;
     private static KeyCode _cachedPushToTalkKeyCode;
     private static Key _cachedPushToTalkKey;
+    private static string _lastRuntimeStatus = string.Empty;
+    private static string _lastCaptureStatus = string.Empty;
+    private static bool _loggedFirstTransmit;
 
     public static void Initialize(ManualLogSource logger, ProximityVoiceChatConfig configuration)
     {
@@ -168,22 +176,35 @@ internal static class ProximityVoiceChatRuntime
         if (!_configuration.EnableMod.Value)
         {
             EndSession(sendGoodbye: true);
+            ReportStatus("disabled", "Enabled=false");
             return;
         }
-        if (!EnsureSteamServices())
+        if (!EnsureSteamServices(out var steamFailure))
         {
+            ReportStatus("waiting-for-steam", steamFailure);
             return;
         }
 
         RefreshObservedPlayers();
         var localPlayer = _localPlayer;
-        if (localPlayer is null
-            || localPlayer.Pointer == IntPtr.Zero
-            || !localPlayer.HasInputAuthority
-            || localPlayer.IsBot
-            || !VoiceSessionResolver.TryGetSessionName(localPlayer, out var sessionName))
+        if (localPlayer is null || localPlayer.Pointer == IntPtr.Zero)
         {
             EndSession(sendGoodbye: true);
+            ReportStatus("waiting-for-player", $"observedPlayers={ObservedPlayers.Count}");
+            return;
+        }
+        if (!localPlayer.HasInputAuthority || localPlayer.IsBot)
+        {
+            EndSession(sendGoodbye: true);
+            ReportStatus(
+                "waiting-for-player-authority",
+                $"internalId={localPlayer.InternalId}, inputAuthority={localPlayer.HasInputAuthority}, bot={localPlayer.IsBot}");
+            return;
+        }
+        if (!VoiceSessionResolver.TryGetSessionName(localPlayer, out var sessionName, out var sessionFailure))
+        {
+            EndSession(sendGoodbye: true);
+            ReportStatus("waiting-for-session", sessionFailure);
             return;
         }
 
@@ -197,33 +218,38 @@ internal static class ProximityVoiceChatRuntime
         _peers!.Refresh(now);
         PrepareAndGreetPeers(now);
         _transport!.Poll(HandlePacketSafely);
+        ReportPeerState(now);
         CaptureAndTransmit(now);
         TickPlaybacks(now, ResolveListener());
     }
 
-    private static bool EnsureSteamServices()
+    private static bool EnsureSteamServices(out string failureReason)
     {
+        failureReason = string.Empty;
         if (_capture is not null && _transport is not null && _peers is not null)
         {
             return true;
         }
         if (!SteamAPI.IsSteamRunning())
         {
+            failureReason = "SteamAPI.IsSteamRunning=false";
             return false;
         }
 
         _localSteamId = SteamUser.GetSteamID().m_SteamID;
         if (_localSteamId == 0)
         {
+            failureReason = "SteamUser.GetSteamID returned 0";
             return false;
         }
 
         _peers = new VoicePeerDirectory(_logger!, _configuration!);
-        _capture = new SteamVoiceCapture();
+        _capture = new SteamVoiceCapture(_logger!, _configuration!.EnableLogging.Value);
         _transport = new SteamVoiceTransport(
             _logger!,
             _configuration!.EnableLogging.Value,
             steamId => _peers?.IsAllowed(steamId) == true);
+        _logger!.LogInfo($"Proximity voice Steam services ready: localSteamId={_localSteamId}, sampleRate={_capture.SampleRate}");
         return true;
     }
 
@@ -244,7 +270,8 @@ internal static class ProximityVoiceChatRuntime
                 _peers.RegisterPlayer(player);
             }
         }
-        Log($"Voice session started: room={sessionHash:X16}, internalId={localInternalId}");
+        _loggedFirstTransmit = false;
+        _logger?.LogInfo($"Voice session started: room={sessionHash:X16}, internalId={localInternalId}");
     }
 
     private static void PrepareAndGreetPeers(float now)
@@ -262,13 +289,57 @@ internal static class ProximityVoiceChatRuntime
             RemoteInstanceIds.Remove(staleSteamId);
             PeerTrafficWindows.Remove(staleSteamId);
             RemovePlayback(staleSteamId);
+            HandshakeStartedAt.Remove(staleSteamId);
+            HandshakeTimeoutWarnings.Remove(staleSteamId);
         }
         foreach (var steamId in allowed)
         {
             _transport!.AllowPeer(steamId);
             ConnectedPeers.Add(steamId);
+            HandshakeStartedAt.TryAdd(steamId, now);
         }
-        BroadcastControl(VoicePacketKind.Hello, reliable: false, confirmedOnly: false);
+        BroadcastControl(VoicePacketKind.Hello, confirmedOnly: false);
+    }
+
+    private static void ReportPeerState(float now)
+    {
+        var allowed = _peers!.AllowedPeers.ToArray();
+        var confirmed = _peers.ConfirmedPeers.ToHashSet();
+        foreach (var steamId in confirmed)
+        {
+            HandshakeStartedAt.Remove(steamId);
+            HandshakeTimeoutWarnings.Remove(steamId);
+        }
+
+        if (allowed.Length == 0)
+        {
+            ReportStatus(
+                "waiting-for-peers",
+                $"observedPlayers={ObservedPlayers.Count}, identifiedRemotePeers=0");
+            return;
+        }
+        var pending = allowed.Where(steamId => !confirmed.Contains(steamId)).ToArray();
+        if (pending.Length > 0)
+        {
+            ReportStatus(
+                "handshake-pending",
+                $"candidates={allowed.Length}, confirmed={confirmed.Count}, pending={pending.Length}");
+            foreach (var steamId in pending)
+            {
+                if (HandshakeStartedAt.TryGetValue(steamId, out var startedAt)
+                    && now - startedAt >= HandshakeWarningSeconds
+                    && HandshakeTimeoutWarnings.Add(steamId))
+                {
+                    _logger?.LogWarning(
+                        $"Proximity voice handshake timed out for Steam peer {steamId} after "
+                        + $"{now - startedAt:F1}s: {_transport!.DescribePeerState(steamId)}");
+                }
+            }
+            return;
+        }
+        ReportStatus(
+            "ready",
+            $"candidates={allowed.Length}, confirmed={confirmed.Count}, mode={_configuration!.TransmissionMode.Value}");
     }
 
     private static void CaptureAndTransmit(float now)
@@ -286,6 +357,14 @@ internal static class ProximityVoiceChatRuntime
                 VoiceTransmissionMode.AlwaysOn => true,
                 _ => false,
             });
+        var captureStatus = !capturePermitted
+            ? (!Application.isFocused ? "paused-unfocused" : "paused-text-input")
+            : mode == VoiceTransmissionMode.PushToTalk && !pushToTalkPressed
+                ? "waiting-for-push-to-talk"
+                : shouldRecord
+                    ? "recording"
+                    : "waiting-for-handshake";
+        ReportCaptureStatus(captureStatus);
         _capture!.SetRecording(shouldRecord);
         if (!shouldRecord)
         {
@@ -374,14 +453,20 @@ internal static class ProximityVoiceChatRuntime
                 payload));
             foreach (var steamId in _peers!.ConfirmedPeers)
             {
-                _transport!.Send(steamId, packet, reliable: false);
+                _transport!.Send(steamId, packet, VoiceTransportSendMode.Realtime);
             }
+        }
+        if (!_loggedFirstTransmit)
+        {
+            _loggedFirstTransmit = true;
+            _logger?.LogInfo(
+                $"Proximity voice transmitted first audio frame: bytes={frame.EncodedAudio.Length}, "
+                + $"fragments={fragmentCount}, peers={_peers.ConfirmedPeers.Count}");
         }
     }
 
     private static void BroadcastControl(
         VoicePacketKind kind,
-        bool reliable,
         bool confirmedOnly)
     {
         if (_sessionHash == 0 || _peers is null || _transport is null)
@@ -400,21 +485,44 @@ internal static class ProximityVoiceChatRuntime
             1,
             Array.Empty<byte>()));
         var recipients = confirmedOnly ? _peers.ConfirmedPeers : _peers.AllowedPeers;
+        var mode = VoiceTransportSendPolicy.ForControlPacket(kind);
         foreach (var steamId in recipients)
         {
-            _transport.Send(steamId, packet, reliable);
+            _transport.Send(steamId, packet, mode);
         }
     }
 
     private static void HandlePacket(CSteamID remoteSteamId, byte[] rawPacket)
     {
-        if (_sessionHash == 0
-            || !VoiceProtocol.TryDecode(rawPacket, out var packet)
-            || remoteSteamId.m_SteamID != packet.SenderSteamId
-            || packet.SenderInstanceId == 0
-            || packet.SessionHash != _sessionHash
-            || !_peers!.TryBindPacketIdentity(packet.SenderSteamId, packet.SenderInternalId))
+        var authenticatedSteamId = remoteSteamId.m_SteamID;
+        if (_sessionHash == 0)
         {
+            LogPacketRejection(authenticatedSteamId, "no-active-fusion-session");
+            return;
+        }
+        if (!VoiceProtocol.TryDecode(rawPacket, out var packet))
+        {
+            LogPacketRejection(authenticatedSteamId, "invalid-protocol-packet");
+            return;
+        }
+        if (authenticatedSteamId != packet.SenderSteamId)
+        {
+            LogPacketRejection(authenticatedSteamId, "authenticated-sender-mismatch");
+            return;
+        }
+        if (packet.SenderInstanceId == 0)
+        {
+            LogPacketRejection(authenticatedSteamId, "missing-process-instance");
+            return;
+        }
+        if (packet.SessionHash != _sessionHash)
+        {
+            LogPacketRejection(authenticatedSteamId, "fusion-session-mismatch");
+            return;
+        }
+        if (!_peers!.TryBindPacketIdentity(packet.SenderSteamId, packet.SenderInternalId))
+        {
+            LogPacketRejection(authenticatedSteamId, "steam-to-player-identity-mismatch");
             return;
         }
 
@@ -422,15 +530,21 @@ internal static class ProximityVoiceChatRuntime
         {
             var isNewInstance = !RemoteInstanceIds.TryGetValue(packet.SenderSteamId, out var oldInstance)
                 || oldInstance != packet.SenderInstanceId;
-            _peers.ConfirmHandshake(packet.SenderSteamId);
+            var newlyConfirmed = _peers.ConfirmHandshake(packet.SenderSteamId);
             if (oldInstance != 0 && oldInstance != packet.SenderInstanceId)
             {
                 RemovePlayback(packet.SenderSteamId);
             }
             RemoteInstanceIds[packet.SenderSteamId] = packet.SenderInstanceId;
+            if (newlyConfirmed || isNewInstance)
+            {
+                _logger?.LogInfo(
+                    $"Proximity voice handshake confirmed: peer={packet.SenderSteamId}, "
+                    + $"internalId={packet.SenderInternalId}, newProcess={isNewInstance}");
+            }
             if (isNewInstance)
             {
-                SendControlTo(VoicePacketKind.Hello, packet.SenderSteamId, reliable: false);
+                SendControlTo(VoicePacketKind.Hello, packet.SenderSteamId);
             }
             return;
         }
@@ -439,6 +553,7 @@ internal static class ProximityVoiceChatRuntime
         {
             // Audio is admitted only after a Hello for this exact process/session. This
             // rejects stale relay packets left over from an earlier run of the same lobby.
+            LogPacketRejection(authenticatedSteamId, "hello-required-for-current-process");
             return;
         }
 
@@ -469,6 +584,7 @@ internal static class ProximityVoiceChatRuntime
         }
         if (!_peers.TryGetPlayer(packet.SenderSteamId, out var player))
         {
+            LogPacketRejection(authenticatedSteamId, "replicated-player-not-available");
             return;
         }
 
@@ -480,6 +596,8 @@ internal static class ProximityVoiceChatRuntime
                 _configuration!,
                 packet.SenderSteamId.ToString());
             Playbacks.Add(packet.SenderSteamId, playback);
+            _logger?.LogInfo(
+                $"Proximity voice playback started: peer={packet.SenderSteamId}, internalId={packet.SenderInternalId}");
         }
         else if (playback.Anchor != player.transform)
         {
@@ -500,11 +618,22 @@ internal static class ProximityVoiceChatRuntime
         }
         catch (Exception exception)
         {
-            if (_configuration?.EnableLogging.Value == true)
+            var key = $"{remoteSteamId.m_SteamID}:{exception.GetType().FullName}";
+            if (PacketExceptionWarnings.Add(key))
             {
                 _logger?.LogWarning(
-                    $"Ignored malformed or unavailable proximity voice peer state for {remoteSteamId.m_SteamID}: {exception.Message}");
+                    $"Proximity voice packet handler failed once for peer {remoteSteamId.m_SteamID}: "
+                    + $"{exception.GetType().Name}: {exception.Message}");
             }
+        }
+    }
+
+    private static void LogPacketRejection(ulong steamId, string reason)
+    {
+        var key = $"{steamId}:{reason}";
+        if (PacketRejectionWarnings.Add(key))
+        {
+            _logger?.LogWarning($"Proximity voice rejected packet: peer={steamId}, reason={reason}");
         }
     }
 
@@ -593,7 +722,9 @@ internal static class ProximityVoiceChatRuntime
         return _localPlayer?.transform;
     }
 
-    private static void SendControlTo(VoicePacketKind kind, ulong steamId, bool reliable)
+    private static void SendControlTo(
+        VoicePacketKind kind,
+        ulong steamId)
     {
         if (_sessionHash == 0 || _transport is null)
         {
@@ -610,7 +741,7 @@ internal static class ProximityVoiceChatRuntime
             0,
             1,
             Array.Empty<byte>()));
-        _transport.Send(steamId, packet, reliable);
+        _transport.Send(steamId, packet, VoiceTransportSendPolicy.ForControlPacket(kind));
     }
 
     private static bool IsPushToTalkPressed()
@@ -718,7 +849,7 @@ internal static class ProximityVoiceChatRuntime
         }
         if (sendGoodbye)
         {
-            BroadcastControl(VoicePacketKind.Goodbye, reliable: true, confirmedOnly: true);
+            BroadcastControl(VoicePacketKind.Goodbye, confirmedOnly: true);
         }
         _capture?.SetRecording(false);
         VoiceActivationPreRoll.Clear();
@@ -743,9 +874,13 @@ internal static class ProximityVoiceChatRuntime
         FragmentAssemblers.Clear();
         PeerTrafficWindows.Clear();
         ConnectedPeers.Clear();
+        HandshakeStartedAt.Clear();
+        HandshakeTimeoutWarnings.Clear();
+        PacketRejectionWarnings.Clear();
+        PacketExceptionWarnings.Clear();
         _transport?.CloseAll();
         _peers?.EndSession();
-        Log($"Voice session ended: room={_sessionHash:X16}");
+        _logger?.LogInfo($"Voice session ended: room={_sessionHash:X16}");
         _sessionHash = 0;
         _localInstanceId = 0;
         _localInternalId = -1;
@@ -779,6 +914,27 @@ internal static class ProximityVoiceChatRuntime
         }
     }
 
+    private static void ReportStatus(string stage, string detail)
+    {
+        var status = $"{stage}|{detail}";
+        if (string.Equals(status, _lastRuntimeStatus, StringComparison.Ordinal))
+        {
+            return;
+        }
+        _lastRuntimeStatus = status;
+        _logger?.LogInfo($"Proximity voice state: {stage} ({detail})");
+    }
+
+    private static void ReportCaptureStatus(string status)
+    {
+        if (string.Equals(status, _lastCaptureStatus, StringComparison.Ordinal))
+        {
+            return;
+        }
+        _lastCaptureStatus = status;
+        _logger?.LogInfo($"Proximity voice capture gate: {status}");
+    }
+
     private static ulong CreateInstanceId()
     {
         Span<byte> bytes = stackalloc byte[sizeof(ulong)];
@@ -806,6 +962,8 @@ internal static class ProximityVoiceChatRuntime
         _peers = null;
         ObservedPlayers.Clear();
         _localPlayer = null;
+        _lastRuntimeStatus = string.Empty;
+        _lastCaptureStatus = string.Empty;
     }
 
     private readonly record struct BufferedCapture(

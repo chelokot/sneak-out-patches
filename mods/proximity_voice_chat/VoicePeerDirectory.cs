@@ -144,7 +144,10 @@ internal sealed class VoicePeerDirectory : IDisposable
                     StringComparison.OrdinalIgnoreCase))
             {
                 _allowedPeers.Add(friend.m_SteamID);
-                _confirmedPeers.Add(friend.m_SteamID);
+                // Presence discovers a compatible candidate, but it is not a transport
+                // handshake. Audio remains gated until a Hello from this exact process and
+                // Fusion session arrives; otherwise a stale presence entry can enable NoDelay
+                // audio before Steam has established a P2P route.
                 if (int.TryParse(
                         SteamFriends.GetFriendRichPresence(friend, InternalIdPresenceKey),
                         out var internalId))
@@ -165,13 +168,15 @@ internal sealed class VoicePeerDirectory : IDisposable
         return _mutedPeers.Contains(steamId);
     }
 
-    public void ConfirmHandshake(ulong steamId)
+    public bool ConfirmHandshake(ulong steamId)
     {
-        if (_allowedPeers.Contains(steamId))
+        if (!_allowedPeers.Contains(steamId))
         {
-            _handshakeConfirmedPeers.Add(steamId);
-            _confirmedPeers.Add(steamId);
+            return false;
         }
+        var newlyConfirmed = _handshakeConfirmedPeers.Add(steamId);
+        _confirmedPeers.Add(steamId);
+        return newlyConfirmed;
     }
 
     public bool TryBindPacketIdentity(ulong steamId, int internalId)
@@ -282,10 +287,7 @@ internal sealed class VoicePeerDirectory : IDisposable
         SteamFriends.SetRichPresence(SessionPresenceKey, _sessionHash.ToString("X16"));
         SteamFriends.SetRichPresence(InternalIdPresenceKey, _localInternalId.ToString());
         _presencePublished = true;
-        if (_configuration.EnableLogging.Value)
-        {
-            _logger.LogInfo($"Published proximity voice presence for room {_sessionHash:X16}");
-        }
+        _logger.LogInfo($"Published proximity voice presence for room {_sessionHash:X16}");
     }
 
     private void ReloadMutedIds()
@@ -304,7 +306,6 @@ internal sealed class VoicePeerDirectory : IDisposable
         _allowedPeers.Remove(_localSteamId);
 
         _confirmedPeers.Clear();
-        _confirmedPeers.UnionWith(explicitlyConfigured);
         _handshakeConfirmedPeers.IntersectWith(_allowedPeers);
         _confirmedPeers.UnionWith(_handshakeConfirmedPeers);
         _confirmedPeers.Remove(_localSteamId);

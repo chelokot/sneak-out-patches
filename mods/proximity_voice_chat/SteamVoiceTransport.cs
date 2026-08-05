@@ -16,6 +16,7 @@ internal sealed class SteamVoiceTransport : IDisposable
     private readonly Func<ulong, bool> _isCandidatePeer;
     private readonly VoicePeerAdmission _admission = new();
     private readonly HashSet<ulong> _loggedSendFailures = new();
+    private readonly HashSet<ulong> _loggedBootstrapAttempts = new();
     private readonly Callback<P2PSessionRequest_t> _sessionRequestCallback;
     private readonly Callback<P2PSessionConnectFail_t> _sessionFailureCallback;
     private Il2CppStructArray<byte> _receiveBuffer = new((long)MaximumPacketBytes);
@@ -50,7 +51,7 @@ internal sealed class SteamVoiceTransport : IDisposable
         _admission.Allow(steamId);
     }
 
-    public bool Send(ulong steamId, byte[] packet, bool reliable)
+    public bool Send(ulong steamId, byte[] packet, VoiceTransportSendMode mode)
     {
         if (_disposed || steamId == 0 || packet.Length == 0 || packet.Length > MaximumPacketBytes)
         {
@@ -61,9 +62,16 @@ internal sealed class SteamVoiceTransport : IDisposable
         {
             _sendBuffer[index] = packet[index];
         }
-        var sendType = reliable
-            ? EP2PSend.k_EP2PSendReliable
-            : EP2PSend.k_EP2PSendUnreliableNoDelay;
+        var sendType = mode switch
+        {
+            // Regular unreliable delivery queues the initial packet while Steam establishes NAT
+            // traversal or a relay route. NoDelay must never be used for the first Hello because
+            // Steam deliberately discards it before a route exists.
+            VoiceTransportSendMode.Bootstrap => EP2PSend.k_EP2PSendUnreliable,
+            VoiceTransportSendMode.Realtime => EP2PSend.k_EP2PSendUnreliableNoDelay,
+            VoiceTransportSendMode.Reliable => EP2PSend.k_EP2PSendReliable,
+            _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, null),
+        };
         var sent = SteamNetworking.SendP2PPacket(
             new CSteamID(steamId),
             _sendBuffer,
@@ -73,12 +81,42 @@ internal sealed class SteamVoiceTransport : IDisposable
         if (sent)
         {
             _loggedSendFailures.Remove(steamId);
+            if (mode == VoiceTransportSendMode.Bootstrap && _loggedBootstrapAttempts.Add(steamId))
+            {
+                _logger.LogInfo($"Proximity voice bootstrap queued for Steam peer {steamId}");
+            }
         }
-        else if (_loggingEnabled && _loggedSendFailures.Add(steamId))
+        else if ((mode == VoiceTransportSendMode.Bootstrap || _loggingEnabled)
+                 && _loggedSendFailures.Add(steamId))
         {
-            _logger.LogWarning($"Proximity voice Steam P2P send is waiting for peer {steamId}");
+            _logger.LogWarning(
+                $"Proximity voice Steam P2P send failed: peer={steamId}, mode={mode}, "
+                + DescribePeerState(steamId));
         }
         return sent;
+    }
+
+    public string DescribePeerState(ulong steamId)
+    {
+        if (steamId == 0)
+        {
+            return "invalid-peer";
+        }
+        try
+        {
+            if (!SteamNetworking.GetP2PSessionState(new CSteamID(steamId), out var state))
+            {
+                return "no-p2p-session";
+            }
+            return $"active={state.m_bConnectionActive != 0}, connecting={state.m_bConnecting != 0}, "
+                + $"accepted={_admission.IsAccepted(steamId)}, relay={state.m_bUsingRelay != 0}, "
+                + $"error={(EP2PSessionError)state.m_eP2PSessionError}, "
+                + $"queuedPackets={state.m_nPacketsQueuedForSend}, queuedBytes={state.m_nBytesQueuedForSend}";
+        }
+        catch (Exception exception)
+        {
+            return $"state-query-failed:{exception.GetType().Name}";
+        }
     }
 
     public void Poll(Action<CSteamID, byte[]> onPacket)
@@ -126,6 +164,7 @@ internal sealed class SteamVoiceTransport : IDisposable
     {
         var wasKnown = _admission.Forget(steamId);
         _loggedSendFailures.Remove(steamId);
+        _loggedBootstrapAttempts.Remove(steamId);
         if (!wasKnown)
         {
             return;
@@ -141,6 +180,7 @@ internal sealed class SteamVoiceTransport : IDisposable
         }
         _admission.Clear();
         _loggedSendFailures.Clear();
+        _loggedBootstrapAttempts.Clear();
     }
 
     private void OnSessionRequest(P2PSessionRequest_t request)
@@ -155,10 +195,7 @@ internal sealed class SteamVoiceTransport : IDisposable
             {
                 _admission.MarkAccepted(steamId);
                 _loggedSendFailures.Remove(steamId);
-                if (_loggingEnabled)
-                {
-                    _logger.LogInfo($"Accepted proximity voice Steam P2P session for {steamId}");
-                }
+                _logger.LogInfo($"Accepted proximity voice Steam P2P session for {steamId}");
             }
             else if (_loggingEnabled)
             {
@@ -175,11 +212,8 @@ internal sealed class SteamVoiceTransport : IDisposable
     {
         _admission.MarkDisconnected(failure.m_steamIDRemote.m_SteamID);
         _loggedSendFailures.Remove(failure.m_steamIDRemote.m_SteamID);
-        if (_loggingEnabled)
-        {
-            _logger.LogWarning(
-                $"Proximity voice P2P session failed for {failure.m_steamIDRemote.m_SteamID}: {failure.m_eP2PSessionError}");
-        }
+        _logger.LogWarning(
+            $"Proximity voice P2P session failed for {failure.m_steamIDRemote.m_SteamID}: {failure.m_eP2PSessionError}");
     }
 
     private void DrainInvalidPacket(uint availableBytes)

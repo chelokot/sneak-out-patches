@@ -37,6 +37,21 @@ Require(admission.IsAccepted(peerSteamId), "successful Steam session request was
 admission.MarkDisconnected(peerSteamId);
 Require(!admission.IsAccepted(peerSteamId), "failed Steam session remained accepted");
 Require(admission.CanAcceptRequest(peerSteamId, currentlyAllowed: true), "failed Steam session could not retry");
+Require(
+    VoiceTransportSendPolicy.CanInitiateConnection(VoiceTransportSendMode.Bootstrap),
+    "voice bootstrap mode cannot initiate a fresh Steam P2P connection");
+Require(
+    VoiceTransportSendPolicy.CanInitiateConnection(VoiceTransportSendMode.Reliable),
+    "reliable voice control mode cannot initiate a fresh Steam P2P connection");
+Require(
+    !VoiceTransportSendPolicy.CanInitiateConnection(VoiceTransportSendMode.Realtime),
+    "realtime voice mode may buffer audio while establishing a connection");
+Require(
+    VoiceTransportSendPolicy.ForControlPacket(VoicePacketKind.Hello) == VoiceTransportSendMode.Bootstrap,
+    "Hello regressed to a transport mode that cannot bootstrap Steam P2P");
+Require(
+    VoiceTransportSendPolicy.ForControlPacket(VoicePacketKind.Goodbye) == VoiceTransportSendMode.Reliable,
+    "Goodbye is no longer delivered reliably");
 
 var encodedPacket = Packet(42, 0, 1, 1, 2, 3, 4);
 var encoded = VoiceProtocol.Encode(encodedPacket);

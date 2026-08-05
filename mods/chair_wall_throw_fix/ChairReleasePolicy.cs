@@ -4,6 +4,16 @@ internal static class ChairReleasePolicy
 {
     internal const float SearchStep = 0.1f;
 
+    public static float SafeTravelDistance(float hitDistance, float clearance)
+    {
+        if (!float.IsFinite(hitDistance) || !float.IsFinite(clearance))
+        {
+            return 0f;
+        }
+
+        return MathF.Max(0f, hitDistance - MathF.Max(0f, clearance));
+    }
+
     public static bool ShouldOverrideBlockedRelease(
         bool stockReturnedNoInteraction,
         bool isReleaseInput,

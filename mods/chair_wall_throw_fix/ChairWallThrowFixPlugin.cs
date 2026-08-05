@@ -8,7 +8,7 @@ public sealed class ChairWallThrowFixPlugin : BasePlugin
 {
     public const string PluginGuid = "chelokot.sneakout.chair-wall-throw-fix";
     public const string PluginName = "Chair Wall Throw Fix";
-    public const string PluginVersion = "0.1.5";
+    public const string PluginVersion = "0.1.6";
 
     public override void Load()
     {

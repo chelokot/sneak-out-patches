@@ -1,6 +1,6 @@
 {
   "name": "@chelokot/sneak-out-patches",
-  "version": "0.6.9",
+  "version": "0.6.10",
   "description": "Sneak Out reverse-engineering, patching, and runtime mod tooling.",
   "repository": {
     "type": "git",
@@ -33,6 +33,7 @@
     "runtime:session:host": "node scripts/runtime-session.mjs --host-launch",
     "performance:session": "node scripts/performance-session.mjs",
     "performance:analyze": "node scripts/analyze-performance-session.mjs",
+    "chair:geometry": "node scripts/run-python.mjs tools/chair_jump_geometry.py",
     "runtime:profiler:configure": "node scripts/configure-runtime-profiler.mjs",
     "runtime:profiler:off": "node scripts/configure-runtime-profiler.mjs off",
     "interop:inspect": "node scripts/run-dotnet.mjs run --project tools/interop_inspector/InteropInspector.csproj --",

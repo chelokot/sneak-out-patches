@@ -105,6 +105,26 @@ RequireClose(
     ChairReleasePolicy.SafeCenterDistance(float.NaN, 0.2f, 0.03f),
     0f,
     "chair sweep accepted a non-finite hit distance");
+RequireClose(
+    ChairReleasePolicy.PlayerSideCenterDistance(0.08f, 0.476811f, 0.03f),
+    -0.426811f,
+    "chair that could not fit between player and wall was not moved behind the player");
+RequireClose(
+    ChairReleasePolicy.PlayerSideCenterDistance(float.NaN, 0.2f, 0.03f),
+    0f,
+    "signed chair correction accepted a non-finite wall hit");
+Require(
+    !ChairReleasePolicy.ShouldMoveTowardPlayer(0.08f, 0.487456f, false),
+    "chair correction moved toward a player who was closer to the wall");
+Require(
+    ChairReleasePolicy.ShouldMoveTowardPlayer(0.48f, 0.04f, false),
+    "chair correction moved away from a player when the chair was closer to the wall");
+Require(
+    ChairReleasePolicy.ShouldMoveTowardPlayer(0.08f, 0.42f, true),
+    "chair already beyond an intervening wall was pushed farther through it");
+Require(
+    ChairReleasePolicy.ShouldMoveTowardPlayer(float.NaN, 0.42f, false),
+    "invalid obstacle distance did not use the conservative toward-player fallback");
 Require(
     ChairReleasePolicy.ShouldOverrideBlockedRelease(true, true, 7, 7, false, true),
     "held chair remained blocked by the forward detector on release");

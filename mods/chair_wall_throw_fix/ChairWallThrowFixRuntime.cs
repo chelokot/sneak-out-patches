@@ -309,18 +309,17 @@ internal static class ChairWallThrowFixRuntime
             return;
         }
 
-        if (ClampReleaseToNearSide(chair, chairCollider, chairTransform, registry, throwerTransform))
+        ClampReleaseToNearSide(chair, chairCollider, chairTransform, registry, throwerTransform);
+
+        GetSweepBox(chairCollider, out var center, out var halfExtents, out var orientation);
+        if (!HasBlockingOverlap(center, halfExtents, orientation, chair, registry))
         {
             return;
         }
 
-        var bounds = chairCollider.bounds;
-        if (!HasBlockingOverlap(bounds.center, bounds.extents, chair, registry))
-        {
-            return;
-        }
-
-        var towardThrower = throwerTransform.position - bounds.center;
+        var playerAnchor = throwerTransform.position;
+        playerAnchor.y = center.y;
+        var towardThrower = playerAnchor - center;
         towardThrower.y = 0f;
         if (towardThrower.sqrMagnitude < 0.0001f)
         {
@@ -334,22 +333,59 @@ internal static class ChairWallThrowFixRuntime
         }
 
         towardThrower.Normalize();
-        foreach (var distance in ChairReleasePolicy.CandidateDistances(maximumCorrection))
+        var overlaps = Physics.OverlapBox(
+            center,
+            halfExtents * 0.98f,
+            orientation,
+            Physics.AllLayers,
+            QueryTriggerInteraction.Ignore);
+        for (var overlapIndex = 0; overlapIndex < overlaps.Length; overlapIndex++)
         {
-            var offset = towardThrower * distance;
-            if (HasBlockingOverlap(bounds.center + offset, bounds.extents, chair, registry))
+            var obstacle = overlaps[overlapIndex];
+            if (obstacle is null || IsIgnoredCollider(obstacle, chair, registry))
             {
                 continue;
             }
 
-            chairTransform.position += offset;
-            Physics.SyncTransforms();
-            if (_configuration!.EnableLogging.Value)
-            {
-                _logger?.LogInfo($"Moved chair {chair.NetworkObjectId} {distance:0.00} m toward player {internalId} to clear its release overlap.");
-            }
+            var playerDistance = DistanceToCollider(obstacle, playerAnchor);
+            var chairDistance = DistanceToCollider(obstacle, center);
+            var obstacleBetweenCenters = IsStrictlyBetweenCenters(
+                obstacle,
+                playerAnchor,
+                center);
+            var moveTowardPlayer = ChairReleasePolicy.ShouldMoveTowardPlayer(
+                playerDistance,
+                chairDistance,
+                obstacleBetweenCenters);
+            var correctionDirection = moveTowardPlayer ? towardThrower : -towardThrower;
 
-            return;
+            foreach (var distance in ChairReleasePolicy.CandidateDistances(maximumCorrection))
+            {
+                var offset = correctionDirection * distance;
+                if (HasBlockingOverlap(
+                        center + offset,
+                        halfExtents,
+                        orientation,
+                        chair,
+                        registry))
+                {
+                    continue;
+                }
+
+                chairTransform.position += offset;
+                Physics.SyncTransforms();
+                if (_configuration!.EnableLogging.Value)
+                {
+                    _logger?.LogInfo(
+                        $"Moved chair {chair.NetworkObjectId} {distance:0.00} m "
+                        + $"{(moveTowardPlayer ? "toward" : "away from")} player {internalId} "
+                        + $"to clear {obstacle.name}: playerDistance={playerDistance:0.000}m, "
+                        + $"chairDistance={chairDistance:0.000}m, "
+                        + $"betweenCenters={obstacleBetweenCenters}.");
+                }
+
+                return;
+            }
         }
     }
 
@@ -382,6 +418,25 @@ internal static class ChairWallThrowFixRuntime
         var safeCenterDistance = desiredDistance;
         var blockingHit = default(RaycastHit);
         var foundBlockingHit = false;
+
+        // The five held-pose support rays can all pass above a short wall while
+        // an emote carries the chair through it. Probe at torso height to
+        // recover the intervening wall plane and allow a signed center distance
+        // behind the player when the chair does not physically fit in the gap.
+        var playerPlaneProbe = throwerTransform.position;
+        playerPlaneProbe.y = Mathf.Min(desiredCenter.y, throwerTransform.position.y + 0.5f);
+        playerPlaneProbe -= direction * SweepClearance;
+        FindNearestReleaseObstacle(
+            playerPlaneProbe,
+            direction,
+            castDistance,
+            projectedRadius,
+            chair,
+            registry,
+            ref safeCenterDistance,
+            ref blockingHit,
+            ref foundBlockingHit,
+            allowBehindPlayerAnchor: true);
 
         FindNearestReleaseObstacle(
             playerSideAnchor,
@@ -468,7 +523,8 @@ internal static class ChairWallThrowFixRuntime
         NetworkPlayerRegistry registry,
         ref float safeCenterDistance,
         ref RaycastHit blockingHit,
-        ref bool foundBlockingHit)
+        ref bool foundBlockingHit,
+        bool allowBehindPlayerAnchor = false)
     {
         var hitCount = Physics.RaycastNonAlloc(
             origin,
@@ -486,10 +542,15 @@ internal static class ChairWallThrowFixRuntime
                 continue;
             }
 
-            var candidateSafeDistance = ChairReleasePolicy.SafeCenterDistance(
-                hit.distance,
-                projectedRadius,
-                SweepClearance);
+            var candidateSafeDistance = allowBehindPlayerAnchor
+                ? ChairReleasePolicy.PlayerSideCenterDistance(
+                    hit.distance,
+                    projectedRadius,
+                    SweepClearance)
+                : ChairReleasePolicy.SafeCenterDistance(
+                    hit.distance,
+                    projectedRadius,
+                    SweepClearance);
             if (foundBlockingHit && candidateSafeDistance >= safeCenterDistance)
             {
                 continue;
@@ -531,16 +592,46 @@ internal static class ChairWallThrowFixRuntime
             + Mathf.Abs(Vector3.Dot(direction, orientation * Vector3.forward)) * halfExtents.z;
     }
 
+    private static float DistanceToCollider(Collider collider, Vector3 point)
+    {
+        return Vector3.Distance(point, collider.ClosestPoint(point));
+    }
+
+    private static bool IsStrictlyBetweenCenters(
+        Collider collider,
+        Vector3 playerCenter,
+        Vector3 chairCenter)
+    {
+        const float endpointTolerance = 0.01f;
+        var playerToChair = chairCenter - playerCenter;
+        var centerDistance = playerToChair.magnitude;
+        if (centerDistance <= endpointTolerance * 2f)
+        {
+            return false;
+        }
+
+        var direction = playerToChair / centerDistance;
+        if (collider.Raycast(new Ray(playerCenter, direction), out var hit, centerDistance)
+            && hit.distance < centerDistance - endpointTolerance)
+        {
+            return true;
+        }
+
+        return collider.Raycast(new Ray(chairCenter, -direction), out hit, centerDistance)
+            && hit.distance < centerDistance - endpointTolerance;
+    }
+
     private static bool HasBlockingOverlap(
         Vector3 center,
         Vector3 halfExtents,
+        Quaternion orientation,
         Chair chair,
         NetworkPlayerRegistry registry)
     {
         var overlaps = Physics.OverlapBox(
             center,
             halfExtents * 0.98f,
-            Quaternion.identity,
+            orientation,
             Physics.AllLayers,
             QueryTriggerInteraction.Ignore);
 

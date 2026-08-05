@@ -111,7 +111,7 @@ tools. Install any of them with `--all` or select them with `--interactive`.
 | `start-delay-reducer` | Start Now | Yes | Keeps the normal 30-second connection grace period for slow clients but gives the authoritative host a `Start now` button once the lobby is ready. |
 | `locker-stun-fix` | Locker Stun Fix | Yes | Arms Boo only when the locker is closed at the instant the penguin starts leaving. Leaving an already-open locker cannot stun the hunter and does not consume Boo's cooldown. |
 | `magic-wardrobe-hook-fix` | Magic Wardrobe Hook Fix | Yes | Cancels a pending magic-wardrobe teleport when a Butcher hook interrupts entry, so the pulled player is not snapped back to the wardrobe after the animation finishes. |
-| `chair-wall-throw-fix` | Chair Wall Throw Fix | Yes | Lets an already held chair/stool, barrel or task ingredient be released beside walls: bypasses the stock forward-ray `None` result and hides its crossed-out `E` overlay without disabling the shared obstacle detector. Immediately before a chair receives throw velocity, non-allocating support rays sweep its collider envelope from the player's side to the held pose and clamp it before the first intervening wall, with bounded overlap correction as a fallback. |
+| `chair-wall-throw-fix` | Chair Wall Throw Fix | Yes | Lets an already held chair/stool, barrel or task ingredient be released beside walls: bypasses the stock forward-ray `None` result and hides its crossed-out `E` overlay without disabling the shared obstacle detector. Immediately before a chair receives throw velocity, a torso-height wall probe and five held-pose support rays clamp its full projected collider radius to the player's side; overlap fallback compares player/chair obstacle distances before choosing its correction direction. |
 | `pumpkin-radius-indicator-fix` | Pumpkin Radius Indicator Fix | Yes | Makes the persistent hunter-only ring match the authoritative trigger radius. Once triggered, it shows a full-opacity kill-radius ring and a 20%-opacity outer stun-radius ring without changing gameplay radii. |
 | `ripper-corner-blink-fix` | Ripper Corner Blink Fix | Yes | Lets the equipped `ReaperHelloThere` through-wall perk traverse the game's dedicated room-corner intersection strips even when ordinary scenery is also detected. It does not grant wall blink without the perk. |
 | `background-loading-guard` | Background Loading Guard | Yes | Temporarily keeps Unity updating while a scene loads, then restores the player's previous background-running preference instead of forcing it permanently. |
@@ -237,6 +237,30 @@ npm run runtime:profiler:off
 The performance runner samples the exact game PID, GPU and cgroup I/O, captures only newly changed in-game reports, restores temporary window-manager compatibility state, and closes the test client. The runtime session tooling snapshots multiple real log channels because `BepInEx/LogOutput.log` is not always populated during automated launches.
 
 See [the measured performance report](docs/performance/performance-overhaul.md) before enabling aggressive graphics overrides. The default `Auto` preset retains normal visuals until sustained low frame rate triggers the measured additional-shadow/vSync fallback. Heavyweight scene census, interval CSV writes and experimental Unity recorders are opt-in because profiling work can itself cause hitches.
+
+### Chair jump geometry replay
+
+The chair release analyser reads the shipped `rig|emote_jumpup.kinguin` clip, the
+complete player rig, the held-item transform, and each chair's real mesh and
+collider directly from `resources.assets`. It replays the exact swept chair box
+plus the five diagnostic support rays and labels frames where the old rays miss
+a short wall but the volume sweep correctly clamps the chair:
+
+```bash
+python3 -m pip install UnityPy numpy matplotlib tornado
+npm run chair:geometry
+```
+
+Use the emote and wall sliders to inspect individual frames, or click **Find
+false clear** to search the exact animation trajectory. `--chair chair-a` through
+`chair-d` and `--chair stool` select the real prefab geometry. `--save
+.tmp/chair-jump.png` renders the current default frame without opening a window.
+`--find-false-clear` searches first and then opens or renders the counterexample.
+On systems without Tk/Qt/GTK (including a minimal Fedora toolbox), Matplotlib's
+WebAgg backend opens the same interactive canvas in the browser; keep the command
+running while using it.
+The wall transform remains a slider because the historical network log recorded
+only `EnvironmentCollider`, not the transform/path ID of the particular wall.
 
 ## Interop inspection
 

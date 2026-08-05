@@ -277,6 +277,8 @@ internal static class LobbyTestBotRuntime
 
     private static bool LoggingEnabled => _configuration is not null && _configuration.EnableLogging.Value;
 
+    public static bool ManagedMatchStartInProgress => _managedMatchJoinStarted;
+
     private static string BotNickname => _configuration!.BotNickname.Value.Trim();
 
     private static bool BotPrefersHunter =>
@@ -416,7 +418,11 @@ internal static class LobbyTestBotRuntime
 
     public static void IncludeManagedBotInPartyCount(ref int teamCount)
     {
-        if (Enabled && _managedPlayerPointer != IntPtr.Zero && teamCount < 2)
+        var needsSyntheticCount = !_managedMatchJoinStarted || _managedMatchStartGuardScope;
+        if (Enabled
+            && needsSyntheticCount
+            && _managedPlayerPointer != IntPtr.Zero
+            && teamCount < 2)
         {
             teamCount = 2;
         }

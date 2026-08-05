@@ -133,10 +133,17 @@ internal static class ManagedBotHunterConfirmationPatch
 internal static class MatchmakerOnStartMatchmakingPatch
 {
     [HarmonyPrefix]
-    private static void Prefix(Matchmaker __instance, Il2CppSystem.EventArgs args, out bool __state)
+    private static bool Prefix(Matchmaker __instance, Il2CppSystem.EventArgs args, out bool __state)
     {
+        __state = false;
+        if (LobbyTestBotRuntime.ManagedMatchStartInProgress)
+        {
+            return false;
+        }
+
         var startEvent = args.Cast<Events.StartMatchmakingEvent>();
         __state = LobbyTestBotRuntime.BeginManagedBotMatchStart(__instance, startEvent.GameModeType);
+        return true;
     }
 
     [HarmonyPostfix]

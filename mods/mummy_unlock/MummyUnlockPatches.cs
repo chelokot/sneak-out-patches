@@ -16,6 +16,7 @@ internal static class SeekerSelectionViewModelInitPatch
     private static void Postfix(SeekerSelectionViewModel __instance)
     {
         MummyUnlockRuntime.EnsureAvailableSeekersContainMummy(__instance);
+        __instance.OnSelectionChange(0);
     }
 }
 
@@ -43,12 +44,23 @@ internal static class SeekerSelectionViewManagerAwakePatch
     }
 }
 
-[HarmonyPatch(typeof(SeekerSelectionView), nameof(SeekerSelectionView.RefreshLabelText))]
-internal static class SeekerSelectionViewRefreshLabelTextPatch
+[HarmonyPatch(
+    typeof(SeekerSelectionView._ShiftCharactersPanel_d__27),
+    nameof(SeekerSelectionView._ShiftCharactersPanel_d__27.MoveNext))]
+internal static class SeekerSelectionViewShiftCharactersPanelMoveNextPatch
 {
-    private static void Postfix(SeekerSelectionView __instance)
+    private static void Postfix(SeekerSelectionView._ShiftCharactersPanel_d__27 __instance, bool __result)
     {
-        MummyAbilityIconRuntime.ApplyToSeekerSelectionView(__instance);
+        if (__result)
+        {
+            return;
+        }
+
+        var view = __instance.__4__this;
+        if (view is not null)
+        {
+            MummyAbilityIconRuntime.ApplyToSeekerSelectionView(view);
+        }
     }
 }
 
@@ -58,6 +70,31 @@ internal static class CharacterShopViewManagerAwakePatch
     private static void Prefix(CharacterShopView __instance)
     {
         MummyUnlockRuntime.PrepareCharacterShop(__instance);
+    }
+
+    private static void Postfix(CharacterShopView __instance)
+    {
+        MummyAbilityIconRuntime.ApplyToCharacterShopCarousel(__instance);
+    }
+}
+
+[HarmonyPatch(
+    typeof(CharacterShopView._ShiftCharacters_d__43),
+    nameof(CharacterShopView._ShiftCharacters_d__43.MoveNext))]
+internal static class CharacterShopViewShiftCharactersMoveNextPatch
+{
+    private static void Postfix(CharacterShopView._ShiftCharacters_d__43 __instance, bool __result)
+    {
+        if (__result)
+        {
+            return;
+        }
+
+        var view = __instance.__4__this;
+        if (view is not null)
+        {
+            MummyAbilityIconRuntime.ApplyToCharacterShopCarousel(view);
+        }
     }
 }
 

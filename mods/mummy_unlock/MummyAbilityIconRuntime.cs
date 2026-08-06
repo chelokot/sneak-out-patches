@@ -19,8 +19,34 @@ internal static class MummyAbilityIconRuntime
     public static void ApplyToCharacterShopView(CharacterShopView shopView)
     {
         ApplySprite(shopView._characterImage, GetCharacterSprite());
-        ApplySprite(shopView._firstSkillImage, GetTrapSprite());
-        ApplySprite(shopView._secondSkillImage, GetSarcophagusSprite());
+    }
+
+    public static void ApplyToCharacterShopCarousel(CharacterShopView shopView)
+    {
+        var characterAvatars = shopView._characterAvatars;
+        var indicesToView = shopView._indiciesToView;
+        var charactersToBuy = shopView._charactersToBuy;
+        if (characterAvatars is null || indicesToView is null || charactersToBuy is null)
+        {
+            return;
+        }
+
+        var visibleCount = Math.Min(characterAvatars.Length, indicesToView.Length);
+        for (var avatarIndex = 0; avatarIndex < visibleCount; avatarIndex++)
+        {
+            var characterIndex = indicesToView[avatarIndex];
+            if (characterIndex < 0 || characterIndex >= charactersToBuy.Length)
+            {
+                continue;
+            }
+
+            if (charactersToBuy[characterIndex].CharacterType != CharacterType.murderer_mummy)
+            {
+                continue;
+            }
+
+            ApplyCarouselSprite(characterAvatars[avatarIndex], GetCharacterSprite());
+        }
     }
 
     public static void ApplyToSeekerSelectionView(SeekerSelectionView view)
@@ -53,7 +79,7 @@ internal static class MummyAbilityIconRuntime
                 continue;
             }
 
-            ApplySprite(selectionImages[imageIndex], GetCharacterSprite());
+            ApplyCarouselSprite(selectionImages[imageIndex], GetCharacterSprite());
         }
     }
 
@@ -83,6 +109,19 @@ internal static class MummyAbilityIconRuntime
 
         image.sprite = sprite;
         image.overrideSprite = sprite;
+        image.preserveAspect = true;
+        image.enabled = true;
+    }
+
+    private static void ApplyCarouselSprite(Image? image, Sprite sprite)
+    {
+        if (image is null)
+        {
+            return;
+        }
+
+        image.overrideSprite = null;
+        image.sprite = sprite;
         image.preserveAspect = true;
         image.enabled = true;
     }

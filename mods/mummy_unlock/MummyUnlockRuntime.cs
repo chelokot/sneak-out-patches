@@ -87,6 +87,7 @@ internal static class MummyUnlockRuntime
 
     public static bool TryRenderCharacterShopDescription(CharacterShopView shopView)
     {
+        var isMummy = false;
         try
         {
             var charactersToBuy = shopView._charactersToBuy;
@@ -104,6 +105,7 @@ internal static class MummyUnlockRuntime
                 return false;
             }
 
+            isMummy = true;
             shopView._characterImage.sprite = currentEntry.CharacterSprite;
             shopView._characterImage.overrideSprite = currentEntry.CharacterSprite;
             shopView._characterName.text = TranslateShopText(shopView, currentEntry.NameKey);
@@ -123,7 +125,7 @@ internal static class MummyUnlockRuntime
         catch (Exception exception)
         {
             _logger?.LogError($"CharacterShopView custom description render failed: {exception}");
-            return false;
+            return isMummy;
         }
     }
 

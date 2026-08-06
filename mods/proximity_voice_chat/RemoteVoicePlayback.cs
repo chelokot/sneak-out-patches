@@ -1,3 +1,4 @@
+using BepInEx.Logging;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using UnityEngine;
 
@@ -7,8 +8,13 @@ internal sealed class RemoteVoicePlayback : IDisposable
 {
     private const float OcclusionProbeIntervalSeconds = 0.12f;
     private const float UnoccludedLowPassFrequency = 22000f;
+    private const float FullVolumeDistanceMetres = 2.5f;
+    private const float MaximumAudibleDistanceMetres = 10f;
+    private const int OcclusionHitCapacity = 16;
 
     private readonly ProximityVoiceChatConfig _configuration;
+    private readonly ManualLogSource _logger;
+    private readonly string _peerLabel;
     private readonly AdaptiveJitterBuffer _jitterBuffer;
     private readonly SteamVoiceDecoder _decoder;
     private readonly GameObject _host;
@@ -19,6 +25,7 @@ internal sealed class RemoteVoicePlayback : IDisposable
     private readonly int _sampleRate;
     private readonly int _startThresholdSamples;
     private readonly Il2CppStructArray<float> _silence;
+    private readonly Il2CppStructArray<RaycastHit> _occlusionHits = new(OcclusionHitCapacity);
     private readonly Dictionary<int, Il2CppStructArray<float>> _uploadBuffers = new();
     private Transform _anchor;
     private int _writePosition;
@@ -33,16 +40,17 @@ internal sealed class RemoteVoicePlayback : IDisposable
     private bool _outOfRange;
     private bool _suppressedByPlayerState;
     private bool _disposed;
-    private float _configuredMinimumDistance = -1f;
-    private float _configuredMaximumDistance = -1f;
 
     public RemoteVoicePlayback(
         Transform anchor,
         uint sampleRate,
         ProximityVoiceChatConfig configuration,
+        ManualLogSource logger,
         string peerLabel)
     {
         _configuration = configuration;
+        _logger = logger;
+        _peerLabel = peerLabel;
         _anchor = anchor;
         _jitterBuffer = new AdaptiveJitterBuffer(
             configuration.JitterBufferMilliseconds.Value,
@@ -71,8 +79,8 @@ internal sealed class RemoteVoicePlayback : IDisposable
         _audioSource.dopplerLevel = 0f;
         _audioSource.spread = 0f;
         _audioSource.rolloffMode = AudioRolloffMode.Custom;
-        RefreshDistanceCurve();
-        _audioSource.volume = configuration.MasterVolume.Value;
+        ConfigureDistanceCurve();
+        _audioSource.volume = Mathf.Clamp01(configuration.MasterVolume.Value);
         _lowPassFilter.cutoffFrequency = UnoccludedLowPassFrequency;
     }
 
@@ -117,7 +125,6 @@ internal sealed class RemoteVoicePlayback : IDisposable
         }
         _lastTickTime = nowSeconds;
         UpdateConsumedSamples();
-        RefreshDistanceCurve();
         if (!audibleForPlayerState)
         {
             _jitterBuffer.Reset();
@@ -168,24 +175,13 @@ internal sealed class RemoteVoicePlayback : IDisposable
         UpdateOcclusion(nowSeconds, listener);
     }
 
-    private void RefreshDistanceCurve()
+    private void ConfigureDistanceCurve()
     {
-        var minimum = Math.Max(0.01f, _configuration.MinimumDistance.Value);
-        var maximum = Math.Max(minimum + 0.01f, _configuration.MaximumDistance.Value);
-        if (Mathf.Approximately(minimum, _configuredMinimumDistance)
-            && Mathf.Approximately(maximum, _configuredMaximumDistance))
-        {
-            return;
-        }
-
-        _configuredMinimumDistance = minimum;
-        _configuredMaximumDistance = maximum;
-        _audioSource.minDistance = minimum;
-        _audioSource.maxDistance = maximum;
+        _audioSource.minDistance = FullVolumeDistanceMetres;
+        _audioSource.maxDistance = MaximumAudibleDistanceMetres;
         // AudioSource custom-rolloff curves use normalized distance: 0 is minDistance and 1 is
-        // maxDistance. Keeping the keys normalized is important when either setting changes at
-        // runtime; using world-space distances here would leave the whole audible range at full
-        // volume. The final key is exactly zero, unlike Unity's logarithmic rolloff.
+        // maxDistance. World-space keys would leave this fixed audible range at full volume. The
+        // final key is exactly zero, unlike Unity's logarithmic rolloff.
         _audioSource.SetCustomCurve(
             AudioSourceCurveType.CustomRolloff,
             new AnimationCurve(
@@ -238,9 +234,12 @@ internal sealed class RemoteVoicePlayback : IDisposable
                 _uploadBuffers.Add(length, data);
             }
         }
+        // Unity clamps AudioSource.volume to 0..1. Apply only the portion above 100% to PCM so the
+        // 500% setting is an actual gain control rather than a cosmetic slider extension.
+        var boost = Math.Max(1f, _configuration.MasterVolume.Value);
         for (var index = 0; index < length; index++)
         {
-            data[index] = source[sourceOffset + index];
+            data[index] = Mathf.Clamp(source[sourceOffset + index] * boost, -1f, 1f);
         }
         _clip.SetData(data, clipOffset);
     }
@@ -262,29 +261,55 @@ internal sealed class RemoteVoicePlayback : IDisposable
 
     private void UpdateOcclusion(float nowSeconds, Transform? listener)
     {
-        if (_configuration.EnableOcclusion.Value
-            && listener is not null
+        if (listener is not null
             && nowSeconds >= _nextOcclusionProbe)
         {
             _nextOcclusionProbe = nowSeconds + OcclusionProbeIntervalSeconds;
+            var wasOccluded = _isOccluded;
+            var blockingColliderName = string.Empty;
             var from = listener.position;
-            // Stop the probe just before the speaker so their own collider is not mistaken for a
-            // wall. The audio anchor remains at head height for spatialization.
-            var to = Vector3.Lerp(from, _host.transform.position, 0.94f);
-            _isOccluded = Physics.Linecast(
-                from,
-                to,
-                Physics.DefaultRaycastLayers,
-                QueryTriggerInteraction.Ignore);
+            var offset = _host.transform.position - from;
+            var distance = offset.magnitude;
+            var hitCount = distance > 0.01f
+                ? Physics.RaycastNonAlloc(
+                    from,
+                    offset / distance,
+                    _occlusionHits,
+                    distance,
+                    Physics.DefaultRaycastLayers,
+                    QueryTriggerInteraction.Ignore)
+                : 0;
+            _isOccluded = false;
+            for (var index = 0; index < hitCount; index++)
+            {
+                var collider = _occlusionHits[index].collider;
+                if (collider is null
+                    || collider.Pointer == IntPtr.Zero
+                    || BelongsToPlayer(collider.transform, listener)
+                    || BelongsToPlayer(collider.transform, _anchor))
+                {
+                    continue;
+                }
+
+                _isOccluded = true;
+                blockingColliderName = collider.gameObject.name;
+                break;
+            }
+            if (wasOccluded != _isOccluded && _configuration.EnableLogging.Value)
+            {
+                _logger.LogInfo(
+                    $"Proximity voice occlusion: peer={_peerLabel}, occluded={_isOccluded}, "
+                    + $"distance={distance:F2}, blocker={blockingColliderName}");
+            }
         }
-        else if (!_configuration.EnableOcclusion.Value || listener is null)
+        else if (listener is null)
         {
             _isOccluded = false;
         }
 
         var target = _isOccluded ? 1f : 0f;
         _occlusionAmount = Mathf.MoveTowards(_occlusionAmount, target, Time.unscaledDeltaTime * 7f);
-        var unoccludedVolume = _configuration.MasterVolume.Value;
+        var unoccludedVolume = Mathf.Clamp01(_configuration.MasterVolume.Value);
         _audioSource.volume = unoccludedVolume * Mathf.Lerp(
             1f,
             _configuration.OccludedVolumeMultiplier.Value,
@@ -293,6 +318,20 @@ internal sealed class RemoteVoicePlayback : IDisposable
             UnoccludedLowPassFrequency,
             _configuration.OccludedLowPassFrequency.Value,
             _occlusionAmount);
+    }
+
+    private static bool BelongsToPlayer(Transform? candidate, Transform playerTransform)
+    {
+        if (candidate is null || candidate.Pointer == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        var candidateRoot = candidate.root;
+        var playerRoot = playerTransform.root;
+        return candidateRoot is not null
+            && playerRoot is not null
+            && candidateRoot.Pointer == playerRoot.Pointer;
     }
 
     private void ResetPlayback()

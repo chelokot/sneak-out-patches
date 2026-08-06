@@ -8,7 +8,6 @@ using TMPro;
 using Types;
 using UI.Views;
 using UnityEngine;
-using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 
 namespace SneakOut.ProximityVoiceChat;
@@ -54,7 +53,7 @@ internal static class ProximityVoiceChatRuntime
     private static float _nextHelloTime;
     private static bool _shutdown;
     private static bool _pushToTalkKeyResolved;
-    private static KeyCode _cachedPushToTalkKeyCode;
+    private static string _cachedPushToTalkBinding = string.Empty;
     private static Key _cachedPushToTalkKey;
     private static string _lastRuntimeStatus = string.Empty;
     private static string _lastCaptureStatus = string.Empty;
@@ -346,10 +345,13 @@ internal static class ProximityVoiceChatRuntime
     {
         var mode = _configuration!.TransmissionMode.Value;
         var pushToTalkPressed = mode == VoiceTransmissionMode.PushToTalk && IsPushToTalkPressed();
-        var capturePermitted = (_configuration.TransmitWhileUnfocused.Value || Application.isFocused)
-            && (!_configuration.SuppressWhileTyping.Value || !IsTextInputFocused());
-        var shouldRecord = _peers!.ConfirmedPeers.Count > 0
-            && capturePermitted
+        var capturePermitted = !_configuration.StopWhenGameIsUnfocused.Value || Application.isFocused;
+        var hasConfirmedPeers = _peers!.ConfirmedPeers.Count > 0;
+        // Keep Steam's microphone session warm while a peer is connected. Starting capture only
+        // when PTT is pressed repeatedly puts Steam back into its initial NoData period and loses
+        // the beginning of an utterance. Frames are drained locally while transmission is closed.
+        var shouldCapture = hasConfirmedPeers && capturePermitted;
+        var shouldTransmit = shouldCapture
             && (mode switch
             {
                 VoiceTransmissionMode.PushToTalk => pushToTalkPressed,
@@ -358,15 +360,17 @@ internal static class ProximityVoiceChatRuntime
                 _ => false,
             });
         var captureStatus = !capturePermitted
-            ? (!Application.isFocused ? "paused-unfocused" : "paused-text-input")
-            : mode == VoiceTransmissionMode.PushToTalk && !pushToTalkPressed
-                ? "waiting-for-push-to-talk"
-                : shouldRecord
-                    ? "recording"
-                    : "waiting-for-handshake";
+            ? "paused-unfocused"
+            : !hasConfirmedPeers
+                ? "waiting-for-handshake"
+                : mode == VoiceTransmissionMode.PushToTalk && !pushToTalkPressed
+                    ? "armed-push-to-talk"
+                    : shouldTransmit
+                        ? "transmitting"
+                        : "capture-idle";
         ReportCaptureStatus(captureStatus);
-        _capture!.SetRecording(shouldRecord);
-        if (!shouldRecord)
+        _capture!.SetRecording(shouldCapture);
+        if (!shouldCapture)
         {
             VoiceActivationPreRoll.Clear();
             _voiceActivationOpenUntil = 0f;
@@ -377,6 +381,11 @@ internal static class ProximityVoiceChatRuntime
         while (captureBudget-- > 0
                && _capture.TryCapture(mode == VoiceTransmissionMode.VoiceActivation, out var frame))
         {
+            if (!shouldTransmit)
+            {
+                continue;
+            }
+
             var timestamp = unchecked((uint)Environment.TickCount64);
             if (mode != VoiceTransmissionMode.VoiceActivation)
             {
@@ -594,6 +603,7 @@ internal static class ProximityVoiceChatRuntime
                 player.transform,
                 _capture!.SampleRate,
                 _configuration!,
+                _logger!,
                 packet.SenderSteamId.ToString());
             Playbacks.Add(packet.SenderSteamId, playback);
             _logger?.LogInfo(
@@ -746,42 +756,24 @@ internal static class ProximityVoiceChatRuntime
 
     private static bool IsPushToTalkPressed()
     {
-        var configuredKey = _configuration!.PushToTalkKey.Value;
-        if (!_pushToTalkKeyResolved || configuredKey != _cachedPushToTalkKeyCode)
+        var configuredBinding = _configuration!.PushToTalkBinding.Value;
+        if (!_pushToTalkKeyResolved
+            || !string.Equals(configuredBinding, _cachedPushToTalkBinding, StringComparison.OrdinalIgnoreCase))
         {
-            _cachedPushToTalkKeyCode = configuredKey;
-            _pushToTalkKeyResolved = TryResolveKey(configuredKey, out _cachedPushToTalkKey);
+            _cachedPushToTalkBinding = configuredBinding;
+            _pushToTalkKeyResolved = TryResolveKey(configuredBinding, out _cachedPushToTalkKey);
         }
         return _pushToTalkKeyResolved
             && Keyboard.current?[_cachedPushToTalkKey].isPressed == true;
     }
 
-    private static bool TryResolveKey(KeyCode configuredKey, out Key key)
+    private static bool TryResolveKey(string binding, out Key key)
     {
-        var keyName = configuredKey.ToString() switch
-        {
-            "LeftControl" => "LeftCtrl",
-            "RightControl" => "RightCtrl",
-            "Return" => "Enter",
-            "Alpha0" => "Digit0",
-            "Alpha1" => "Digit1",
-            "Alpha2" => "Digit2",
-            "Alpha3" => "Digit3",
-            "Alpha4" => "Digit4",
-            "Alpha5" => "Digit5",
-            "Alpha6" => "Digit6",
-            "Alpha7" => "Digit7",
-            "Alpha8" => "Digit8",
-            "Alpha9" => "Digit9",
-            var value => value,
-        };
+        var slashIndex = binding.LastIndexOf('/');
+        var keyName = slashIndex >= 0 && slashIndex + 1 < binding.Length
+            ? binding[(slashIndex + 1)..]
+            : binding;
         return Enum.TryParse(keyName, ignoreCase: true, out key);
-    }
-
-    private static bool IsTextInputFocused()
-    {
-        var selected = EventSystem.current?.currentSelectedGameObject;
-        return selected is not null && selected.GetComponent<TMP_InputField>() is not null;
     }
 
     private static bool TryConsumePeerTraffic(ulong steamId, int bytes, float now)

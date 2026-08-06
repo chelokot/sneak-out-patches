@@ -1,27 +1,35 @@
-using BepInEx.Logging;
 using BepInEx;
+using BepInEx.Logging;
 using TMPro;
+using UI.InputBinding;
+using UI.VideoSettings;
 using UI.Views;
 using UnityEngine;
+using UnityEngine.Events;
+using UnityEngine.InputSystem;
 using UnityEngine.UI;
 
 namespace SneakOut.ProximityVoiceChat;
 
 internal static class ProximityVoiceSettingsUi
 {
-    private const float MinimumUiVoiceDistance = 8f;
-    private const float MaximumUiVoiceDistance = 30f;
     private const float LeastSensitiveThreshold = 0.08f;
     private const float MostSensitiveThreshold = 0.002f;
 
     private static ProximityVoiceChatConfig? _configuration;
     private static ManualLogSource? _logger;
     private static GameMenuView? _view;
-    private static VoiceSettingsRow? _modeRow;
-    private static VoiceSettingsRow? _volumeRow;
-    private static VoiceSettingsRow? _sensitivityRow;
-    private static VoiceSettingsRow? _distanceRow;
+    private static ToggleSettingsRow? _enabledRow;
+    private static DropdownSettingsRow? _modeRow;
+    private static BindingSettingsRow? _bindingRow;
+    private static ToggleSettingsRow? _stopWhenUnfocusedRow;
+    private static SliderSettingsRow? _volumeRow;
+    private static SliderSettingsRow? _sensitivityRow;
+    private static UnityAction? _bindingClickAction;
+    private static UnityAction? _bindingResetAction;
     private static bool _updating;
+    private static bool _recordingBinding;
+    private static float _recordingReadyAt;
     private static float _diagnosticOpenAt = -1f;
     private static float _diagnosticCaptureAt = -1f;
 
@@ -44,23 +52,36 @@ internal static class ProximityVoiceSettingsUi
 
         try
         {
+            ClearReferences();
             _view = view;
-            var template = view._musicSlider.transform.parent?.gameObject;
-            if (template is null)
-            {
-                return;
-            }
-
             DestroyExistingRows(view._audioPanel.transform);
-            _modeRow = CreateRow(template, view._audioPanel.transform, "ProximityVoiceModePanel");
-            _volumeRow = CreateRow(template, view._audioPanel.transform, "ProximityVoiceVolumePanel");
-            _sensitivityRow = CreateRow(template, view._audioPanel.transform, "ProximityVoiceSensitivityPanel");
-            _distanceRow = CreateRow(template, view._audioPanel.transform, "ProximityVoiceDistancePanel");
 
-            ConfigureSlider(_modeRow.Slider, 0f, 2f, wholeNumbers: true);
-            ConfigureSlider(_volumeRow.Slider, 0f, 2f, wholeNumbers: false);
+            var toggleTemplate = view._videoPanel?.transform.Find("VsyncPanel")?.gameObject
+                ?? throw new InvalidOperationException("Stock settings toggle row is unavailable");
+            var dropdownTemplate = view._videoPanel?.transform.Find("ScreenModePanel")?.gameObject
+                ?? throw new InvalidOperationException("Stock settings dropdown row is unavailable");
+            var sliderTemplate = view._musicSlider.transform.parent?.gameObject
+                ?? throw new InvalidOperationException("Stock settings slider row is unavailable");
+            var stockBinding = view._controlsPanel?.GetComponentsInChildren<BindingUI>(true).FirstOrDefault()
+                ?? throw new InvalidOperationException("Stock key-binding row is unavailable");
+            var bindingTemplate = stockBinding.transform.parent?.gameObject
+                ?? throw new InvalidOperationException("Stock key-binding panel is unavailable");
+
+            _enabledRow = CreateToggleRow(toggleTemplate, view._audioPanel.transform, "ProximityVoiceEnabledPanel");
+            _modeRow = CreateDropdownRow(dropdownTemplate, view._audioPanel.transform, "ProximityVoiceModePanel");
+            _bindingRow = CreateBindingRow(bindingTemplate, view._audioPanel.transform);
+            _stopWhenUnfocusedRow = CreateToggleRow(
+                toggleTemplate,
+                view._audioPanel.transform,
+                "ProximityVoiceStopWhenUnfocusedPanel");
+            _volumeRow = CreateSliderRow(sliderTemplate, view._audioPanel.transform, "ProximityVoiceVolumePanel");
+            _sensitivityRow = CreateSliderRow(
+                sliderTemplate,
+                view._audioPanel.transform,
+                "ProximityVoiceSensitivityPanel");
+
+            ConfigureSlider(_volumeRow.Slider, 0f, 5f, wholeNumbers: false);
             ConfigureSlider(_sensitivityRow.Slider, 0f, 100f, wholeNumbers: true);
-            ConfigureSlider(_distanceRow.Slider, MinimumUiVoiceDistance, MaximumUiVoiceDistance, wholeNumbers: true);
             Refresh(forceSliderValues: true);
             if (_configuration.CaptureSettingsScreenshot.Value)
             {
@@ -70,7 +91,7 @@ internal static class ProximityVoiceSettingsUi
         }
         catch (Exception exception)
         {
-            _logger?.LogWarning($"Could not add proximity voice settings controls: {exception.Message}");
+            _logger?.LogWarning($"Could not add proximity voice settings controls: {exception}");
             ClearReferences();
         }
     }
@@ -87,11 +108,13 @@ internal static class ProximityVoiceSettingsUi
             TickVisualDiagnostic();
             if (_modeRow?.Root.activeInHierarchy != true)
             {
+                CancelBindingRecording();
                 return;
             }
             if (!_updating)
             {
-                ApplyChangedSliderValues();
+                TickBindingRecording();
+                ApplyChangedValues();
             }
             Refresh(forceSliderValues: false);
         }
@@ -133,34 +156,35 @@ internal static class ProximityVoiceSettingsUi
         _logger?.LogInfo($"Captured proximity voice settings: {capturePath}");
     }
 
-    private static void ApplyChangedSliderValues()
+    private static void ApplyChangedValues()
     {
-        var mode = (VoiceTransmissionMode)Mathf.Clamp(Mathf.RoundToInt(_modeRow!.Slider.value), 0, 2);
-        if (_configuration!.TransmissionMode.Value != mode)
-        {
-            _configuration.TransmissionMode.Value = mode;
-        }
-
-        var volume = Mathf.Clamp(_volumeRow!.Slider.value, 0f, 2f);
-        if (!Mathf.Approximately(_configuration.MasterVolume.Value, volume))
-        {
-            _configuration.MasterVolume.Value = volume;
-        }
-
+        var configuration = _configuration!;
+        var enabled = _enabledRow!.Toggle.isOn;
+        var mode = (VoiceTransmissionMode)Mathf.Clamp(_modeRow!.Dropdown.value, 0, 2);
+        var stopWhenUnfocused = _stopWhenUnfocusedRow!.Toggle.isOn;
+        var volume = Mathf.Clamp(_volumeRow!.Slider.value, 0f, 5f);
         var sensitivity = Mathf.Clamp01(_sensitivityRow!.Slider.value / 100f);
         var threshold = Mathf.Lerp(LeastSensitiveThreshold, MostSensitiveThreshold, sensitivity);
-        if (!Mathf.Approximately(_configuration.VoiceActivationThreshold.Value, threshold))
-        {
-            _configuration.VoiceActivationThreshold.Value = threshold;
-        }
 
-        var distance = Mathf.Clamp(
-            _distanceRow!.Slider.value,
-            MinimumUiVoiceDistance,
-            MaximumUiVoiceDistance);
-        if (!Mathf.Approximately(_configuration.MaximumDistance.Value, distance))
+        if (configuration.EnableMod.Value != enabled)
         {
-            _configuration.MaximumDistance.Value = distance;
+            configuration.EnableMod.Value = enabled;
+        }
+        if (configuration.TransmissionMode.Value != mode)
+        {
+            configuration.TransmissionMode.Value = mode;
+        }
+        if (configuration.StopWhenGameIsUnfocused.Value != stopWhenUnfocused)
+        {
+            configuration.StopWhenGameIsUnfocused.Value = stopWhenUnfocused;
+        }
+        if (!Mathf.Approximately(configuration.MasterVolume.Value, volume))
+        {
+            configuration.MasterVolume.Value = volume;
+        }
+        if (!Mathf.Approximately(configuration.VoiceActivationThreshold.Value, threshold))
+        {
+            configuration.VoiceActivationThreshold.Value = threshold;
         }
     }
 
@@ -174,53 +198,47 @@ internal static class ProximityVoiceSettingsUi
         _updating = true;
         try
         {
-            var modeRow = _modeRow!;
-            var volumeRow = _volumeRow!;
-            var sensitivityRow = _sensitivityRow!;
-            var distanceRow = _distanceRow!;
             var mode = _configuration.TransmissionMode.Value;
-            if (forceSliderValues || Mathf.RoundToInt(modeRow.Slider.value) != (int)mode)
-            {
-                modeRow.Slider.SetValueWithoutNotify((int)mode);
-            }
-            if (forceSliderValues || !Mathf.Approximately(volumeRow.Slider.value, _configuration.MasterVolume.Value))
-            {
-                volumeRow.Slider.SetValueWithoutNotify(_configuration.MasterVolume.Value);
-            }
             var sensitivity = Mathf.InverseLerp(
                 LeastSensitiveThreshold,
                 MostSensitiveThreshold,
                 _configuration.VoiceActivationThreshold.Value) * 100f;
-            if (forceSliderValues || !Mathf.Approximately(sensitivityRow.Slider.value, sensitivity))
+
+            RefreshToggle(_enabledRow!, _configuration.EnableMod.Value);
+            RefreshDropdown(_modeRow!, (int)mode);
+            RefreshToggle(_stopWhenUnfocusedRow!, _configuration.StopWhenGameIsUnfocused.Value);
+            RefreshSlider(_volumeRow!, _configuration.MasterVolume.Value, forceSliderValues);
+            RefreshSlider(_sensitivityRow!, sensitivity, forceSliderValues);
+
+            SetTextIfChanged(_enabledRow!.Title, "Proximity voice chat");
+            SetTextIfChanged(_modeRow!.Title, "Voice mode");
+            SetTextIfChanged(_bindingRow!.Title, "Push-to-talk key");
+            SetTextIfChanged(
+                _bindingRow.Value,
+                _recordingBinding
+                    ? "Press a key (Esc cancels)"
+                    : GetBindingDisplayName(_configuration.PushToTalkBinding.Value));
+            SetTextIfChanged(_bindingRow.ResetLabel, "Reset");
+            SetTextIfChanged(_stopWhenUnfocusedRow!.Title, "Stop when game is unfocused");
+            SetTextIfChanged(_volumeRow!.Title, "Voice volume");
+            SetTextIfChanged(_volumeRow.Value, $"{Mathf.RoundToInt(_configuration.MasterVolume.Value * 100f)}%");
+            SetTextIfChanged(_sensitivityRow!.Title, "Microphone sensitivity");
+            SetTextIfChanged(_sensitivityRow.Value, $"{Mathf.RoundToInt(sensitivity)}%");
+
+            var bindingActive = mode == VoiceTransmissionMode.PushToTalk;
+            if (_bindingRow.Root.activeSelf != bindingActive)
             {
-                sensitivityRow.Slider.SetValueWithoutNotify(sensitivity);
+                _bindingRow.Root.SetActive(bindingActive);
             }
-            if (forceSliderValues || !Mathf.Approximately(distanceRow.Slider.value, _configuration.MaximumDistance.Value))
+            if (!bindingActive)
             {
-                distanceRow.Slider.SetValueWithoutNotify(_configuration.MaximumDistance.Value);
+                CancelBindingRecording();
             }
 
-            SetTextIfChanged(modeRow.Title, "Voice mode");
-            SetTextIfChanged(modeRow.Value, mode switch
-            {
-                VoiceTransmissionMode.PushToTalk => $"Push to talk ({_configuration.PushToTalkKey.Value})",
-                VoiceTransmissionMode.VoiceActivation => "Voice activation",
-                VoiceTransmissionMode.AlwaysOn => "Always on",
-                _ => mode.ToString(),
-            });
-            SetTextIfChanged(volumeRow.Title, "Voice volume");
-            SetTextIfChanged(volumeRow.Value, $"{Mathf.RoundToInt(_configuration.MasterVolume.Value * 100f)}%");
-            SetTextIfChanged(sensitivityRow.Title, "Microphone sensitivity");
-            SetTextIfChanged(sensitivityRow.Value, $"{Mathf.RoundToInt(sensitivity)}%");
-            SetTextIfChanged(distanceRow.Title, "Voice distance");
-            SetTextIfChanged(distanceRow.Value, $"{Mathf.RoundToInt(_configuration.MaximumDistance.Value)} m");
-
-            // Sensitivity is meaningful only for voice activation. Hiding the full stock panel
-            // lets VerticalLayoutGroup close the gap automatically.
             var sensitivityActive = mode == VoiceTransmissionMode.VoiceActivation;
-            if (sensitivityRow.Root.activeSelf != sensitivityActive)
+            if (_sensitivityRow.Root.activeSelf != sensitivityActive)
             {
-                sensitivityRow.Root.SetActive(sensitivityActive);
+                _sensitivityRow.Root.SetActive(sensitivityActive);
             }
         }
         finally
@@ -229,23 +247,86 @@ internal static class ProximityVoiceSettingsUi
         }
     }
 
-    private static void SetTextIfChanged(TMP_Text label, string value)
+    private static ToggleSettingsRow CreateToggleRow(GameObject template, Transform parent, string name)
     {
-        if (!string.Equals(label.text, value, StringComparison.Ordinal))
-        {
-            label.text = value;
-        }
+        var root = UnityEngine.Object.Instantiate(template, parent, false);
+        root.name = name;
+        root.transform.SetAsLastSibling();
+        var toggle = root.GetComponentInChildren<Toggle>(true)
+            ?? throw new InvalidOperationException($"{name} has no stock toggle");
+        toggle.onValueChanged = new Toggle.ToggleEvent();
+        var title = root.GetComponentsInChildren<TMP_Text>(true).FirstOrDefault()
+            ?? throw new InvalidOperationException($"{name} has no title label");
+        return new ToggleSettingsRow(root, toggle, title);
     }
 
-    private static VoiceSettingsRow CreateRow(GameObject template, Transform parent, string name)
+    private static DropdownSettingsRow CreateDropdownRow(GameObject template, Transform parent, string name)
+    {
+        var root = UnityEngine.Object.Instantiate(template, parent, false);
+        root.name = name;
+        root.transform.SetAsLastSibling();
+        var dropdown = root.GetComponentInChildren<TMP_Dropdown>(true)
+            ?? throw new InvalidOperationException($"{name} has no stock dropdown");
+        var screenModeSelector = root.GetComponentInChildren<ScreenModeSelector>(true);
+        if (screenModeSelector is not null)
+        {
+            screenModeSelector.enabled = false;
+            UnityEngine.Object.Destroy(screenModeSelector);
+        }
+        var screenModeView = root.GetComponentInChildren<ScreenModeDropdownView>(true);
+        if (screenModeView is not null)
+        {
+            screenModeView.enabled = false;
+            UnityEngine.Object.Destroy(screenModeView);
+        }
+        dropdown.onValueChanged = new TMP_Dropdown.DropdownEvent();
+        EnsureModeOptions(dropdown);
+        dropdown.interactable = true;
+        dropdown.RefreshShownValue();
+
+        var labels = root.GetComponentsInChildren<TMP_Text>(true);
+        var title = labels.FirstOrDefault(label =>
+                dropdown.captionText is null || label.Pointer != dropdown.captionText.Pointer)
+            ?? throw new InvalidOperationException($"{name} has no title label");
+        return new DropdownSettingsRow(root, dropdown, title);
+    }
+
+    private static BindingSettingsRow CreateBindingRow(GameObject template, Transform parent)
+    {
+        var root = UnityEngine.Object.Instantiate(template, parent, false);
+        root.name = "ProximityVoicePushToTalkBindingPanel";
+        root.transform.SetAsLastSibling();
+
+        var bindingUi = root.GetComponentInChildren<BindingUI>(true)
+            ?? throw new InvalidOperationException("Cloned key-binding panel has no BindingUI");
+        bindingUi.enabled = false;
+        var title = root.transform.Find("RebindUIPrefab/ActionNameText")?.GetComponent<TMP_Text>()
+            ?? throw new InvalidOperationException("Cloned key-binding panel has no action label");
+        var trigger = root.transform.Find("RebindUIPrefab/TriggerRebindButton")?.GetComponent<Button>()
+            ?? throw new InvalidOperationException("Cloned key-binding panel has no record button");
+        var value = trigger.GetComponentInChildren<TMP_Text>(true)
+            ?? throw new InvalidOperationException("Cloned key-binding panel has no binding label");
+        var reset = root.transform.Find("RebindUIPrefab/ResetToDefaultButton")?.GetComponent<Button>()
+            ?? throw new InvalidOperationException("Cloned key-binding panel has no reset button");
+        var resetLabel = reset.GetComponentInChildren<TMP_Text>(true)
+            ?? throw new InvalidOperationException("Cloned key-binding panel has no reset label");
+
+        trigger.onClick = new Button.ButtonClickedEvent();
+        reset.onClick = new Button.ButtonClickedEvent();
+        _bindingClickAction = (UnityAction)BeginBindingRecording;
+        _bindingResetAction = (UnityAction)ResetBinding;
+        trigger.onClick.AddListener(_bindingClickAction);
+        reset.onClick.AddListener(_bindingResetAction);
+        return new BindingSettingsRow(root, trigger, reset, title, value, resetLabel);
+    }
+
+    private static SliderSettingsRow CreateSliderRow(GameObject template, Transform parent, string name)
     {
         var root = UnityEngine.Object.Instantiate(template, parent, false);
         root.name = name;
         root.transform.SetAsLastSibling();
         var slider = root.GetComponentInChildren<Slider>(true)
             ?? throw new InvalidOperationException($"{name} has no stock slider");
-        // A cloned UnityEvent retains the music slider's persistent callback. A fresh event keeps
-        // the stock visuals/navigation without changing music whenever a voice control is moved.
         slider.onValueChanged = new Slider.SliderEvent();
 
         var labels = root.GetComponentsInChildren<TMP_Text>(true);
@@ -254,7 +335,7 @@ internal static class ProximityVoiceSettingsUi
             ?? throw new InvalidOperationException($"{name} has no title label");
         var value = labels.FirstOrDefault(label => label.Pointer != title.Pointer)
             ?? throw new InvalidOperationException($"{name} has no value label");
-        return new VoiceSettingsRow(root, slider, title, value);
+        return new SliderSettingsRow(root, slider, title, value);
     }
 
     private static void ConfigureSlider(Slider slider, float minimum, float maximum, bool wholeNumbers)
@@ -263,6 +344,186 @@ internal static class ProximityVoiceSettingsUi
         slider.maxValue = maximum;
         slider.wholeNumbers = wholeNumbers;
         slider.interactable = true;
+    }
+
+    private static void RefreshToggle(ToggleSettingsRow row, bool value)
+    {
+        if (row.Toggle.isOn != value)
+        {
+            row.Toggle.SetIsOnWithoutNotify(value);
+        }
+    }
+
+    private static void RefreshDropdown(DropdownSettingsRow row, int value)
+    {
+        EnsureModeOptions(row.Dropdown);
+        var clamped = Mathf.Clamp(value, 0, 2);
+        if (row.Dropdown.value != clamped)
+        {
+            row.Dropdown.SetValueWithoutNotify(clamped);
+            row.Dropdown.RefreshShownValue();
+        }
+        if (row.Dropdown.captionText is not null)
+        {
+            SetTextIfChanged(row.Dropdown.captionText, GetModeLabel(clamped));
+        }
+    }
+
+    private static void EnsureModeOptions(TMP_Dropdown dropdown)
+    {
+        if (dropdown.options.Count == 3
+            && string.Equals(dropdown.options[0].text, "Push to talk", StringComparison.Ordinal)
+            && string.Equals(dropdown.options[1].text, "Voice activation", StringComparison.Ordinal)
+            && string.Equals(dropdown.options[2].text, "Always on", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        dropdown.ClearOptions();
+        var options = new Il2CppSystem.Collections.Generic.List<TMP_Dropdown.OptionData>();
+        options.Add(new TMP_Dropdown.OptionData("Push to talk"));
+        options.Add(new TMP_Dropdown.OptionData("Voice activation"));
+        options.Add(new TMP_Dropdown.OptionData("Always on"));
+        dropdown.AddOptions(options);
+        dropdown.RefreshShownValue();
+    }
+
+    private static string GetModeLabel(int value)
+    {
+        return value switch
+        {
+            1 => "Voice activation",
+            2 => "Always on",
+            _ => "Push to talk",
+        };
+    }
+
+    private static void RefreshSlider(SliderSettingsRow row, float value, bool force)
+    {
+        if (force || !Mathf.Approximately(row.Slider.value, value))
+        {
+            row.Slider.SetValueWithoutNotify(value);
+        }
+    }
+
+    private static void BeginBindingRecording()
+    {
+        if (_bindingRow?.Root.activeInHierarchy != true)
+        {
+            return;
+        }
+
+        _recordingBinding = true;
+        // Do not record the keyboard/gamepad submit event that activated the button.
+        _recordingReadyAt = Time.unscaledTime + 0.2f;
+        Refresh(forceSliderValues: false);
+    }
+
+    private static void TickBindingRecording()
+    {
+        if (!_recordingBinding)
+        {
+            return;
+        }
+        if (_bindingRow?.Root.activeInHierarchy != true)
+        {
+            CancelBindingRecording();
+            return;
+        }
+        if (Time.unscaledTime < _recordingReadyAt)
+        {
+            return;
+        }
+
+        var keyboard = Keyboard.current;
+        if (keyboard is null)
+        {
+            return;
+        }
+        if (keyboard.escapeKey.wasPressedThisFrame)
+        {
+            CancelBindingRecording();
+            return;
+        }
+
+        var keys = keyboard.allKeys;
+        for (var index = 0; index < keys.Count; index++)
+        {
+            var key = keys[index];
+            if (key is null || !key.wasPressedThisFrame || key.Pointer == keyboard.escapeKey.Pointer)
+            {
+                continue;
+            }
+
+            SetBinding($"<Keyboard>/{key.name}");
+            return;
+        }
+    }
+
+    private static void ResetBinding()
+    {
+        SetBinding(ProximityVoiceChatConfig.DefaultPushToTalkBinding);
+    }
+
+    private static void SetBinding(string binding)
+    {
+        CancelBindingRecording();
+        if (_configuration is null
+            || string.Equals(_configuration.PushToTalkBinding.Value, binding, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        _configuration.PushToTalkBinding.Value = binding;
+        _logger?.LogInfo($"Proximity voice push-to-talk binding changed to {binding}");
+    }
+
+    private static void CancelBindingRecording()
+    {
+        _recordingBinding = false;
+        _recordingReadyAt = 0f;
+    }
+
+    private static string GetBindingDisplayName(string binding)
+    {
+        var slashIndex = binding.LastIndexOf('/');
+        var controlName = slashIndex >= 0 && slashIndex + 1 < binding.Length
+            ? binding[(slashIndex + 1)..]
+            : binding;
+        var keyboard = Keyboard.current;
+        if (keyboard is not null)
+        {
+            var keys = keyboard.allKeys;
+            for (var index = 0; index < keys.Count; index++)
+            {
+                var key = keys[index];
+                if (key is not null && string.Equals(key.name, controlName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return key.displayName;
+                }
+            }
+        }
+
+        return controlName switch
+        {
+            "capsLock" => "Caps Lock",
+            "leftShift" => "Left Shift",
+            "rightShift" => "Right Shift",
+            "leftCtrl" => "Left Ctrl",
+            "rightCtrl" => "Right Ctrl",
+            "leftAlt" => "Left Alt",
+            "rightAlt" => "Right Alt",
+            _ when controlName.Length == 1 => controlName.ToUpperInvariant(),
+            _ => controlName,
+        };
+    }
+
+    private static void SetTextIfChanged(TMP_Text label, string value)
+    {
+        if (!string.Equals(label.text, value, StringComparison.Ordinal))
+        {
+            label.text = value;
+        }
     }
 
     private static void DestroyExistingRows(Transform parent)
@@ -281,13 +542,38 @@ internal static class ProximityVoiceSettingsUi
     {
         return _view is not null
             && _view.Pointer != IntPtr.Zero
-            && RowIsAvailable(_modeRow)
-            && RowIsAvailable(_volumeRow)
-            && RowIsAvailable(_sensitivityRow)
-            && RowIsAvailable(_distanceRow);
+            && ToggleRowIsAvailable(_enabledRow)
+            && DropdownRowIsAvailable(_modeRow)
+            && BindingRowIsAvailable(_bindingRow)
+            && ToggleRowIsAvailable(_stopWhenUnfocusedRow)
+            && SliderRowIsAvailable(_volumeRow)
+            && SliderRowIsAvailable(_sensitivityRow);
     }
 
-    private static bool RowIsAvailable(VoiceSettingsRow? row)
+    private static bool ToggleRowIsAvailable(ToggleSettingsRow? row)
+    {
+        return row is not null
+            && row.Root is not null
+            && row.Root.Pointer != IntPtr.Zero
+            && row.Toggle is not null
+            && row.Toggle.Pointer != IntPtr.Zero;
+    }
+
+    private static bool DropdownRowIsAvailable(DropdownSettingsRow? row)
+    {
+        return row is not null
+            && row.Root is not null
+            && row.Root.Pointer != IntPtr.Zero
+            && row.Dropdown is not null
+            && row.Dropdown.Pointer != IntPtr.Zero;
+    }
+
+    private static bool BindingRowIsAvailable(BindingSettingsRow? row)
+    {
+        return row is not null && row.PointerIsValid();
+    }
+
+    private static bool SliderRowIsAvailable(SliderSettingsRow? row)
     {
         return row is not null
             && row.Root is not null
@@ -298,14 +584,54 @@ internal static class ProximityVoiceSettingsUi
 
     private static void ClearReferences()
     {
+        if (_bindingRow is not null && _bindingRow.PointerIsValid())
+        {
+            if (_bindingClickAction is not null)
+            {
+                _bindingRow.Trigger.onClick.RemoveListener(_bindingClickAction);
+            }
+            if (_bindingResetAction is not null)
+            {
+                _bindingRow.Reset.onClick.RemoveListener(_bindingResetAction);
+            }
+        }
+        CancelBindingRecording();
         _view = null;
+        _enabledRow = null;
         _modeRow = null;
+        _bindingRow = null;
+        _stopWhenUnfocusedRow = null;
         _volumeRow = null;
         _sensitivityRow = null;
-        _distanceRow = null;
+        _bindingClickAction = null;
+        _bindingResetAction = null;
+        _updating = false;
         _diagnosticOpenAt = -1f;
         _diagnosticCaptureAt = -1f;
     }
 
-    private sealed record VoiceSettingsRow(GameObject Root, Slider Slider, TMP_Text Title, TMP_Text Value);
+    private sealed record ToggleSettingsRow(GameObject Root, Toggle Toggle, TMP_Text Title);
+
+    private sealed record DropdownSettingsRow(GameObject Root, TMP_Dropdown Dropdown, TMP_Text Title);
+
+    private sealed record BindingSettingsRow(
+        GameObject Root,
+        Button Trigger,
+        Button Reset,
+        TMP_Text Title,
+        TMP_Text Value,
+        TMP_Text ResetLabel)
+    {
+        public bool PointerIsValid()
+        {
+            return Root is not null
+                && Root.Pointer != IntPtr.Zero
+                && Trigger is not null
+                && Trigger.Pointer != IntPtr.Zero
+                && Reset is not null
+                && Reset.Pointer != IntPtr.Zero;
+        }
+    }
+
+    private sealed record SliderSettingsRow(GameObject Root, Slider Slider, TMP_Text Title, TMP_Text Value);
 }

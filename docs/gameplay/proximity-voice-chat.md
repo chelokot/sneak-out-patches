@@ -15,16 +15,18 @@ No external voice server, account, native codec, or microphone recording file is
 
 ## User behavior
 
-- Push-to-talk is the default, on physical `V` regardless of keyboard layout.
+- Push-to-talk is the default, on physical `V` regardless of keyboard layout. Its stock-style key
+  binding row supports recording, cancellation, and reset inside Audio settings.
 - `VoiceActivation` has configurable threshold, 160 ms pre-roll, and hangover so syllable starts
   and ends are not clipped.
 - `AlwaysOn` exists but is not the privacy-preserving default.
-- Transmission stops when the game loses focus and while a text field is selected, unless the
-  corresponding setting is explicitly changed.
+- `Stop when game is unfocused` is enabled by default and can be changed in Audio settings.
+- Voice volume can be boosted to 500% for quiet microphones.
 - `MutedSteamIds` is a persistent local deny-list.
-- Voice mode, voice volume, microphone sensitivity, and audible distance are exposed inside the
-  game's stock Audio settings scroll using cloned `SettingsPanelView`/`SpookedOutlineSlider`
-  controls. The normal rounded panels, hover outline, mouse, and controller navigation are kept.
+- Enabled state and focus behavior use stock toggle rows, voice mode uses a stock dropdown,
+  push-to-talk uses the stock key-binding row, and volume/sensitivity use stock sliders inside the
+  game's Audio settings scroll. The normal rounded panels, hover outline, mouse, and controller
+  navigation are kept. Audible distance is fixed at 10 metres.
 
 ## Living and ghost channels
 
@@ -62,6 +64,11 @@ The sender reads compressed Steam voice frames on the Unity main thread. Frames 
 Steam unreliable datagram are split into bounded fragments; the receiver applies strict fragment
 count, memory, and expiry limits before reassembly.
 
+Once a voice peer is authenticated, push-to-talk keeps Steam's local microphone capture session
+warm and drains unsent frames while the key is released. No audio is transmitted until the key is
+held; avoiding a fresh Steam capture startup on every press prevents clipped or delayed first
+utterances.
+
 Transport uses a dedicated P2P channel and closes only that channel during teardown; it never
 closes another mod's or the game's whole Steam peer session.
 
@@ -76,9 +83,10 @@ Each remote speaker owns:
 - late/duplicate packet rejection and bounded loss recovery
 - Steam voice decompression into a three-second circular PCM clip
 - a child `AudioSource` attached near the remote avatar's head
-- normalized custom 3D rolloff: full volume nearby, progressively quieter with distance, and
-  exactly silent at the configurable far edge
-- a throttled wall probe which smoothly blends volume and low-pass filtering
+- normalized custom 3D rolloff: full volume within 2.5 metres, progressively quieter with
+  distance, and exactly silent at the fixed 10-metre edge
+- a throttled wall probe that ignores both players' colliders and smoothly blends volume and
+  low-pass filtering only for intervening level geometry
 
 The implementation prefers dropping stale speech and resynchronizing over accumulating seconds of
 latency. All packet, fragment, PCM, and per-tick decode work is bounded.

@@ -7,7 +7,7 @@ This is the measurement record behind `performance-optimizer` and the Linux inst
 - Flatpak Steam, Proton 10, DXVK/D3D11
 - Intel Core i5-12500H, NVIDIA RTX 4050 Laptop, 1920x1080 at 144 Hz
 - real private Fusion session on Map02 with one authoritative test bot
-- deterministic free-fly traversal through the same rooms
+- deterministic traversal through the same rooms
 - one-second host sampling for CPU, RSS, cgroup I/O, GPU load, VRAM and power
 - opt-in in-game frame histograms and narrow managed-method profiling
 - Linux `perf` sampling for native/Unity/DXVK work

@@ -95,8 +95,8 @@ External prerequisites:
 ## Runtime mod catalog
 
 The normal install enables every stable mod below. `Network Host Selector` and
-`Alternate Skill Hotkey` are opt-in gameplay modifiers; `Lobby Test Bot`, `Free Fly`,
-and `Runtime Profiler` are development tools. Install any of them with `--all` or select
+`Alternate Skill Hotkey` are opt-in gameplay modifiers; `Lobby Test Bot` and
+`Runtime Profiler` are development tools. Install any of them with `--all` or select
 them with `--interactive`.
 
 | Mod id | Name | Default | What it does |
@@ -122,7 +122,6 @@ them with `--interactive`.
 | `friend-invite-unlock` | Friend Invite Unlock | Yes | Keeps offline Steam friends available in the lobby invite list while preserving the normal self, teammate, leave and remove actions. |
 | `lobby-skill-sandbox` | Lobby Skill Sandbox | Yes | Enables the penguin skill panel and lobby-safe slide for practice. Match-only prop transformation is deliberately suppressed because the stock RPC has no safe lobby state and can freeze movement or drop the player through the floor. |
 | `lobby-test-bot` | Lobby Test Bot | No | Adds a native Dummy bot settings row that spawns or removes one inert real Fusion bot and chooses Penguin or Hunter Priority for Classic private tests. A hunter bot automatically confirms the stock Ripper so selection cannot stall. It is excluded from compatibility and host-selection counts. |
-| `free-fly` | Free Fly (Debug) | No | Adds Page Up/Page Down vertical movement for controlled map and interaction debugging; it is not intended for normal online matches. |
 | `runtime-profiler` | Runtime Profiler (Debug) | No | Instruments explicitly selected managed methods and writes timing reports for focused performance investigations. Expensive broad profiling is not enabled by default. |
 
 `runtime_mods_manifest.json` is the authoritative machine-readable source for these ids,

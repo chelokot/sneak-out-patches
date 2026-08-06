@@ -227,17 +227,6 @@
     "default_config_template_path": "config_templates/runtime_mods/lobby-test-bot.cfg"
   },
   {
-    "option_id": "free-fly",
-    "label": "Free Fly (Debug)",
-    "details": "Builds and installs the BepInEx runtime mod that moves the local player vertically with PageUp and PageDown for debugging.",
-    "category": "debug",
-    "default_enabled": false,
-    "project_relative_path": "mods/free_fly/FreeFly.csproj",
-    "assembly_name": "SneakOut.FreeFly",
-    "config_relative_path": "BepInEx/config/chelokot.sneakout.free-fly.cfg",
-    "default_config_template_path": "config_templates/runtime_mods/free-fly.cfg"
-  },
-  {
     "option_id": "runtime-profiler",
     "label": "Runtime Profiler (Debug)",
     "details": "Builds and installs the BepInEx runtime mod that profiles configured managed methods and writes a report on exit.",

@@ -146,7 +146,7 @@ internal static class PortalModeSelectorRuntime
         var modeSection = PortalSettingsLayout.CreateNativeSection(
             view,
             PortalSettingsLayout.ModeSectionName,
-            "MODE");
+            "Mode");
         if (modeSection is null)
         {
             _logger?.LogWarning("Portal controls skipped: native Mode row was not found");
@@ -178,7 +178,7 @@ internal static class PortalModeSelectorRuntime
         var mapsSection = PortalSettingsLayout.CreateNativeSection(
             view,
             PortalSettingsLayout.MapsSectionName,
-            "MAPS");
+            "Maps");
         if (mapsSection is null)
         {
             modeSwitch.Button.onClick.RemoveListener(modeClickAction);
@@ -190,7 +190,7 @@ internal static class PortalModeSelectorRuntime
         foreach (var map in PreferredMapSelection.GetAvailableMaps(GameModeType.Default).OrderBy(GetMapDisplayOrder))
         {
             var option = CreateMapOption(
-                view.Pointer,
+                view,
                 mapsSection.Root.transform,
                 view._playButton,
                 map,
@@ -204,7 +204,7 @@ internal static class PortalModeSelectorRuntime
         foreach (var map in PreferredMapSelection.GetAvailableMaps(GameModeType.Berek).OrderBy(GetMapDisplayOrder))
         {
             var option = CreateMapOption(
-                view.Pointer,
+                view,
                 mapsSection.Root.transform,
                 view._playButton,
                 map,
@@ -232,13 +232,14 @@ internal static class PortalModeSelectorRuntime
     }
 
     private static PortalMapOptionUiState? CreateMapOption(
-        IntPtr viewPointer,
+        PortalPlayView view,
         Transform parent,
         SpookedOutlineButton styleSource,
         SceneType sceneType,
         GameModeType gameModeType)
     {
         var segment = PortalSettingsLayout.CreateSegmentButton(
+            view,
             parent,
             $"CodexPortalMap_{gameModeType}_{sceneType}",
             styleSource,
@@ -248,9 +249,9 @@ internal static class PortalModeSelectorRuntime
             return null;
         }
 
-        var clickAction = (UnityAction)(() => ToggleMap(viewPointer, sceneType, gameModeType));
+        var clickAction = (UnityAction)(() => ToggleMap(view.Pointer, sceneType, gameModeType));
         segment.Button.onClick.AddListener(clickAction);
-        segment.Label.text = FormatMapName(sceneType);
+        segment.Label.text = FormatMapName(sceneType).ToUpperInvariant();
         return new PortalMapOptionUiState(
             sceneType,
             gameModeType,
@@ -297,7 +298,7 @@ internal static class PortalModeSelectorRuntime
             var itemsInRow = Mathf.Min(4, visibleCount - row * 4);
             var rowY = rowCount == 1
                 ? -7f
-                : -37f + visualRow * (MapButtonHeight + MapButtonGap);
+                : -33f + visualRow * (MapButtonHeight + MapButtonGap);
             rect.anchoredPosition = new Vector2(
                 -(itemsInRow - 1) * (MapButtonWidth + MapButtonGap) * 0.5f
                     + column * (MapButtonWidth + MapButtonGap),
@@ -309,7 +310,7 @@ internal static class PortalModeSelectorRuntime
     private static void RefreshControls(PortalModeUiState state)
     {
         var classic = _preferredMode == GameModeType.Default;
-        state.ModeTitle.text = "MODE";
+        state.ModeTitle.text = "Mode";
         PortalSettingsLayout.SetNativeSwitchPresentation(
             state.ModeSwitch,
             leftSelected: classic,
@@ -319,7 +320,7 @@ internal static class PortalModeSelectorRuntime
 
         var selectedMaps = PreferredMapSelection.GetSelectedMaps(_preferredMode);
         var availableMaps = PreferredMapSelection.GetAvailableMaps(_preferredMode);
-        state.MapsTitle.text = $"MAPS  {selectedMaps.Count}/{availableMaps.Count}";
+        state.MapsTitle.text = $"Maps  {selectedMaps.Count}/{availableMaps.Count}";
         foreach (var option in state.MapOptions)
         {
             var visible = option.GameModeType == _preferredMode;
@@ -329,7 +330,7 @@ internal static class PortalModeSelectorRuntime
                 continue;
             }
 
-            option.Label.text = FormatMapName(option.SceneType);
+            option.Label.text = FormatMapName(option.SceneType).ToUpperInvariant();
             option.Label.enabled = true;
             option.Background.color = selectedMaps.Contains(option.SceneType)
                 ? classic ? ClassicModeColor : CrownModeColor

@@ -851,7 +851,7 @@ internal static class LobbyTestBotRuntime
         var nativeSection = PortalSettingsLayout.CreateNativeSection(
             view,
             PortalSettingsLayout.DummySectionName,
-            "DUMMY BOT");
+            "Dummy bot");
         if (nativeSection is null)
         {
             _logger?.LogWarning("Lobby bot controls skipped: native settings row was not found");
@@ -862,8 +862,8 @@ internal static class LobbyTestBotRuntime
             view,
             nativeSection.Root.transform,
             "LobbyTestBotDummySwitch",
-            "NO DUMMY",
-            "DUMMY",
+            "OFF",
+            "ON",
             fontSize: 10f);
         var roleSwitch = PortalSettingsLayout.CreateNativeSwitch(
             view,
@@ -2253,7 +2253,7 @@ internal static class LobbyTestBotRuntime
         var interactable = canManageBot && !pending;
         var roleVisible = hasBot || _pendingOperation == PendingOperation.Add;
         state.Section.SetActive(true);
-        state.Title.text = pending ? "DUMMY BOT  ·  PLEASE WAIT" : "DUMMY BOT";
+        state.Title.text = pending ? "Dummy bot  ·  Please wait" : "Dummy bot";
         LayoutButton(state.View, state, roleVisible);
         PortalSettingsLayout.SetNativeSwitchPresentation(
             state.DummySwitch,

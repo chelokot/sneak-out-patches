@@ -30,6 +30,13 @@ internal static class MinimapRuntime
     private const int RoomCornerSegments = 4;
     private const int PointMarkerOutlineRadius = 6;
     private const int PointMarkerRadius = 4;
+    private const float EdgeIndicatorInset = 10f;
+    private const float EdgeDotOuterSize = 15f;
+    private const float EdgeDotInnerSize = 10f;
+    private const float EdgeStripOuterWidth = 26f;
+    private const float EdgeStripOuterHeight = 9f;
+    private const float EdgeStripInnerWidth = 21f;
+    private const float EdgeStripInnerHeight = 5f;
 
     private static readonly Color32 BackgroundColor = new(10, 15, 22, 242);
     private static readonly Color32 RoomColor = new(71, 92, 111, 255);
@@ -56,6 +63,9 @@ internal static class MinimapRuntime
     private static RectTransform? _localMarker;
     private static Texture2D? _mapTexture;
     private static Sprite? _localMarkerSprite;
+    private static Sprite? _edgeDotSprite;
+    private static readonly List<NavigationTarget> NavigationTargets = new();
+    private static readonly List<NavigationIndicator> NavigationIndicators = new();
     private static MapProjection _projection;
     private static bool _haveProjection;
     private static bool _mapReady;
@@ -188,6 +198,8 @@ internal static class MinimapRuntime
         _buildAttempted = false;
         _mapReady = false;
         _haveProjection = false;
+        ClearNavigationIndicators();
+        NavigationTargets.Clear();
         SetPanelVisible(false);
 
         if (_mapImage is not null)
@@ -216,6 +228,7 @@ internal static class MinimapRuntime
         var doorways = CollectOpenDoorwayShapes(scene, doors);
         var wardrobes = CollectInteractablePositions<MagicWardrobe>(scene, "teleport wardrobe");
         var itemGenerators = CollectInteractablePositions<ItemGenerator>(scene, "item roller");
+        SetNavigationTargets(shapes, wardrobes, itemGenerators);
         _mapRotationDegrees = Camera.main?.transform.eulerAngles.y ?? DefaultMapRotationDegrees;
         var pixels = new Color32[TextureSize * TextureSize];
         Array.Fill(pixels, BackgroundColor);
@@ -255,13 +268,15 @@ internal static class MinimapRuntime
         texture.Apply(false, true);
 
         EnsureUi();
+        RebuildNavigationIndicators();
         _mapTexture = texture;
         _mapImage!.texture = texture;
         _mapReady = true;
         Log(
             $"Built {scene.name} floor plan from {shapes.Count} room volumes, {doors.Count} doors, "
             + $"{doorways.Count} open doorways, {wardrobes.Count} teleport wardrobes, "
-            + $"and {itemGenerators.Count} item rollers; rotation={_mapRotationDegrees:0.##}; "
+            + $"and {itemGenerators.Count} item roller{(itemGenerators.Count == 1 ? string.Empty : "s")}; "
+            + $"rotation={_mapRotationDegrees:0.##}; "
             + $"worldBounds=({_projection.MinimumX:0.##},{_projection.MinimumZ:0.##}) "
             + $"to ({_projection.MaximumX:0.##},{_projection.MaximumZ:0.##})");
     }
@@ -409,6 +424,63 @@ internal static class MinimapRuntime
             }
         }
         return result;
+    }
+
+    private static void SetNavigationTargets(
+        IReadOnlyList<RoomShape> rooms,
+        IReadOnlyList<Vector2> wardrobes,
+        IReadOnlyList<Vector2> itemGenerators)
+    {
+        NavigationTargets.Clear();
+        foreach (var room in rooms)
+        {
+            if (!IsTaskRoom(room.RoomType))
+            {
+                continue;
+            }
+
+            AddNavigationTarget(new NavigationTarget(
+                room.Center,
+                room.Radius,
+                GetRoomColor(room.RoomType),
+                NavigationIndicatorKind.RoomStrip));
+        }
+        foreach (var wardrobe in wardrobes)
+        {
+            AddNavigationTarget(new NavigationTarget(
+                wardrobe,
+                0f,
+                WardrobeColor,
+                NavigationIndicatorKind.PointDot));
+        }
+        foreach (var itemGenerator in itemGenerators)
+        {
+            AddNavigationTarget(new NavigationTarget(
+                itemGenerator,
+                0f,
+                ItemGeneratorColor,
+                NavigationIndicatorKind.PointDot));
+        }
+    }
+
+    private static void AddNavigationTarget(NavigationTarget target)
+    {
+        if (NavigationTargets.Any(existing =>
+                existing.Kind == target.Kind
+                && ColorsMatch(existing.Color, target.Color)
+                && Vector2.Distance(existing.WorldPosition, target.WorldPosition) < 0.5f))
+        {
+            return;
+        }
+        NavigationTargets.Add(target);
+    }
+
+    private static bool ColorsMatch(Color32 left, Color32 right)
+    {
+        return left.r == right.r
+            && left.g == right.g
+            && left.b == right.b
+            && left.a == right.a;
     }
 
     private static Vector2[] GetHorizontalCorners(Collider collider)
@@ -665,6 +737,14 @@ internal static class MinimapRuntime
         };
     }
 
+    private static bool IsTaskRoom(RoomType roomType)
+    {
+        return roomType is RoomType.LabyrinthRoom
+            or RoomType.CookingTaskRoom
+            or RoomType.AlchemyTaskRoom
+            or RoomType.TelescopeTaskRoom;
+    }
+
     private static void EnsureUi()
     {
         if (_canvas is not null && _canvas.Pointer != IntPtr.Zero && _canvas)
@@ -716,6 +796,71 @@ internal static class MinimapRuntime
 
         LayoutUi();
         _panel.SetActive(false);
+    }
+
+    private static void RebuildNavigationIndicators()
+    {
+        ClearNavigationIndicators();
+        if (_panel is null || _panel.Pointer == IntPtr.Zero)
+        {
+            return;
+        }
+
+        for (var index = 0; index < NavigationTargets.Count; index++)
+        {
+            var target = NavigationTargets[index];
+            var root = new GameObject($"MinimapEdgeIndicator-{index}");
+            root.hideFlags = HideFlags.HideAndDontSave;
+            root.transform.SetParent(_panel.transform, false);
+            root.transform.SetAsLastSibling();
+            var rootRect = root.AddComponent<RectTransform>();
+            rootRect.anchorMin = new Vector2(0.5f, 0.5f);
+            rootRect.anchorMax = new Vector2(0.5f, 0.5f);
+            rootRect.pivot = new Vector2(0.5f, 0.5f);
+            rootRect.sizeDelta = target.Kind == NavigationIndicatorKind.RoomStrip
+                ? new Vector2(EdgeStripOuterWidth, EdgeStripOuterHeight)
+                : new Vector2(EdgeDotOuterSize, EdgeDotOuterSize);
+
+            var backing = root.AddComponent<Image>();
+            backing.sprite = target.Kind == NavigationIndicatorKind.PointDot
+                ? GetOrCreateEdgeDotSprite()
+                : null;
+            backing.color = BackgroundColor;
+            backing.raycastTarget = false;
+
+            var fill = new GameObject("Fill");
+            fill.hideFlags = HideFlags.HideAndDontSave;
+            fill.transform.SetParent(root.transform, false);
+            var fillRect = fill.AddComponent<RectTransform>();
+            fillRect.anchorMin = new Vector2(0.5f, 0.5f);
+            fillRect.anchorMax = new Vector2(0.5f, 0.5f);
+            fillRect.pivot = new Vector2(0.5f, 0.5f);
+            fillRect.anchoredPosition = Vector2.zero;
+            fillRect.sizeDelta = target.Kind == NavigationIndicatorKind.RoomStrip
+                ? new Vector2(EdgeStripInnerWidth, EdgeStripInnerHeight)
+                : new Vector2(EdgeDotInnerSize, EdgeDotInnerSize);
+            var fillImage = fill.AddComponent<Image>();
+            fillImage.sprite = target.Kind == NavigationIndicatorKind.PointDot
+                ? GetOrCreateEdgeDotSprite()
+                : null;
+            fillImage.color = target.Color;
+            fillImage.raycastTarget = false;
+
+            root.SetActive(false);
+            NavigationIndicators.Add(new NavigationIndicator(target, rootRect));
+        }
+    }
+
+    private static void ClearNavigationIndicators()
+    {
+        foreach (var indicator in NavigationIndicators)
+        {
+            if (indicator.Rect is not null && indicator.Rect.Pointer != IntPtr.Zero)
+            {
+                UnityEngine.Object.Destroy(indicator.Rect.gameObject);
+            }
+        }
+        NavigationIndicators.Clear();
     }
 
     private static void LayoutUi()
@@ -801,6 +946,74 @@ internal static class MinimapRuntime
             (normalized.x - viewCenter.x) / sampledViewSize * availableMarkerSpace,
             (normalized.y - viewCenter.y) / sampledViewSize * availableMarkerSpace);
         _localMarker.localEulerAngles = new Vector3(0f, 0f, -localPlayer.transform.eulerAngles.y);
+        UpdateNavigationIndicators(normalized, viewCenter, sampledViewSize, zoomAmount);
+    }
+
+    private static void UpdateNavigationIndicators(
+        Vector2 playerNormalized,
+        Vector2 viewCenter,
+        float sampledViewSize,
+        float zoomAmount)
+    {
+        if (_panel is null
+            || _mapRect is null
+            || _configuration is null
+            || NavigationIndicators.Count == 0)
+        {
+            return;
+        }
+
+        var panelRect = _panel.GetComponent<RectTransform>();
+        var viewportHalfSize = panelRect.rect.width * 0.5f - PanelBorder;
+        var ringRadius = Mathf.Max(0f, viewportHalfSize - EdgeIndicatorInset);
+        var mapWidth = _mapRect.rect.width;
+        var circle = _configuration.MapShape.Value == MinimapShape.Circle;
+
+        foreach (var indicator in NavigationIndicators)
+        {
+            var targetNormalized = _projection.WorldToNormalized(indicator.Target.WorldPosition);
+            var mapPosition = (targetNormalized - viewCenter) / sampledViewSize * mapWidth;
+            var displayedPosition = RotateUiVector(mapPosition, _mapRotationDegrees);
+            var targetRadius = indicator.Target.WorldRadius / _projection.Side
+                / sampledViewSize
+                * mapWidth;
+            var visible = circle
+                ? displayedPosition.magnitude <= viewportHalfSize + targetRadius
+                : Mathf.Abs(displayedPosition.x) <= viewportHalfSize + targetRadius
+                    && Mathf.Abs(displayedPosition.y) <= viewportHalfSize + targetRadius;
+            var show = zoomAmount > 0.001f && !visible;
+            if (indicator.Rect.gameObject.activeSelf != show)
+            {
+                indicator.Rect.gameObject.SetActive(show);
+            }
+            if (!show)
+            {
+                continue;
+            }
+
+            var bearing = RotateUiVector(targetNormalized - playerNormalized, _mapRotationDegrees);
+            if (bearing.sqrMagnitude <= 0.000001f)
+            {
+                indicator.Rect.gameObject.SetActive(false);
+                continue;
+            }
+
+            var direction = bearing.normalized;
+            indicator.Rect.anchoredPosition = direction * ringRadius;
+            indicator.Rect.localEulerAngles = indicator.Target.Kind == NavigationIndicatorKind.RoomStrip
+                ? new Vector3(0f, 0f, Mathf.Atan2(direction.y, direction.x) * Mathf.Rad2Deg + 90f)
+                : Vector3.zero;
+        }
+    }
+
+    private static Vector2 RotateUiVector(Vector2 value, float degrees)
+    {
+        var radians = degrees * Mathf.Deg2Rad;
+        var cosine = Mathf.Cos(radians);
+        var sine = Mathf.Sin(radians);
+        return new Vector2(
+            value.x * cosine - value.y * sine,
+            value.x * sine + value.y * cosine);
     }
 
     private static Sprite GetOrCreateLocalMarkerSprite()
@@ -842,6 +1055,46 @@ internal static class MinimapRuntime
             100f);
         _localMarkerSprite.name = "RuntimeMinimapLocalMarker";
         return _localMarkerSprite;
+    }
+
+    private static Sprite GetOrCreateEdgeDotSprite()
+    {
+        if (_edgeDotSprite is not null)
+        {
+            return _edgeDotSprite;
+        }
+
+        const int size = 32;
+        var pixels = new Color32[size * size];
+        var center = new Vector2((size - 1f) * 0.5f, (size - 1f) * 0.5f);
+        var radiusSquared = 14f * 14f;
+        for (var y = 0; y < size; y++)
+        {
+            for (var x = 0; x < size; x++)
+            {
+                if ((new Vector2(x, y) - center).sqrMagnitude <= radiusSquared)
+                {
+                    pixels[y * size + x] = new Color32(255, 255, 255, 255);
+                }
+            }
+        }
+
+        var texture = new Texture2D(size, size, TextureFormat.RGBA32, false)
+        {
+            name = "RuntimeMinimapEdgeDot",
+            hideFlags = HideFlags.HideAndDontSave,
+            filterMode = FilterMode.Bilinear,
+            wrapMode = TextureWrapMode.Clamp,
+        };
+        texture.SetPixels32(ToIl2CppArray(pixels));
+        texture.Apply(false, true);
+        _edgeDotSprite = Sprite.Create(
+            texture,
+            new Rect(0f, 0f, size, size),
+            new Vector2(0.5f, 0.5f),
+            100f);
+        _edgeDotSprite.name = "RuntimeMinimapEdgeDot";
+        return _edgeDotSprite;
     }
 
     private static Il2CppStructArray<Color32> ToIl2CppArray(IReadOnlyList<Color32> values)
@@ -922,12 +1175,44 @@ internal static class MinimapRuntime
         }
     }
 
-    private readonly record struct RoomShape(Vector2[] Corners, RoomType RoomType);
+    private readonly record struct RoomShape(Vector2[] Corners, RoomType RoomType)
+    {
+        public Vector2 Center => Corners.Aggregate(Vector2.zero, (sum, corner) => sum + corner)
+            / Corners.Length;
+
+        public float Radius
+        {
+            get
+            {
+                var center = Center;
+                var radius = 0f;
+                foreach (var corner in Corners)
+                {
+                    radius = Mathf.Max(radius, Vector2.Distance(center, corner));
+                }
+                return radius;
+            }
+        }
+    }
 
     private readonly record struct DoorShape(Vector2 Start, Vector2 End)
     {
         public Vector2 Center => (Start + End) * 0.5f;
     }
+
+    private enum NavigationIndicatorKind
+    {
+        RoomStrip,
+        PointDot,
+    }
+
+    private readonly record struct NavigationTarget(
+        Vector2 WorldPosition,
+        float WorldRadius,
+        Color32 Color,
+        NavigationIndicatorKind Kind);
+
+    private sealed record NavigationIndicator(NavigationTarget Target, RectTransform Rect);
 
     private readonly record struct MapProjection(float MinimumX, float MinimumZ, float Side)
     {

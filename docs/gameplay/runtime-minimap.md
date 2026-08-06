@@ -11,6 +11,7 @@ The default display contains:
 - matching gold markers for interactive doors and authored pass-through doorway frames;
 - cyan point markers for teleporting magic wardrobes;
 - yellow point markers for the coin-operated item rollers;
+- zoom-aware perimeter guidance: colored strips for off-screen task rooms and colored dots for off-screen wardrobes and item rollers;
 - one local-player arrow with world position and facing;
 - a `Tab` key binding, configurable for toggle or hold behavior with the in-game key recorder;
 - a stock-styled Map tab in the settings menu.
@@ -27,6 +28,8 @@ Interactive doors come from `Gameplay.Interactions.Door._doorInteractableCollide
 
 Points of interest are also resolved directly from live interactables. `Gameplay.Interactions.MagicWardrobe` positions become cyan dots, while `Gameplay.Interactions.ItemGenerator` positions become yellow dots. The latter is the victim item roller backed by the game's `ItemGeneratorCost` setting. Both use a dark outline so their color survives reduction from the 512 x 512 floor-plan texture to HUD size. This is still runtime geometry: no scene or prefab asset is modified and no state is networked by the minimap.
 
+When zoom hides a point of interest, its player-relative bearing is rotated into the same fixed camera-aligned map space and projected onto an inset circular ring. Wardrobes and item rollers remain dots in their normal cyan and yellow. Labyrinth and Cooking/Alchemy/Telescope task rooms use short tangential strips in the room's map color; the room's projected radius is considered before guidance appears, so a partially visible large room does not get a duplicate edge marker. The ring is used in both circular and rectangular frame modes, while visibility testing follows the selected frame shape.
+
 The circular presentation uses a small runtime `MaskableGraphic` that emits a 64-segment circle directly into the UI stencil. It clips both the dark backing and the floor plan with circular geometry; sprite alpha is not used as a mask. Rectangle mode emits a normal four-vertex stencil. The floor plan is aligned once to the active authored camera yaw (135 degrees on Map02), while the local arrow continues to show the player's facing relative to that fixed view.
 
 No additional camera is created. This matters on Map02, where a second live render would duplicate work across a scene with more than 8,000 renderers.
@@ -36,7 +39,7 @@ No additional camera is created. This matters on Map02, where a second live rend
 1. `SpookedNetworkPlayer.Spawned` and `Init` capture the local input-authority player.
 2. A persistent watcher notices an active scene change and discards the previous generated texture.
 3. Five seconds after a `Map*` scene becomes active, it collects that scene's room trigger volumes and creates the floor-plan texture.
-4. Each frame updates the local marker and selected zoom window inside the fixed camera-aligned floor plan.
+4. Each frame updates the local marker, selected zoom window, and any off-screen task-room or point-of-interest guidance inside the fixed camera-aligned floor plan.
 5. `Despawned`, non-map scenes, disabled configuration, or repeated exceptions hide the panel safely.
 
 ## Configuration
@@ -65,7 +68,7 @@ manual or deployment-time configuration:
 
 The implementation was compiled against the supported Steam build `24488474` interop assemblies and exercised in private Fusion matches with the authoritative test bot.
 
-- Map02: 37 usable room volumes, 35 live door colliders, and 19 additional pass-through doorway frames; square projection from approximately `(-55.47, -62.91)` to `(55.39, 47.96)`; fixed 135-degree orientation and the true circular stencil were confirmed in a framebuffer capture.
+- Map02: 37 usable room volumes, 35 live door colliders, 19 additional pass-through doorway frames, 4 teleport wardrobes, and 1 item roller; square projection from approximately `(-55.47, -62.91)` to `(55.39, 47.96)`. A Zoom 80 framebuffer confirmed player-relative purple/brown task-room strips, four cyan wardrobe dots, and one yellow roller dot on the circular perimeter without duplicating targets visible in the viewport.
 - Map_School02: its structurally different compact room layout generated without map-specific values; floor plan and marker confirmed in a second framebuffer capture.
 
 Both sessions completed without minimap exceptions. The room-volume path is scene-driven and applies to every supported `Map*` scene without per-map textures or coordinate tables.

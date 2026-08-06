@@ -42,7 +42,7 @@ internal static class PropBuffRuntime
         _harmony.PatchAll();
     }
 
-    public static void ApplyPropMovementSpeed(PlayerInputController inputController)
+    public static void RestoreSerializedPropMovement(PlayerInputController inputController)
     {
         if (_configuration?.EnableMod.Value != true)
         {
@@ -57,9 +57,14 @@ internal static class PropBuffRuntime
                 return;
             }
 
-            var skills = inputController.GetComponent<EntitySkillsComponent>();
+            var skills = player.EntitySkillsComponent;
             var registry = skills?._playerPropRegistry;
-            if (registry is null || !registry.IsPlayerProp(player.InternalId))
+            var buffs = player.EntityBuffsComponent;
+            if (registry is null
+                || buffs is null
+                || !registry.IsPlayerProp(player.InternalId)
+                || !buffs.CanMove
+                || HasNonPropInputBlocker(buffs))
             {
                 return;
             }
@@ -71,13 +76,65 @@ internal static class PropBuffRuntime
                 movement = ReadPhysicalMovement();
             }
 
-            inputController._moveDirection = movement.sqrMagnitude > 1f
+            movement = movement.sqrMagnitude > 1f
                 ? movement.normalized * multiplier
                 : movement * multiplier;
+
+            // PropChange deliberately leaves BlockInputs set, so stock input serialization
+            // neutralizes both movement axes. Restore only those axes; action and skill flags
+            // remain stock-blocked while disguised.
+            var accumulatedInput = inputController._accumulatedInput;
+            accumulatedInput.XMoveDir = CompressMovementAxis(movement.x);
+            accumulatedInput.YMoveDir = CompressMovementAxis(movement.y);
+            inputController._accumulatedInput = accumulatedInput;
         }
         catch (Exception exception)
         {
-            _logger?.LogError($"Prop movement scaling failed: {exception}");
+            _logger?.LogError($"Prop movement serialization failed: {exception}");
+        }
+    }
+
+    public static EntityBuffsComponent? BeginPropLocomotion(EntityLocomotionComponent locomotion)
+    {
+        if (_configuration?.EnableMod.Value != true)
+        {
+            return null;
+        }
+
+        try
+        {
+            var player = locomotion._spookedNetworkPlayer;
+            var registry = locomotion._playerPropRegistry;
+            var buffs = player?.EntityBuffsComponent;
+            if (player is null
+                || registry is null
+                || buffs is null
+                || !registry.IsPlayerProp(player.InternalId)
+                || !buffs.CanMove
+                || !buffs.BlockInputs
+                || HasNonPropInputBlocker(buffs))
+            {
+                return null;
+            }
+
+            // CalculateLocomotion zeros Speed whenever BlockInputs is true. Suppress only the
+            // persistent prop block for this synchronous calculation; input serialization still
+            // blocks every action and supplies movement axes already scaled by the configured rate.
+            buffs.BlockInputs = false;
+            return buffs;
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogError($"Prop locomotion setup failed: {exception}");
+            return null;
+        }
+    }
+
+    public static void EndPropLocomotion(EntityBuffsComponent? temporarilyUnblockedBuffs)
+    {
+        if (temporarilyUnblockedBuffs is not null)
+        {
+            temporarilyUnblockedBuffs.BlockInputs = true;
         }
     }
 
@@ -227,6 +284,77 @@ internal static class PropBuffRuntime
         var movement = new Vector2(horizontal, vertical);
         return movement.sqrMagnitude > 1f ? movement.normalized : movement;
     }
+
+    private static byte CompressMovementAxis(float axis)
+    {
+        axis = Mathf.Clamp(axis, -1f, 1f);
+        var encoded = (axis + 1f) * 100f;
+        var compressed = Mathf.FloorToInt(encoded) + (axis < 0f ? 1 : 0);
+        return (byte)Mathf.Clamp(compressed, 0, 200);
+    }
+
+    private static bool HasNonPropInputBlocker(EntityBuffsComponent buffs)
+    {
+        return IsNonPropInputBlocker(buffs.Buff1.BuffType)
+            || IsNonPropInputBlocker(buffs.Buff2.BuffType)
+            || IsNonPropInputBlocker(buffs.Buff3.BuffType)
+            || IsNonPropInputBlocker(buffs.Buff4.BuffType);
+    }
+
+    private static bool IsNonPropInputBlocker(SpookedBuffType buffType)
+    {
+        // Mirrors EntityBuffsComponent.RefreshBlockInputs for the current interop build,
+        // excluding only the persistent PropChange buff. The short transformation block and
+        // every unrelated stun/interaction block continue to suppress movement normally.
+        return buffType is SpookedBuffType.Trap
+            or SpookedBuffType.BlockInputsForPortalSpawn
+            or SpookedBuffType.BlockInputsForRipperBlink
+            or SpookedBuffType.BlockInputsForDraculaBatChange
+            or SpookedBuffType.PumpkinBombStun
+            or SpookedBuffType.LockerStun
+            or SpookedBuffType.Stun
+            or SpookedBuffType.BananaFail
+            or SpookedBuffType.GhostArmorStun
+            or SpookedBuffType.BarrelExplosionStun
+            or SpookedBuffType.BlockInputsForWand
+            or SpookedBuffType.BlockInputsForLockerHide
+            or SpookedBuffType.BlockInputsForLockerComeOut
+            or SpookedBuffType.BlockInputsForPlayerDeath
+            or SpookedBuffType.BlockInputsForScarecrowPumpkinBomb
+            or SpookedBuffType.BlockInputsForButcherHook
+            or SpookedBuffType.BlockInputsForButcherHookGrab
+            or SpookedBuffType.BlockInputsForKick
+            or SpookedBuffType.BlockInputsForShovelDig
+            or SpookedBuffType.BlockInputsForArmorGetIn
+            or SpookedBuffType.BlockInputsForArmorGetOut
+            or SpookedBuffType.BlockInputsForMummySandTrap
+            or SpookedBuffType.BlockInputsForPropChange
+            or SpookedBuffType.BlockInputsForClownHammerHit
+            or SpookedBuffType.BlockInputsForRipperFlames
+            or SpookedBuffType.BlockInputsForMatchSelection
+            or SpookedBuffType.BlockInputsForOpenPortal
+            or SpookedBuffType.BlockInputsForBeingResurrected
+            or SpookedBuffType.BlockInputsForEndGame
+            or SpookedBuffType.BlockInputsForJugMaking
+            or SpookedBuffType.BlockInputs
+            or SpookedBuffType.BerekMatchStartStun
+            or SpookedBuffType.BerekAfterCrownStun;
+    }
+}
+
+[HarmonyPatch(typeof(EntityLocomotionComponent), "CalculateLocomotion")]
+internal static class EntityLocomotionComponentCalculateLocomotionPatch
+{
+    private static void Prefix(EntityLocomotionComponent __instance, out EntityBuffsComponent? __state)
+    {
+        __state = PropBuffRuntime.BeginPropLocomotion(__instance);
+    }
+
+    private static Exception? Finalizer(EntityBuffsComponent? __state, Exception? __exception)
+    {
+        PropBuffRuntime.EndPropLocomotion(__state);
+        return __exception;
+    }
 }
 
 [HarmonyPatch(typeof(PlayerInputController), "ResolveLocalInputs")]
@@ -235,8 +363,17 @@ internal static class PlayerInputControllerResolveLocalInputsPatch
     [HarmonyPriority(Priority.Last)]
     private static void Postfix(PlayerInputController __instance)
     {
-        PropBuffRuntime.ApplyPropMovementSpeed(__instance);
         PropBuffRuntime.TryCycleModel(__instance);
+    }
+}
+
+[HarmonyPatch(typeof(PlayerInputController), "SaveLocalClientInputs")]
+internal static class PlayerInputControllerSaveLocalClientInputsPatch
+{
+    [HarmonyPriority(Priority.Last)]
+    private static void Postfix(PlayerInputController __instance)
+    {
+        PropBuffRuntime.RestoreSerializedPropMovement(__instance);
     }
 }
 

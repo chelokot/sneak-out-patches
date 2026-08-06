@@ -28,6 +28,8 @@ internal static class MinimapRuntime
     private const float DoorSlotMatchDistance = 0.8f;
     private const float RoomCornerRadiusPixels = 6f;
     private const int RoomCornerSegments = 4;
+    private const int PointMarkerOutlineRadius = 6;
+    private const int PointMarkerRadius = 4;
 
     private static readonly Color32 BackgroundColor = new(10, 15, 22, 242);
     private static readonly Color32 RoomColor = new(71, 92, 111, 255);
@@ -37,7 +39,8 @@ internal static class MinimapRuntime
     private static readonly Color32 LabyrinthColor = new(100, 73, 126, 255);
     private static readonly Color32 OutlineColor = new(163, 190, 204, 255);
     private static readonly Color32 DoorColor = new(235, 202, 105, 255);
-    private static readonly Color32 DoorwayColor = new(74, 232, 224, 255);
+    private static readonly Color32 WardrobeColor = new(74, 232, 224, 255);
+    private static readonly Color32 ItemGeneratorColor = new(255, 218, 69, 255);
 
     private static ManualLogSource? _logger;
     private static MinimapConfig? _configuration;
@@ -211,6 +214,8 @@ internal static class MinimapRuntime
         _haveProjection = true;
         var doors = CollectDoorShapes(scene);
         var doorways = CollectOpenDoorwayShapes(scene, doors);
+        var wardrobes = CollectInteractablePositions<MagicWardrobe>(scene, "teleport wardrobe");
+        var itemGenerators = CollectInteractablePositions<ItemGenerator>(scene, "item roller");
         _mapRotationDegrees = Camera.main?.transform.eulerAngles.y ?? DefaultMapRotationDegrees;
         var pixels = new Color32[TextureSize * TextureSize];
         Array.Fill(pixels, BackgroundColor);
@@ -230,6 +235,14 @@ internal static class MinimapRuntime
         {
             DrawDoor(pixels, door, _projection);
         }
+        foreach (var wardrobe in wardrobes)
+        {
+            DrawPointMarker(pixels, wardrobe, _projection, WardrobeColor);
+        }
+        foreach (var itemGenerator in itemGenerators)
+        {
+            DrawPointMarker(pixels, itemGenerator, _projection, ItemGeneratorColor);
+        }
 
         var texture = new Texture2D(TextureSize, TextureSize, TextureFormat.RGBA32, false)
         {
@@ -247,7 +260,8 @@ internal static class MinimapRuntime
         _mapReady = true;
         Log(
             $"Built {scene.name} floor plan from {shapes.Count} room volumes, {doors.Count} doors, "
-            + $"and {doorways.Count} open doorways; rotation={_mapRotationDegrees:0.##}; "
+            + $"{doorways.Count} open doorways, {wardrobes.Count} teleport wardrobes, "
+            + $"and {itemGenerators.Count} item rollers; rotation={_mapRotationDegrees:0.##}; "
             + $"worldBounds=({_projection.MinimumX:0.##},{_projection.MinimumZ:0.##}) "
             + $"to ({_projection.MaximumX:0.##},{_projection.MaximumZ:0.##})");
     }
@@ -370,6 +384,31 @@ internal static class MinimapRuntime
             .Where(slot => !interactiveDoors.Any(door =>
                 Vector2.Distance(door.Center, slot.Center) <= DoorSlotMatchDistance))
             .ToList();
+    }
+
+    private static List<Vector2> CollectInteractablePositions<T>(Scene scene, string markerName)
+        where T : Interactable
+    {
+        var result = new List<Vector2>();
+        foreach (var interactable in Resources.FindObjectsOfTypeAll<T>())
+        {
+            if (interactable is null
+                || interactable.Pointer == IntPtr.Zero
+                || interactable.gameObject.scene.handle != scene.handle)
+            {
+                continue;
+            }
+
+            try
+            {
+                result.Add(ToHorizontal(interactable.Position));
+            }
+            catch (Exception exception)
+            {
+                Log($"Ignored unavailable {markerName} position for {interactable.name}: {exception.Message}");
+            }
+        }
+        return result;
     }
 
     private static Vector2[] GetHorizontalCorners(Collider collider)
@@ -517,17 +556,20 @@ internal static class MinimapRuntime
 
     private static void DrawDoorway(Color32[] pixels, DoorShape doorway, MapProjection projection)
     {
-        var start = projection.WorldToPixel(doorway.Start);
-        var end = projection.WorldToPixel(doorway.End);
-        // Cut through the pale room outline first. The dark edge and saturated center keep an
-        // open passage distinct after the 512 px texture is reduced into the HUD-sized map.
-        DrawLine(pixels, start, end, BackgroundColor, radius: 4);
-        DrawLine(
-            pixels,
-            start,
-            end,
-            DoorwayColor,
-            radius: 2);
+        DrawDoor(pixels, doorway, projection);
+    }
+
+    private static void DrawPointMarker(
+        Color32[] pixels,
+        Vector2 worldPosition,
+        MapProjection projection,
+        Color32 color)
+    {
+        var point = projection.WorldToPixel(worldPosition);
+        var x = Mathf.RoundToInt(point.x);
+        var y = Mathf.RoundToInt(point.y);
+        SetPixelDisc(pixels, x, y, BackgroundColor, PointMarkerOutlineRadius);
+        SetPixelDisc(pixels, x, y, color, PointMarkerRadius);
     }
 
     private static void DrawLine(Color32[] pixels, Vector2 start, Vector2 end)
@@ -579,6 +621,28 @@ internal static class MinimapRuntime
         {
             for (var offsetX = -radius; offsetX <= radius; offsetX++)
             {
+                var targetX = x + offsetX;
+                var targetY = y + offsetY;
+                if (targetX >= 0 && targetX < TextureSize && targetY >= 0 && targetY < TextureSize)
+                {
+                    pixels[targetY * TextureSize + targetX] = color;
+                }
+            }
+        }
+    }
+
+    private static void SetPixelDisc(Color32[] pixels, int x, int y, Color32 color, int radius)
+    {
+        var radiusSquared = radius * radius;
+        for (var offsetY = -radius; offsetY <= radius; offsetY++)
+        {
+            for (var offsetX = -radius; offsetX <= radius; offsetX++)
+            {
+                if (offsetX * offsetX + offsetY * offsetY > radiusSquared)
+                {
+                    continue;
+                }
+
                 var targetX = x + offsetX;
                 var targetY = y + offsetY;
                 if (targetX >= 0 && targetX < TextureSize && targetY >= 0 && targetY < TextureSize)

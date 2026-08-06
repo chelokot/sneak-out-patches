@@ -8,8 +8,9 @@ The default display contains:
 
 - a full-scene floor plan in a circular top-right frame by default;
 - distinct colors for ordinary rooms, hallways, spawn, task rooms, and labyrinth rooms;
-- gold door markers derived from the live door interaction colliders;
-- high-contrast cyan doorway markers for authored pass-through frames that have no interactive door;
+- matching gold markers for interactive doors and authored pass-through doorway frames;
+- cyan point markers for teleporting magic wardrobes;
+- yellow point markers for the coin-operated item rollers;
 - one local-player arrow with world position and facing;
 - a `Tab` key binding, configurable for toggle or hold behavior with the in-game key recorder;
 - a stock-styled Map tab in the settings menu.
@@ -22,7 +23,9 @@ The client has no minimap or radar type. `UnityEngine.AI.NavMesh.Triangulate` ap
 
 The working room source is `Gameplay.Enviro.Room`. Each playable room or hallway has one root trigger collider. The plugin reads those colliders once, converts box-collider corners into world X/Z polygons, rounds their projected corners slightly, fits a square projection with padding, and rasterizes a 512 x 512 texture. `Room` instances without a root trigger are excluded, which removes unrelated table/owl helpers that also use the type.
 
-Interactive doors come from `Gameplay.Interactions.Door._doorInteractableCollider`. The longer horizontal axis of each live interaction volume becomes a short gold line over the room outline. Standard wall doorway lintel renderers supply the complete set of authored door slots; slots with no nearby interaction volume become cyan pass-through markers over a dark outline cut. The high-contrast two-layer mark remains legible after the floor-plan texture is reduced to HUD size. This is still runtime geometry: no scene or prefab asset is modified and open/closed state is not networked by the minimap.
+Interactive doors come from `Gameplay.Interactions.Door._doorInteractableCollider`. The longer horizontal axis of each live interaction volume becomes a short gold line over the room outline. Standard wall doorway lintel renderers supply the complete set of authored door slots; slots with no nearby interaction volume use the same gold line, so both kinds of traversable doorway have one visual language.
+
+Points of interest are also resolved directly from live interactables. `Gameplay.Interactions.MagicWardrobe` positions become cyan dots, while `Gameplay.Interactions.ItemGenerator` positions become yellow dots. The latter is the victim item roller backed by the game's `ItemGeneratorCost` setting. Both use a dark outline so their color survives reduction from the 512 x 512 floor-plan texture to HUD size. This is still runtime geometry: no scene or prefab asset is modified and no state is networked by the minimap.
 
 The circular presentation uses a small runtime `MaskableGraphic` that emits a 64-segment circle directly into the UI stencil. It clips both the dark backing and the floor plan with circular geometry; sprite alpha is not used as a mask. Rectangle mode emits a normal four-vertex stencil. The floor plan is aligned once to the active authored camera yaw (135 degrees on Map02), while the local arrow continues to show the player's facing relative to that fixed view.
 

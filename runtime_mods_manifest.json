@@ -42,6 +42,17 @@
     "default_config_template_path": "config_templates/runtime_mods/network-host-selector.cfg"
   },
   {
+    "option_id": "minimap",
+    "label": "Minimap",
+    "details": "Generates a configurable camera-aligned floor plan with rounded rooms, doors, and pass-through frames from runtime geometry, shows only the local player, and adds an in-game Map settings tab.",
+    "category": "quality-of-life",
+    "default_enabled": false,
+    "project_relative_path": "mods/minimap/Minimap.csproj",
+    "assembly_name": "SneakOut.Minimap",
+    "config_relative_path": "BepInEx/config/chelokot.sneakout.minimap.cfg",
+    "default_config_template_path": "config_templates/runtime_mods/minimap.cfg"
+  },
+  {
     "option_id": "mummy-unlock",
     "label": "Mummy Unlock",
     "details": "Builds and installs the BepInEx runtime mod used for restoring Mummy as a selectable hunter.",

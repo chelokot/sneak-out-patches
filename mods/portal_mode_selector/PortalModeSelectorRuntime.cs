@@ -23,8 +23,8 @@ namespace SneakOut.PortalModeSelector;
 
 internal static class PortalModeSelectorRuntime
 {
-    private const float ModeSwitchWidth = 220f;
-    private const float ModeSwitchHeight = 36f;
+    private const float ModeSwitchWidth = 315.3f;
+    private const float ModeSwitchHeight = 37.4f;
     private const float ModeSwitchY = -11.4f;
     private const float MapButtonHeight = 26f;
     private const float MapButtonWidth = 78f;
@@ -146,7 +146,7 @@ internal static class PortalModeSelectorRuntime
         var modeSection = PortalSettingsLayout.CreateNativeSection(
             view,
             PortalSettingsLayout.ModeSectionName,
-            "Mode");
+            "MODE");
         if (modeSection is null)
         {
             _logger?.LogWarning("Portal controls skipped: native Mode row was not found");
@@ -167,13 +167,18 @@ internal static class PortalModeSelectorRuntime
             return false;
         }
 
+        PortalSettingsLayout.UseNativeSwitchIcons(
+            modeSwitch,
+            "PortalInteractionIcon",
+            "crown_icon");
+
         var modeClickAction = (UnityAction)(() => ToggleMode(view.Pointer));
         modeSwitch.Button.onClick.AddListener(modeClickAction);
 
         var mapsSection = PortalSettingsLayout.CreateNativeSection(
             view,
             PortalSettingsLayout.MapsSectionName,
-            "Maps");
+            "MAPS");
         if (mapsSection is null)
         {
             modeSwitch.Button.onClick.RemoveListener(modeClickAction);
@@ -304,7 +309,7 @@ internal static class PortalModeSelectorRuntime
     private static void RefreshControls(PortalModeUiState state)
     {
         var classic = _preferredMode == GameModeType.Default;
-        state.ModeTitle.text = "Mode";
+        state.ModeTitle.text = "MODE";
         PortalSettingsLayout.SetNativeSwitchPresentation(
             state.ModeSwitch,
             leftSelected: classic,
@@ -314,7 +319,7 @@ internal static class PortalModeSelectorRuntime
 
         var selectedMaps = PreferredMapSelection.GetSelectedMaps(_preferredMode);
         var availableMaps = PreferredMapSelection.GetAvailableMaps(_preferredMode);
-        state.MapsTitle.text = $"Maps  {selectedMaps.Count}/{availableMaps.Count}";
+        state.MapsTitle.text = $"MAPS  {selectedMaps.Count}/{availableMaps.Count}";
         foreach (var option in state.MapOptions)
         {
             var visible = option.GameModeType == _preferredMode;

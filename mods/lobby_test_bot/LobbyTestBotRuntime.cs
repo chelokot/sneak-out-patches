@@ -34,10 +34,11 @@ internal static class LobbyTestBotRuntime
         Remove
     }
 
-    private const float NativeSwitchWidth = 220f;
-    private const float NativeSwitchHeight = 28f;
-    private const float DummySwitchY = -7f;
-    private const float RoleSwitchY = -41f;
+    private const float NativeSwitchWidth = 315.3f;
+    private const float NativeSwitchHeight = 37.4f;
+    private const float ExpandedDummySwitchY = 5.6f;
+    private const float CollapsedDummySwitchY = -11.4f;
+    private const float RoleSwitchY = -38f;
     private const float PendingTimeout = 8f;
     private const float RefreshInterval = 0.4f;
 
@@ -337,7 +338,6 @@ internal static class LobbyTestBotRuntime
 
             state.NextRefreshTime = now + RefreshInterval;
             TryRunDiagnosticAutoAdd();
-            LayoutButton(view, state);
             RefreshButton(state);
         }
         catch (Exception exception)
@@ -845,14 +845,13 @@ internal static class LobbyTestBotRuntime
 
         if (UiStateByView.TryGetValue(view.Pointer, out var existingState) && existingState.IsAlive)
         {
-            LayoutButton(view, existingState);
             return existingState;
         }
 
         var nativeSection = PortalSettingsLayout.CreateNativeSection(
             view,
             PortalSettingsLayout.DummySectionName,
-            "Dummy bot");
+            "DUMMY BOT");
         if (nativeSection is null)
         {
             _logger?.LogWarning("Lobby bot controls skipped: native settings row was not found");
@@ -892,6 +891,7 @@ internal static class LobbyTestBotRuntime
         roleSwitch.Button.onClick.AddListener(roleClickAction);
 
         var state = new LobbyTestBotUiState(
+            view,
             nativeSection.Root,
             nativeSection.Title,
             dummySwitch,
@@ -900,17 +900,20 @@ internal static class LobbyTestBotRuntime
             roleClickAction);
         UiStateByView[view.Pointer] = state;
 
-        LayoutButton(view, state);
         return state;
     }
 
-    private static void LayoutButton(PortalPlayView view, LobbyTestBotUiState state)
+    private static void LayoutButton(
+        PortalPlayView view,
+        LobbyTestBotUiState state,
+        bool roleVisible)
     {
+        state.RoleSwitch.Root.SetActive(roleVisible);
         PortalSettingsLayout.Apply(view);
         PortalSettingsLayout.LayoutNativeSwitch(
             state.DummySwitch,
             0f,
-            DummySwitchY,
+            roleVisible ? ExpandedDummySwitchY : CollapsedDummySwitchY,
             NativeSwitchWidth,
             NativeSwitchHeight);
         PortalSettingsLayout.LayoutNativeSwitch(
@@ -919,6 +922,10 @@ internal static class LobbyTestBotRuntime
             RoleSwitchY,
             NativeSwitchWidth,
             NativeSwitchHeight);
+        PortalSettingsLayout.SetNativeSwitchIconSize(
+            state.DummySwitch,
+            left: true,
+            size: 24f);
     }
 
     private static void SetDummyEnabled(bool enabled)
@@ -2244,8 +2251,10 @@ internal static class LobbyTestBotRuntime
         var hasBot = FindManagedBot() is not null;
         var pending = _pendingOperation != PendingOperation.None;
         var interactable = canManageBot && !pending;
+        var roleVisible = hasBot || _pendingOperation == PendingOperation.Add;
         state.Section.SetActive(true);
-        state.Title.text = pending ? "Dummy bot  ·  Please wait" : "Dummy bot";
+        state.Title.text = pending ? "DUMMY BOT  ·  PLEASE WAIT" : "DUMMY BOT";
+        LayoutButton(state.View, state, roleVisible);
         PortalSettingsLayout.SetNativeSwitchPresentation(
             state.DummySwitch,
             leftSelected: !hasBot,
@@ -2256,7 +2265,7 @@ internal static class LobbyTestBotRuntime
         PortalSettingsLayout.SetNativeSwitchPresentation(
             state.RoleSwitch,
             leftSelected: !BotPrefersHunter,
-            selectedColor: SelectedSegmentColor,
+            selectedColor: BotPrefersHunter ? state.View._seekerColor : state.View._victimColor,
             deselectedColor: DeselectedSegmentColor,
             interactable: interactable,
             dimmed: pending);

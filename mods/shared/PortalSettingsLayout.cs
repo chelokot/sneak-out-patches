@@ -12,21 +12,27 @@ internal static class PortalSettingsLayout
     public const string ModeSectionName = "CodexPortalModeSection";
     public const string MapsSectionName = "CodexPortalMapsSection";
 
-    private const float ExpandedBackgroundHeight = 650f;
-    private const float ExpandedBackgroundOffsetY = 75f;
+    private const float CollapsedBackgroundHeight = 643f;
+    private const float ExpandedBackgroundHeight = 680f;
+    private const float ExpandedBackgroundOffsetY = 0f;
     private const float StockRowWidth = 355.286f;
     private const float StockRowHeight = 85f;
-    private const float CompactRowHeight = 76f;
-    private const float DummyRowHeight = 116f;
+    private const float CompactRowHeight = 85f;
+    private const float DummyRowHeight = 122f;
     private const float MapsHeight = 105f;
     private const float NativeTitleY = 28.2f;
-    private const float PreferredRoleY = 570f;
-    private const float PublicGameY = 482f;
-    private const float DummyBotY = 377.5f;
-    private const float ModeY = 277.5f;
-    private const float MapsY = 183f;
-    private const float PlayPanelY = 65.5f;
-    private const float ExitButtonY = 310f;
+    private const float DummyTitleY = 45.2f;
+    private const float ExpandedPreferredRoleY = 602.5f;
+    private const float ExpandedPublicGameY = 514.5f;
+    private const float ExpandedDummyBotY = 408f;
+    private const float CollapsedPreferredRoleY = 565.5f;
+    private const float CollapsedPublicGameY = 477.5f;
+    private const float CollapsedDummyBotY = 389.5f;
+    private const float ModeY = 301.5f;
+    private const float MapsY = 203.5f;
+    private const float PlayPanelY = 90.5f;
+    private const float ExpandedExitButtonY = 325f;
+    private const float CollapsedExitButtonY = 306.5f;
 
     private static Sprite? _roundedButtonSprite;
     private static Sprite? _roundedButtonOutlineSprite;
@@ -160,6 +166,19 @@ internal static class PortalSettingsLayout
         SetIconSprite(nativeSwitch.RightIcon, FindLoadedSprite(rightSpriteName));
     }
 
+    public static void SetNativeSwitchIconSize(
+        NativePortalSwitch nativeSwitch,
+        bool left,
+        float size)
+    {
+        var icon = left ? nativeSwitch.LeftIcon : nativeSwitch.RightIcon;
+        var rect = icon?.GetComponent<RectTransform>();
+        if (rect is not null)
+        {
+            rect.sizeDelta = new Vector2(size, size);
+        }
+    }
+
     public static PortalSegmentButton? CreateSegmentButton(
         Transform parent,
         string name,
@@ -244,8 +263,8 @@ internal static class PortalSettingsLayout
         rect.anchoredPosition = new Vector2(x, y);
 
         var centerRect = nativeSwitch.CenterRect;
-        centerRect.anchorMin = new Vector2(0.34f, 0f);
-        centerRect.anchorMax = new Vector2(0.66f, 1f);
+        centerRect.anchorMin = new Vector2(0.323f, 0f);
+        centerRect.anchorMax = new Vector2(0.677f, 1f);
         centerRect.pivot = new Vector2(0.5f, 0.5f);
         centerRect.offsetMin = Vector2.zero;
         centerRect.offsetMax = Vector2.zero;
@@ -261,8 +280,8 @@ internal static class PortalSettingsLayout
             raycastTarget.localScale = Vector3.one;
         }
 
-        LayoutSwitchIcon(nativeSwitch.LeftIcon);
-        LayoutSwitchIcon(nativeSwitch.RightIcon);
+        LayoutSwitchIcon(nativeSwitch.LeftIcon, left: true);
+        LayoutSwitchIcon(nativeSwitch.RightIcon, left: false);
     }
 
     public static void SetNativeSwitchPresentation(
@@ -322,8 +341,12 @@ internal static class PortalSettingsLayout
             return;
         }
 
+        var dummySection = settingsBackground.Find(DummySectionName);
+        var roleSwitch = dummySection?.Find("LobbyTestBotRoleSwitch");
+        var roleVisible = roleSwitch?.gameObject.activeSelf == true;
+
         var backgroundSize = settingsBackground.sizeDelta;
-        backgroundSize.y = ExpandedBackgroundHeight;
+        backgroundSize.y = roleVisible ? ExpandedBackgroundHeight : CollapsedBackgroundHeight;
         settingsBackground.sizeDelta = backgroundSize;
         var backgroundPosition = settingsBackground.anchoredPosition;
         backgroundPosition.y = ExpandedBackgroundOffsetY;
@@ -331,13 +354,17 @@ internal static class PortalSettingsLayout
 
         LayoutRow(
             FindDirectSection(view._preferredRoleButton?.transform, settingsBackground),
-            PreferredRoleY,
+            roleVisible ? ExpandedPreferredRoleY : CollapsedPreferredRoleY,
             StockRowHeight);
         LayoutRow(
             FindDirectSection(view._privateGameButton?.transform, settingsBackground),
-            PublicGameY,
+            roleVisible ? ExpandedPublicGameY : CollapsedPublicGameY,
             StockRowHeight);
-        LayoutRow(settingsBackground.Find(DummySectionName), DummyBotY, DummyRowHeight, NativeTitleY);
+        LayoutRow(
+            dummySection,
+            roleVisible ? ExpandedDummyBotY : CollapsedDummyBotY,
+            roleVisible ? DummyRowHeight : StockRowHeight,
+            roleVisible ? DummyTitleY : NativeTitleY);
         LayoutRow(settingsBackground.Find(ModeSectionName), ModeY, CompactRowHeight, NativeTitleY);
         LayoutRow(settingsBackground.Find(MapsSectionName), MapsY, MapsHeight, NativeTitleY);
 
@@ -349,7 +376,7 @@ internal static class PortalSettingsLayout
         if (exitButton is not null)
         {
             var position = exitButton.anchoredPosition;
-            position.y = ExitButtonY;
+            position.y = roleVisible ? ExpandedExitButtonY : CollapsedExitButtonY;
             exitButton.anchoredPosition = position;
         }
     }
@@ -435,7 +462,7 @@ internal static class PortalSettingsLayout
         label.rectTransform.offsetMax = Vector2.zero;
     }
 
-    private static void LayoutSwitchIcon(GameObject? icon)
+    private static void LayoutSwitchIcon(GameObject? icon, bool left)
     {
         var rect = icon?.GetComponent<RectTransform>();
         if (rect is null)
@@ -443,10 +470,11 @@ internal static class PortalSettingsLayout
             return;
         }
 
-        rect.anchorMin = new Vector2(0.5f, 0.5f);
-        rect.anchorMax = new Vector2(0.5f, 0.5f);
+        var horizontalAnchor = left ? 0.2f : 0.82f;
+        rect.anchorMin = new Vector2(horizontalAnchor, 0.5f);
+        rect.anchorMax = new Vector2(horizontalAnchor, 0.5f);
         rect.pivot = new Vector2(0.5f, 0.5f);
-        rect.sizeDelta = new Vector2(22f, 22f);
+        rect.sizeDelta = new Vector2(28f, 28f);
         rect.anchoredPosition = Vector2.zero;
         rect.localScale = Vector3.one;
     }

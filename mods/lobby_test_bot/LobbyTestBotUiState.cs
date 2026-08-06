@@ -8,6 +8,7 @@ namespace SneakOut.LobbyTestBot;
 internal sealed class LobbyTestBotUiState
 {
     public LobbyTestBotUiState(
+        UI.Views.Lobby.PortalPlayView view,
         GameObject section,
         TMP_Text title,
         NativePortalSwitch dummySwitch,
@@ -15,6 +16,7 @@ internal sealed class LobbyTestBotUiState
         UnityAction dummyClickAction,
         UnityAction roleClickAction)
     {
+        View = view;
         Section = section;
         Title = title;
         DummySwitch = dummySwitch;
@@ -22,6 +24,8 @@ internal sealed class LobbyTestBotUiState
         DummyClickAction = dummyClickAction;
         RoleClickAction = roleClickAction;
     }
+
+    public UI.Views.Lobby.PortalPlayView View { get; }
 
     public GameObject Section { get; }
 
@@ -38,7 +42,9 @@ internal sealed class LobbyTestBotUiState
     public float NextRefreshTime { get; set; }
 
     public bool IsAlive =>
-        Section is not null
+        View is not null
+        && View.Pointer != IntPtr.Zero
+        && Section is not null
         && Section.Pointer != IntPtr.Zero
         && Title is not null
         && Title.Pointer != IntPtr.Zero

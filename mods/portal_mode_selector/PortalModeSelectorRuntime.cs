@@ -9,6 +9,7 @@ using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using Kinguinverse.DataUtils.Events;
 using Networking;
 using Networking.Photon;
+using SneakOut.PortalSettings;
 using TMPro;
 using Types;
 using UI;
@@ -22,10 +23,12 @@ namespace SneakOut.PortalModeSelector;
 
 internal static class PortalModeSelectorRuntime
 {
-    private const float ButtonHeight = 36f;
-    private const float MapButtonHeight = 32f;
-    private const float ButtonGap = 6f;
-    private const float InitialButtonWidth = 92f;
+    private const float ModeSwitchWidth = 220f;
+    private const float ModeSwitchHeight = 36f;
+    private const float ModeSwitchY = -11.4f;
+    private const float MapButtonHeight = 26f;
+    private const float MapButtonWidth = 78f;
+    private const float MapButtonGap = 4f;
 
     private static readonly Dictionary<IntPtr, PortalModeUiState> UiStateByView = new();
     private static readonly PortalMapSelectionState PreferredMapSelection = new();
@@ -39,7 +42,6 @@ internal static class PortalModeSelectorRuntime
     private static bool _watcherInstalled;
     private static bool _controlsPrepared;
     private static GameModeType _preferredMode = GameModeType.Default;
-    private static bool _mapPanelExpanded;
     private static GameModeType? _activeMode;
     private static PortalMapSelectionState? _activeMapSelection;
     private static bool _activeMatchTickConfirmed;
@@ -141,41 +143,53 @@ internal static class PortalModeSelectorRuntime
             return true;
         }
 
-        var playSection = view._playButton.transform.parent?.GetComponent<RectTransform>();
-        if (playSection is null || playSection.parent is null)
+        var modeSection = PortalSettingsLayout.CreateNativeSection(
+            view,
+            PortalSettingsLayout.ModeSectionName,
+            "Mode");
+        if (modeSection is null)
         {
-            _logger?.LogWarning("Portal controls skipped: play-button panel was not found");
+            _logger?.LogWarning("Portal controls skipped: native Mode row was not found");
             return false;
         }
 
-        var rootObject = new GameObject("CodexPortalControls");
-        rootObject.transform.SetParent(playSection, false);
-        var rootRect = rootObject.AddComponent<RectTransform>();
-        rootRect.localScale = Vector3.one;
-
-        var modeButton = CreateTextButton(rootObject.transform, "Mode", view._playButton, InitialButtonWidth);
-        if (modeButton is null)
+        var modeSwitch = PortalSettingsLayout.CreateNativeSwitch(
+            view,
+            modeSection.Root.transform,
+            "CodexPortalModeSwitch",
+            "CLASSIC",
+            "CROWN",
+            fontSize: 12f);
+        if (modeSwitch is null)
         {
-            UnityEngine.Object.Destroy(rootObject);
+            UnityEngine.Object.Destroy(modeSection.Root);
+            _logger?.LogWarning("Portal controls skipped: native Mode switch was incomplete");
             return false;
         }
 
         var modeClickAction = (UnityAction)(() => ToggleMode(view.Pointer));
-        modeButton.Value.Button.onClick.AddListener(modeClickAction);
-        var mapsButton = CreateTextButton(rootObject.transform, "Maps", view._playButton, InitialButtonWidth);
-        if (mapsButton is null)
+        modeSwitch.Button.onClick.AddListener(modeClickAction);
+
+        var mapsSection = PortalSettingsLayout.CreateNativeSection(
+            view,
+            PortalSettingsLayout.MapsSectionName,
+            "Maps");
+        if (mapsSection is null)
         {
-            modeButton.Value.Button.onClick.RemoveListener(modeClickAction);
-            UnityEngine.Object.Destroy(rootObject);
+            modeSwitch.Button.onClick.RemoveListener(modeClickAction);
+            UnityEngine.Object.Destroy(modeSection.Root);
             return false;
         }
 
-        var mapsClickAction = (UnityAction)(() => ToggleMapPanel(view.Pointer));
-        mapsButton.Value.Button.onClick.AddListener(mapsClickAction);
         var mapOptions = new List<PortalMapOptionUiState>();
         foreach (var map in PreferredMapSelection.GetAvailableMaps(GameModeType.Default).OrderBy(GetMapDisplayOrder))
         {
-            var option = CreateMapOption(view.Pointer, rootObject.transform, view._playButton, map, GameModeType.Default);
+            var option = CreateMapOption(
+                view.Pointer,
+                mapsSection.Root.transform,
+                view._playButton,
+                map,
+                GameModeType.Default);
             if (option is not null)
             {
                 mapOptions.Add(option);
@@ -184,27 +198,26 @@ internal static class PortalModeSelectorRuntime
 
         foreach (var map in PreferredMapSelection.GetAvailableMaps(GameModeType.Berek).OrderBy(GetMapDisplayOrder))
         {
-            var option = CreateMapOption(view.Pointer, rootObject.transform, view._playButton, map, GameModeType.Berek);
+            var option = CreateMapOption(
+                view.Pointer,
+                mapsSection.Root.transform,
+                view._playButton,
+                map,
+                GameModeType.Berek);
             if (option is not null)
             {
                 mapOptions.Add(option);
             }
         }
 
-        var stockPrivateGameSection = FindStockPrivateGameSection(view, playSection);
         var state = new PortalModeUiState(
             view,
-            rootObject,
-            stockPrivateGameSection,
-            stockPrivateGameSection?.activeSelf ?? true,
-            modeButton.Value.Button,
-            modeButton.Value.Background,
-            modeButton.Value.Label,
+            modeSection.Root,
+            modeSection.Title,
+            modeSwitch,
             modeClickAction,
-            mapsButton.Value.Button,
-            mapsButton.Value.Background,
-            mapsButton.Value.Label,
-            mapsClickAction,
+            mapsSection.Root,
+            mapsSection.Title,
             mapOptions.ToArray());
         UiStateByView[view.Pointer] = state;
 
@@ -213,171 +226,48 @@ internal static class PortalModeSelectorRuntime
         return true;
     }
 
-    private static (SpookedOutlineButton Button, Image Background, TMP_Text Label)? CreateTextButton(
-        Transform parent,
-        string name,
-        Button styleSource,
-        float width)
-    {
-        try
-        {
-            var sourceButton = styleSource.GetComponent<SpookedOutlineButton>();
-            var sourceBackground = sourceButton?._targetColorImage ?? styleSource.targetGraphic as Image;
-            if (sourceButton is null || sourceBackground is null)
-            {
-                return null;
-            }
-
-            var buttonObject = UnityEngine.Object.Instantiate(styleSource.gameObject, parent, false);
-            buttonObject.name = $"CodexPortal{name}Button";
-            var rect = buttonObject.GetComponent<RectTransform>();
-            var button = buttonObject.GetComponent<SpookedOutlineButton>();
-            var label = buttonObject.GetComponentInChildren<TMP_Text>(true);
-            if (rect is null || button is null || label is null)
-            {
-                UnityEngine.Object.Destroy(buttonObject);
-                throw new InvalidOperationException("The stock portal button clone was missing its native UI components");
-            }
-
-            rect.sizeDelta = new Vector2(width, ButtonHeight);
-            button.onClick = new Button.ButtonClickedEvent();
-            var background = button._targetColorImage ?? button.targetGraphic as Image;
-            if (background is null)
-            {
-                UnityEngine.Object.Destroy(buttonObject);
-                throw new InvalidOperationException("The stock portal button clone had no color image");
-            }
-
-            label.fontSize = 16f;
-            label.fontSizeMin = 11f;
-            label.fontSizeMax = 16f;
-            label.enableAutoSizing = true;
-            label.enableWordWrapping = false;
-            label.overflowMode = TextOverflowModes.Ellipsis;
-            label.fontStyle = FontStyles.Bold;
-            label.alignment = TextAlignmentOptions.Center;
-            label.color = Color.white;
-            label.raycastTarget = false;
-            FitStockButtonLayers(rect, button, label);
-
-            return (button, background, label);
-        }
-        catch (Exception exception)
-        {
-            LogError($"Portal control creation failed for {name}", exception);
-            return null;
-        }
-    }
-
-    private static void FitStockButtonLayers(
-        RectTransform root,
-        SpookedOutlineButton button,
-        TMP_Text label)
-    {
-        StretchToRoot(button._targetColorImage?.rectTransform, root);
-        StretchToRoot(button._targetOutlineImage?.rectTransform, root);
-        StretchToRoot(label.rectTransform, root);
-    }
-
-    private static void StretchToRoot(RectTransform? leaf, RectTransform root)
-    {
-        var current = leaf;
-        while (current is not null && current.Pointer != root.Pointer)
-        {
-            current.anchorMin = Vector2.zero;
-            current.anchorMax = Vector2.one;
-            current.pivot = new Vector2(0.5f, 0.5f);
-            current.offsetMin = Vector2.zero;
-            current.offsetMax = Vector2.zero;
-            current.anchoredPosition = Vector2.zero;
-            current.localScale = Vector3.one;
-            current = current.parent?.GetComponent<RectTransform>();
-        }
-    }
-
     private static PortalMapOptionUiState? CreateMapOption(
         IntPtr viewPointer,
         Transform parent,
-        Button styleSource,
+        SpookedOutlineButton styleSource,
         SceneType sceneType,
         GameModeType gameModeType)
     {
-        var buttonParts = CreateTextButton(parent, $"Map_{gameModeType}_{sceneType}", styleSource, InitialButtonWidth);
-        if (buttonParts is null)
+        var segment = PortalSettingsLayout.CreateSegmentButton(
+            parent,
+            $"CodexPortalMap_{gameModeType}_{sceneType}",
+            styleSource,
+            fontSize: 11f);
+        if (segment is null)
         {
             return null;
         }
 
         var clickAction = (UnityAction)(() => ToggleMap(viewPointer, sceneType, gameModeType));
-        buttonParts.Value.Button.onClick.AddListener(clickAction);
-        buttonParts.Value.Label.text = FormatMapName(sceneType);
-        buttonParts.Value.Label.fontSize = 13f;
-        buttonParts.Value.Label.fontSizeMin = 10f;
-        buttonParts.Value.Label.fontSizeMax = 13f;
+        segment.Button.onClick.AddListener(clickAction);
+        segment.Label.text = FormatMapName(sceneType);
         return new PortalMapOptionUiState(
             sceneType,
             gameModeType,
-            buttonParts.Value.Button.gameObject,
-            buttonParts.Value.Background,
-            buttonParts.Value.Label,
-            buttonParts.Value.Button,
+            segment.Root,
+            segment.Background,
+            segment.Label,
+            segment.Button,
             clickAction);
     }
 
     private static void LayoutControls(PortalPlayView view, PortalModeUiState state)
     {
-        var playButton = view._playButton;
-        var playSection = playButton?.transform.parent?.GetComponent<RectTransform>();
-        var playRect = playButton?.GetComponent<RectTransform>();
-        var rootRect = state.RootObject.GetComponent<RectTransform>();
-        if (playButton is null || playSection is null || playRect is null || rootRect is null)
-        {
-            return;
-        }
-
-        if (state.RootObject.transform.parent != playSection)
-        {
-            state.RootObject.transform.SetParent(playSection, false);
-        }
-
-        // Mirror PLAY's rect as a transparent sibling. Parenting controls to PLAY made their
-        // pointer events bubble through the stock button and highlighted/clicked PLAY instead.
-        rootRect.anchorMin = new Vector2(0.5f, 0.5f);
-        rootRect.anchorMax = new Vector2(0.5f, 0.5f);
-        rootRect.pivot = new Vector2(0.5f, 0.5f);
-        rootRect.localScale = Vector3.one;
-        rootRect.localRotation = Quaternion.identity;
-        rootRect.localPosition = playRect.localPosition;
-        rootRect.sizeDelta = playRect.rect.size;
-        rootRect.SetAsLastSibling();
-
-        var playHeight = playRect.rect.height;
-        var playWidth = playRect.rect.width;
-        var toolbarButtonWidth = Mathf.Max(72f, (playWidth - ButtonGap * 2f) / 3f);
-        var toolbarY = playHeight * 0.5f + ButtonHeight * 0.5f + 10f;
-        var modeRect = state.ModeButton.GetComponent<RectTransform>();
-        if (modeRect is not null)
-        {
-            modeRect.anchorMin = new Vector2(0.5f, 0.5f);
-            modeRect.anchorMax = new Vector2(0.5f, 0.5f);
-            modeRect.pivot = new Vector2(0.5f, 0.5f);
-            modeRect.sizeDelta = new Vector2(toolbarButtonWidth, ButtonHeight);
-            modeRect.anchoredPosition = new Vector2(-(toolbarButtonWidth + ButtonGap), toolbarY);
-        }
-
-        var mapsRect = state.MapsButton.GetComponent<RectTransform>();
-        if (mapsRect is not null)
-        {
-            mapsRect.anchorMin = new Vector2(0.5f, 0.5f);
-            mapsRect.anchorMax = new Vector2(0.5f, 0.5f);
-            mapsRect.pivot = new Vector2(0.5f, 0.5f);
-            mapsRect.sizeDelta = new Vector2(toolbarButtonWidth, ButtonHeight);
-            mapsRect.anchoredPosition = new Vector2(0f, toolbarY);
-        }
+        PortalSettingsLayout.Apply(view);
+        PortalSettingsLayout.LayoutNativeSwitch(
+            state.ModeSwitch,
+            0f,
+            ModeSwitchY,
+            ModeSwitchWidth,
+            ModeSwitchHeight);
 
         var visibleIndex = 0;
         var visibleCount = PreferredMapSelection.GetAvailableMaps(_preferredMode).Count;
-        var mapButtonWidth = Mathf.Max(56f, (playWidth - ButtonGap * 3f) / 4f);
         foreach (var option in state.MapOptions)
         {
             if (option.GameModeType != _preferredMode)
@@ -394,60 +284,48 @@ internal static class PortalModeSelectorRuntime
             rect.anchorMin = new Vector2(0.5f, 0.5f);
             rect.anchorMax = new Vector2(0.5f, 0.5f);
             rect.pivot = new Vector2(0.5f, 0.5f);
-            rect.sizeDelta = new Vector2(mapButtonWidth, MapButtonHeight);
+            rect.sizeDelta = new Vector2(MapButtonWidth, MapButtonHeight);
             var column = visibleIndex % 4;
             var row = visibleIndex / 4;
             var rowCount = Mathf.CeilToInt(visibleCount / 4f);
             var visualRow = rowCount - row - 1;
             var itemsInRow = Mathf.Min(4, visibleCount - row * 4);
+            var rowY = rowCount == 1
+                ? -7f
+                : -37f + visualRow * (MapButtonHeight + MapButtonGap);
             rect.anchoredPosition = new Vector2(
-                -(itemsInRow - 1) * (mapButtonWidth + ButtonGap) * 0.5f
-                    + column * (mapButtonWidth + ButtonGap),
-                toolbarY + ButtonHeight * 0.5f + ButtonGap + MapButtonHeight * 0.5f
-                    + visualRow * (MapButtonHeight + ButtonGap));
+                -(itemsInRow - 1) * (MapButtonWidth + MapButtonGap) * 0.5f
+                    + column * (MapButtonWidth + MapButtonGap),
+                rowY);
             visibleIndex++;
         }
-    }
-
-    private static GameObject? FindStockPrivateGameSection(PortalPlayView view, RectTransform playSection)
-    {
-        var current = view._privateGameButton?.transform;
-        if (current is null)
-        {
-            return null;
-        }
-
-        while (current.parent is { } parent && parent.Pointer != playSection.Pointer)
-        {
-            current = parent;
-        }
-
-        return current.gameObject;
     }
 
     private static void RefreshControls(PortalModeUiState state)
     {
         var classic = _preferredMode == GameModeType.Default;
-        state.ModeLabel.text = classic ? "CLASSIC" : "CROWN";
-        state.ModeBackground.color = classic ? ClassicModeColor : CrownModeColor;
+        state.ModeTitle.text = "Mode";
+        PortalSettingsLayout.SetNativeSwitchPresentation(
+            state.ModeSwitch,
+            leftSelected: classic,
+            selectedColor: classic ? ClassicModeColor : CrownModeColor,
+            deselectedColor: MapDisabledColor,
+            interactable: true);
 
         var selectedMaps = PreferredMapSelection.GetSelectedMaps(_preferredMode);
         var availableMaps = PreferredMapSelection.GetAvailableMaps(_preferredMode);
-        state.MapsLabel.text = _mapPanelExpanded
-            ? "DONE"
-            : $"MAPS  {selectedMaps.Count}/{availableMaps.Count}";
-        state.MapsBackground.color = _mapPanelExpanded
-            ? classic ? ClassicModeColor : CrownModeColor
-            : MapDisabledColor;
+        state.MapsTitle.text = $"Maps  {selectedMaps.Count}/{availableMaps.Count}";
         foreach (var option in state.MapOptions)
         {
-            var visible = _mapPanelExpanded && option.GameModeType == _preferredMode;
+            var visible = option.GameModeType == _preferredMode;
             option.RootObject.SetActive(visible);
             if (!visible)
             {
                 continue;
             }
 
+            option.Label.text = FormatMapName(option.SceneType);
+            option.Label.enabled = true;
             option.Background.color = selectedMaps.Contains(option.SceneType)
                 ? classic ? ClassicModeColor : CrownModeColor
                 : MapDisabledColor;
@@ -460,16 +338,6 @@ internal static class PortalModeSelectorRuntime
     {
         _preferredMode = _preferredMode == GameModeType.Berek ? GameModeType.Default : GameModeType.Berek;
         PublishRequestedGameMode(_preferredMode);
-        if (UiStateByView.TryGetValue(viewPointer, out var state) && state.IsAlive)
-        {
-            RefreshControls(state);
-        }
-    }
-
-    private static void ToggleMapPanel(IntPtr viewPointer)
-    {
-        _mapPanelExpanded = !_mapPanelExpanded;
-        _logger?.LogInfo($"Portal map panel {(_mapPanelExpanded ? "opened" : "closed")}");
         if (UiStateByView.TryGetValue(viewPointer, out var state) && state.IsAlive)
         {
             RefreshControls(state);
@@ -524,22 +392,20 @@ internal static class PortalModeSelectorRuntime
             return;
         }
 
-        state.ModeButton.onClick.RemoveListener(state.ModeClickAction);
-        state.MapsButton.onClick.RemoveListener(state.MapsClickAction);
+        state.ModeSwitch.Button.onClick.RemoveListener(state.ModeClickAction);
         foreach (var option in state.MapOptions)
         {
             option.Button.onClick.RemoveListener(option.ClickAction);
         }
 
-        if (state.StockPrivateGameSection is not null
-            && state.StockPrivateGameSection.Pointer != IntPtr.Zero)
+        if (state.ModeSection is not null && state.ModeSection.Pointer != IntPtr.Zero)
         {
-            state.StockPrivateGameSection.SetActive(state.StockPrivateGameSectionInitiallyActive);
+            UnityEngine.Object.Destroy(state.ModeSection);
         }
 
-        if (state.RootObject is not null && state.RootObject.Pointer != IntPtr.Zero)
+        if (state.MapsSection is not null && state.MapsSection.Pointer != IntPtr.Zero)
         {
-            UnityEngine.Object.Destroy(state.RootObject);
+            UnityEngine.Object.Destroy(state.MapsSection);
         }
     }
 
@@ -685,10 +551,8 @@ internal static class PortalModeSelectorRuntime
             return false;
         }
 
-        var availableMaps = mapsToPlayOn.ToHashSet();
         var selectedPool = _activeMapSelection
             .GetSelectedMaps(_activeMode.Value)
-            .Where(availableMaps.Contains)
             .ToArray();
         if (selectedPool.Length == 0)
         {

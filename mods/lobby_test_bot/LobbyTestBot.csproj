@@ -5,6 +5,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="../shared/PortalSettingsLayout.cs" Link="PortalSettingsLayout.cs" />
+
     <Reference Include="Kinguinverse">
       <HintPath>$(InteropDir)/Kinguinverse.dll</HintPath>
     </Reference>

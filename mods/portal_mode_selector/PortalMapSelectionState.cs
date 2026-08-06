@@ -23,9 +23,9 @@ internal sealed class PortalMapSelectionState
         AddDefaultMap(SceneType.Map04, _availableClassicMaps, _selectedClassicMaps);
         AddDefaultMap(SceneType.Map_East01, _availableClassicMaps, _selectedClassicMaps);
         AddDefaultMap(SceneType.Map_East02, _availableClassicMaps, _selectedClassicMaps);
-        AddDefaultMap(SceneType.Map_School01, _availableClassicMaps, _selectedClassicMaps);
-        AddDefaultMap(SceneType.Map_School02, _availableClassicMaps, _selectedClassicMaps);
         AddDefaultMap(SceneType.Map05_TagGame, _availableCrownMaps, _selectedCrownMaps);
+        AddDefaultMap(SceneType.Map_School01, _availableCrownMaps, _selectedCrownMaps);
+        AddDefaultMap(SceneType.Map_School02, _availableCrownMaps, _selectedCrownMaps);
     }
 
     public IReadOnlyCollection<SceneType> GetAvailableMaps(GameModeType gameModeType)
@@ -109,6 +109,8 @@ internal sealed class PortalMapSelectionState
 
     private static bool IsBerekMap(SceneType sceneType)
     {
-        return sceneType == SceneType.Map05_TagGame;
+        return sceneType is SceneType.Map05_TagGame
+            or SceneType.Map_School01
+            or SceneType.Map_School02;
     }
 }

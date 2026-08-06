@@ -14,6 +14,7 @@ using Kinguinverse.DataUtils.Events;
 using Networking;
 using Networking.Matchmaking;
 using Networking.Matchmaking.Match;
+using SneakOut.PortalSettings;
 using TMPro;
 using Types;
 using UI.Buttons;
@@ -33,10 +34,15 @@ internal static class LobbyTestBotRuntime
         Remove
     }
 
-    private const float ButtonHeight = 36f;
-    private const float ButtonGap = 6f;
+    private const float NativeSwitchWidth = 220f;
+    private const float NativeSwitchHeight = 28f;
+    private const float DummySwitchY = -7f;
+    private const float RoleSwitchY = -41f;
     private const float PendingTimeout = 8f;
     private const float RefreshInterval = 0.4f;
+
+    private static readonly Color SelectedSegmentColor = new(0.08627451f, 0.5372549f, 0.654902f, 1f);
+    private static readonly Color DeselectedSegmentColor = new(0.16f, 0.18f, 0.22f, 0.95f);
 
     private static readonly Dictionary<IntPtr, LobbyTestBotUiState> UiStateByView = new();
 
@@ -58,7 +64,6 @@ internal static class LobbyTestBotRuntime
     private static float _diagnosticPortalCaptureAt;
     private static float _diagnosticUiActionNotBefore;
     private static bool _diagnosticPortalCaptured;
-    private static bool _diagnosticMapPanelOpenedForCapture;
     private static SpookedOutlineButton? _diagnosticHoveredButton;
     private static float _diagnosticHoverReleaseAt;
     private static float _diagnosticMatchCaptureAt;
@@ -350,10 +355,9 @@ internal static class LobbyTestBotRuntime
 
         if (state.IsAlive)
         {
-            state.Button.onClick.RemoveListener(state.ClickAction);
-            state.RoleButton.onClick.RemoveListener(state.RoleClickAction);
-            UnityEngine.Object.Destroy(state.RootObject);
-            UnityEngine.Object.Destroy(state.RoleRootObject);
+            state.DummySwitch.Button.onClick.RemoveListener(state.DummyClickAction);
+            state.RoleSwitch.Button.onClick.RemoveListener(state.RoleClickAction);
+            UnityEngine.Object.Destroy(state.Section);
         }
     }
 
@@ -845,62 +849,55 @@ internal static class LobbyTestBotRuntime
             return existingState;
         }
 
-        var playSection = view._playButton.transform.parent?.GetComponent<RectTransform>();
-        if (playSection is null || playSection.parent is null)
+        var nativeSection = PortalSettingsLayout.CreateNativeSection(
+            view,
+            PortalSettingsLayout.DummySectionName,
+            "Dummy bot");
+        if (nativeSection is null)
         {
-            _logger?.LogWarning("Lobby bot button setup skipped: play-button panel was not found");
+            _logger?.LogWarning("Lobby bot controls skipped: native settings row was not found");
             return null;
         }
 
-        var buttonObject = UnityEngine.Object.Instantiate(view._playButton.gameObject, playSection, false);
-        buttonObject.name = "LobbyTestBotButton";
-        var buttonRect = buttonObject.GetComponent<RectTransform>();
-        var button = buttonObject.GetComponent<SpookedOutlineButton>();
-        var label = buttonObject.GetComponentInChildren<TMP_Text>(true);
-        if (buttonRect is null || button is null || label is null)
+        var dummySwitch = PortalSettingsLayout.CreateNativeSwitch(
+            view,
+            nativeSection.Root.transform,
+            "LobbyTestBotDummySwitch",
+            "NO DUMMY",
+            "DUMMY",
+            fontSize: 10f);
+        var roleSwitch = PortalSettingsLayout.CreateNativeSwitch(
+            view,
+            nativeSection.Root.transform,
+            "LobbyTestBotRoleSwitch",
+            "PENGUIN",
+            "HUNTER",
+            fontSize: 10f,
+            usePreferredRoleTemplate: true);
+        if (dummySwitch is null || roleSwitch is null)
         {
-            UnityEngine.Object.Destroy(buttonObject);
-            _logger?.LogWarning("Lobby bot button setup skipped: the stock button clone was incomplete");
+            UnityEngine.Object.Destroy(nativeSection.Root);
+            _logger?.LogWarning("Lobby bot controls skipped: a native switch was incomplete");
             return null;
         }
 
-        ConfigureButtonLabel(label);
-        FitStockButtonLayers(buttonRect, button, label);
+        PortalSettingsLayout.UseNativeSwitchIcons(
+            dummySwitch,
+            "X_ICON",
+            "AddFriendButtonIcon");
 
-        var clickAction = (UnityAction)ToggleBot;
-        button.onClick = new Button.ButtonClickedEvent();
-        button.onClick.AddListener(clickAction);
-        buttonRect.SetAsLastSibling();
-
-        var roleButtonObject = UnityEngine.Object.Instantiate(view._playButton.gameObject, playSection, false);
-        roleButtonObject.name = "LobbyTestBotRoleButton";
-        var roleButtonRect = roleButtonObject.GetComponent<RectTransform>();
-        var roleButton = roleButtonObject.GetComponent<SpookedOutlineButton>();
-        var roleLabel = roleButtonObject.GetComponentInChildren<TMP_Text>(true);
-        if (roleButtonRect is null || roleButton is null || roleLabel is null)
-        {
-            UnityEngine.Object.Destroy(buttonObject);
-            UnityEngine.Object.Destroy(roleButtonObject);
-            _logger?.LogWarning("Lobby bot role-button setup skipped: the stock button clone was incomplete");
-            return null;
-        }
-
-        ConfigureButtonLabel(roleLabel);
-        FitStockButtonLayers(roleButtonRect, roleButton, roleLabel);
-        var roleClickAction = (UnityAction)ToggleBotRole;
-        roleButton.onClick = new Button.ButtonClickedEvent();
-        roleButton.onClick.AddListener(roleClickAction);
-        roleButtonRect.SetAsLastSibling();
+        var dummyClickAction = (UnityAction)(() => SetDummyEnabled(FindManagedBot() is null));
+        var roleClickAction = (UnityAction)(() => SetBotRole(!BotPrefersHunter));
+        dummySwitch.Button.onClick.AddListener(dummyClickAction);
+        roleSwitch.Button.onClick.AddListener(roleClickAction);
 
         var state = new LobbyTestBotUiState(
-            buttonObject,
-            button,
-            clickAction,
-            label,
-            roleButtonObject,
-            roleButton,
-            roleClickAction,
-            roleLabel);
+            nativeSection.Root,
+            nativeSection.Title,
+            dummySwitch,
+            roleSwitch,
+            dummyClickAction,
+            roleClickAction);
         UiStateByView[view.Pointer] = state;
 
         LayoutButton(view, state);
@@ -909,91 +906,22 @@ internal static class LobbyTestBotRuntime
 
     private static void LayoutButton(PortalPlayView view, LobbyTestBotUiState state)
     {
-        var playButton = view._playButton;
-        var playSection = playButton?.transform.parent?.GetComponent<RectTransform>();
-        var playRect = playButton?.GetComponent<RectTransform>();
-        var buttonRect = state.RootObject.GetComponent<RectTransform>();
-        var roleButtonRect = state.RoleRootObject.GetComponent<RectTransform>();
-        if (playButton is null
-            || playSection is null
-            || playRect is null
-            || buttonRect is null
-            || roleButtonRect is null)
-        {
-            return;
-        }
-
-        if (state.RootObject.transform.parent != playSection)
-        {
-            state.RootObject.transform.SetParent(playSection, false);
-        }
-        if (state.RoleRootObject.transform.parent != playSection)
-        {
-            state.RoleRootObject.transform.SetParent(playSection, false);
-        }
-
-        var playWidth = playRect.rect.width;
-        var buttonWidth = Mathf.Max(72f, (playWidth - ButtonGap * 2f) / 3f);
-        var playHeight = playRect.rect.height;
-        var buttonY = playHeight * 0.5f + ButtonHeight * 0.5f + 10f;
-        LayoutPortalButton(buttonRect, playRect.localPosition + new Vector3(buttonWidth + ButtonGap, buttonY, 0f), buttonWidth);
-        LayoutPortalButton(roleButtonRect, playRect.localPosition + new Vector3(-buttonWidth - ButtonGap, buttonY, 0f), buttonWidth);
-        buttonRect.SetAsLastSibling();
-        roleButtonRect.SetAsLastSibling();
+        PortalSettingsLayout.Apply(view);
+        PortalSettingsLayout.LayoutNativeSwitch(
+            state.DummySwitch,
+            0f,
+            DummySwitchY,
+            NativeSwitchWidth,
+            NativeSwitchHeight);
+        PortalSettingsLayout.LayoutNativeSwitch(
+            state.RoleSwitch,
+            0f,
+            RoleSwitchY,
+            NativeSwitchWidth,
+            NativeSwitchHeight);
     }
 
-    private static void ConfigureButtonLabel(TMP_Text label)
-    {
-        label.fontSize = 15f;
-        label.fontSizeMin = 9f;
-        label.fontSizeMax = 15f;
-        label.enableAutoSizing = true;
-        label.enableWordWrapping = false;
-        label.overflowMode = TextOverflowModes.Ellipsis;
-        label.fontStyle = FontStyles.Bold;
-        label.alignment = TextAlignmentOptions.Center;
-        label.color = Color.white;
-        label.raycastTarget = false;
-    }
-
-    private static void LayoutPortalButton(RectTransform buttonRect, Vector3 localPosition, float width)
-    {
-        buttonRect.anchorMin = new Vector2(0.5f, 0.5f);
-        buttonRect.anchorMax = new Vector2(0.5f, 0.5f);
-        buttonRect.pivot = new Vector2(0.5f, 0.5f);
-        buttonRect.localScale = Vector3.one;
-        buttonRect.localRotation = Quaternion.identity;
-        buttonRect.sizeDelta = new Vector2(width, ButtonHeight);
-        buttonRect.localPosition = localPosition;
-    }
-
-    private static void FitStockButtonLayers(
-        RectTransform root,
-        SpookedOutlineButton button,
-        TMP_Text label)
-    {
-        StretchToRoot(button._targetColorImage?.rectTransform, root);
-        StretchToRoot(button._targetOutlineImage?.rectTransform, root);
-        StretchToRoot(label.rectTransform, root);
-    }
-
-    private static void StretchToRoot(RectTransform? leaf, RectTransform root)
-    {
-        var current = leaf;
-        while (current is not null && current.Pointer != root.Pointer)
-        {
-            current.anchorMin = Vector2.zero;
-            current.anchorMax = Vector2.one;
-            current.pivot = new Vector2(0.5f, 0.5f);
-            current.offsetMin = Vector2.zero;
-            current.offsetMax = Vector2.zero;
-            current.anchoredPosition = Vector2.zero;
-            current.localScale = Vector3.one;
-            current = current.parent?.GetComponent<RectTransform>();
-        }
-    }
-
-    private static void ToggleBot()
+    private static void SetDummyEnabled(bool enabled)
     {
         try
         {
@@ -1003,11 +931,11 @@ internal static class LobbyTestBotRuntime
             }
 
             var bot = FindManagedBot();
-            if (bot is null)
+            if (enabled && bot is null)
             {
                 TryAddBot();
             }
-            else
+            else if (!enabled && bot is not null)
             {
                 TryRemoveBot(bot);
             }
@@ -1022,16 +950,16 @@ internal static class LobbyTestBotRuntime
         }
     }
 
-    private static void ToggleBotRole()
+    private static void SetBotRole(bool hunter)
     {
         if (!Enabled || _configuration is null || _pendingOperation != PendingOperation.None)
         {
             return;
         }
 
-        _configuration.RolePreference.Value = BotPrefersHunter
-            ? BotRolePreference.Penguin
-            : BotRolePreference.HunterPriority;
+        _configuration.RolePreference.Value = hunter
+            ? BotRolePreference.HunterPriority
+            : BotRolePreference.Penguin;
 
         var bot = FindManagedBot();
         if (bot is not null)
@@ -1359,7 +1287,6 @@ internal static class LobbyTestBotRuntime
         }
         _diagnosticPortalOpenedAt = Time.unscaledTime;
         _diagnosticPortalCaptured = false;
-        _diagnosticMapPanelOpenedForCapture = false;
         _diagnosticPortalCaptureAt = Time.unscaledTime + 2f;
     }
 
@@ -1374,15 +1301,20 @@ internal static class LobbyTestBotRuntime
             return;
         }
 
-        if (!_diagnosticMapPanelOpenedForCapture)
+        if (_diagnosticHoveredButton is null)
         {
-            var mapsButtonObject = GameObject.Find("CodexPortalMapsButton");
-            var mapsButton = mapsButtonObject?.GetComponent<Button>();
-            if (mapsButton is not null)
+            var mapButton = Resources.FindObjectsOfTypeAll<SpookedOutlineButton>()
+                .FirstOrDefault(button => button is not null
+                    && button.Pointer != IntPtr.Zero
+                    && button.gameObject.activeInHierarchy
+                    && button.gameObject.name.StartsWith("CodexPortalMap_", StringComparison.Ordinal));
+            if (mapButton is not null)
             {
-                mapsButton.onClick.Invoke();
-                _diagnosticMapPanelOpenedForCapture = true;
-                _diagnosticPortalCaptureAt = Time.unscaledTime + 1f;
+                mapButton.OnPointerEnter(null!);
+                _diagnosticHoveredButton = mapButton;
+                _diagnosticHoverReleaseAt = Time.unscaledTime + 1f;
+                _diagnosticPortalCaptureAt = Time.unscaledTime + 0.2f;
+                _logger?.LogInfo("Diagnostic portal capture is hovering the first visible map button");
                 return;
             }
         }
@@ -1396,20 +1328,15 @@ internal static class LobbyTestBotRuntime
         _logger?.LogInfo($"Captured diagnostic portal framebuffer: {capturePath}");
 
         var portalView = _gameUiManager?._portalPlayView;
-        if (portalView is not null
-            && UiStateByView.TryGetValue(portalView.Pointer, out var state)
-            && state.IsAlive)
+        if (portalView is not null)
         {
-            state.Button.OnPointerEnter(null!);
-            _diagnosticHoveredButton = state.Button;
-            _diagnosticHoverReleaseAt = Time.unscaledTime + 1f;
             if (portalView._playButton is SpookedOutlineButton playButton && playButton._isHiglighted)
             {
-                _logger?.LogError("Diagnostic bot hover incorrectly highlighted the stock PLAY button");
+                _logger?.LogError("Diagnostic map hover incorrectly highlighted the stock PLAY button");
             }
             else
             {
-                _logger?.LogInfo("Diagnostic bot hover activated without highlighting PLAY");
+                _logger?.LogInfo("Diagnostic map hover activated without highlighting PLAY");
             }
         }
     }
@@ -2223,18 +2150,18 @@ internal static class LobbyTestBotRuntime
             && _configuration.AutoStartGameMode.Value != DiagnosticGameMode.Preserve)
         {
             var requestedMode = _configuration.AutoStartGameMode.Value;
-            // Portal controls are siblings of PLAY so their pointer events cannot bubble into it.
-            // Resolve the diagnostic target by its unique scene name instead of the old child path.
+            // Resolve the native Mode switch by its unique scene name.
             var modeButton = Resources.FindObjectsOfTypeAll<Button>()
                 .FirstOrDefault(button => button is not null
                     && button.Pointer != IntPtr.Zero
-                    && button.gameObject.name == "CodexPortalModeButton");
+                    && button.gameObject.name == "Checkbox"
+                    && button.transform.parent?.gameObject.name == "CodexPortalModeSwitch");
             if (modeButton is null)
             {
                 if (!_diagnosticModeSelectionFailureLogged)
                 {
                     _diagnosticModeSelectionFailureLogged = true;
-                    _logger?.LogError("Diagnostic mode selection could not find the live portal mode button");
+                    _logger?.LogError("Diagnostic mode selection could not find the live portal Mode switch");
                 }
                 return;
             }
@@ -2296,8 +2223,8 @@ internal static class LobbyTestBotRuntime
         }
 
         _diagnosticRemoveRequested = true;
-        _logger?.LogInfo("Diagnostic bot removal invoking the real REMOVE BOT callback");
-        state.Button.onClick.Invoke();
+        _logger?.LogInfo("Diagnostic bot removal invoking the native Dummy bot switch");
+        state.DummySwitch.Button.onClick.Invoke();
     }
 
     private static void RefreshAllButtons()
@@ -2314,25 +2241,25 @@ internal static class LobbyTestBotRuntime
     private static void RefreshButton(LobbyTestBotUiState state)
     {
         var canManageBot = ResolveAuthoritativeLobbySpawner() is not null;
-        state.RootObject.SetActive(canManageBot);
-        state.RoleRootObject.SetActive(canManageBot);
-        if (!canManageBot)
-        {
-            return;
-        }
-
         var hasBot = FindManagedBot() is not null;
         var pending = _pendingOperation != PendingOperation.None;
-        state.Button.interactable = !pending;
-        state.RoleButton.interactable = !pending;
-        state.Label.text = pending ? "PLEASE WAIT" : hasBot ? "REMOVE BOT" : "ADD BOT";
-        state.RoleLabel.text = BotPrefersHunter ? "BOT: HUNTER" : "BOT: PENGUIN";
-        var labelColor = state.Label.color;
-        labelColor.a = pending ? 0.45f : 1f;
-        state.Label.color = labelColor;
-        var roleLabelColor = state.RoleLabel.color;
-        roleLabelColor.a = pending ? 0.45f : 1f;
-        state.RoleLabel.color = roleLabelColor;
+        var interactable = canManageBot && !pending;
+        state.Section.SetActive(true);
+        state.Title.text = pending ? "Dummy bot  ·  Please wait" : "Dummy bot";
+        PortalSettingsLayout.SetNativeSwitchPresentation(
+            state.DummySwitch,
+            leftSelected: !hasBot,
+            selectedColor: SelectedSegmentColor,
+            deselectedColor: DeselectedSegmentColor,
+            interactable: interactable,
+            dimmed: pending);
+        PortalSettingsLayout.SetNativeSwitchPresentation(
+            state.RoleSwitch,
+            leftSelected: !BotPrefersHunter,
+            selectedColor: SelectedSegmentColor,
+            deselectedColor: DeselectedSegmentColor,
+            interactable: interactable,
+            dimmed: pending);
     }
 
     private static void ClearPendingOperation()

@@ -96,7 +96,7 @@ internal sealed class LobbyTestBotConfig
             "general",
             "EnableMod",
             true,
-            "Show the host-only lobby button and allow it to spawn one real inert network player.");
+            "Show the native Dummy bot settings row and allow it to spawn one real inert network player.");
         var autoOpenPortalWhenLobbyReady = configFile.Bind(
             "diagnostics",
             "AutoOpenPortalWhenLobbyReady",
@@ -126,7 +126,7 @@ internal sealed class LobbyTestBotConfig
             "diagnostics",
             "AutoRemoveBotWhenReady",
             false,
-            "Invoke the real REMOVE BOT button after diagnostic auto-add. Mutually exclusive with automatic match start.");
+            "Invoke the real Dummy bot switch after diagnostic auto-add. Mutually exclusive with automatic match start.");
         var autoStartPrivateMatchWhenBotReady = configFile.Bind(
             "diagnostics",
             "AutoStartPrivateMatchWhenBotReady",

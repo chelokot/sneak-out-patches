@@ -12,21 +12,27 @@ internal static class PortalSettingsLayout
     public const string ModeSectionName = "CodexPortalModeSection";
     public const string MapsSectionName = "CodexPortalMapsSection";
 
-    private const float ExpandedBackgroundHeight = 650f;
-    private const float ExpandedBackgroundOffsetY = 75f;
+    private const float CollapsedBackgroundHeight = 657f;
+    private const float ExpandedBackgroundHeight = 694f;
+    private const float ExpandedBackgroundOffsetY = 0f;
     private const float StockRowWidth = 355.286f;
     private const float StockRowHeight = 85f;
-    private const float CompactRowHeight = 76f;
-    private const float DummyRowHeight = 116f;
+    private const float CompactRowHeight = 85f;
+    private const float DummyRowHeight = 122f;
     private const float MapsHeight = 105f;
     private const float NativeTitleY = 28.2f;
-    private const float PreferredRoleY = 570f;
-    private const float PublicGameY = 482f;
-    private const float DummyBotY = 377.5f;
-    private const float ModeY = 277.5f;
-    private const float MapsY = 183f;
-    private const float PlayPanelY = 65.5f;
-    private const float ExitButtonY = 310f;
+    private const float DummyTitleY = 45.2f;
+    private const float ExpandedPreferredRoleY = 615.5f;
+    private const float ExpandedPublicGameY = 527.5f;
+    private const float ExpandedDummyBotY = 421f;
+    private const float CollapsedPreferredRoleY = 578.5f;
+    private const float CollapsedPublicGameY = 490.5f;
+    private const float CollapsedDummyBotY = 402.5f;
+    private const float ModeY = 314.5f;
+    private const float MapsY = 216.5f;
+    private const float PlayPanelY = 97f;
+    private const float ExpandedExitButtonY = 332f;
+    private const float CollapsedExitButtonY = 313.5f;
 
     private static Sprite? _roundedButtonSprite;
     private static Sprite? _roundedButtonOutlineSprite;
@@ -132,8 +138,23 @@ internal static class PortalSettingsLayout
         var leftIcon = button.transform.Find(usePreferredRoleTemplate ? "VictimImage" : "PublicGame")?.gameObject;
         var rightIcon = button.transform.Find(usePreferredRoleTemplate ? "HunterImage" : "PrivateGame")?.gameObject;
 
-        ConfigureSwitchHalf(leftRoot.GetComponent<RectTransform>(), leftBackground, leftLabel, true, leftText, fontSize);
-        ConfigureSwitchHalf(rightRoot.GetComponent<RectTransform>(), rightBackground, rightLabel, false, rightText, fontSize);
+        var nativeOptionLabel = GetPreferredRoleOptionLabel(view);
+        ConfigureSwitchHalf(
+            leftRoot.GetComponent<RectTransform>(),
+            leftBackground,
+            leftLabel,
+            true,
+            leftText,
+            nativeOptionLabel,
+            fontSize);
+        ConfigureSwitchHalf(
+            rightRoot.GetComponent<RectTransform>(),
+            rightBackground,
+            rightLabel,
+            false,
+            rightText,
+            nativeOptionLabel,
+            fontSize);
         return new NativePortalSwitch(
             root,
             rect,
@@ -160,7 +181,21 @@ internal static class PortalSettingsLayout
         SetIconSprite(nativeSwitch.RightIcon, FindLoadedSprite(rightSpriteName));
     }
 
+    public static void SetNativeSwitchIconSize(
+        NativePortalSwitch nativeSwitch,
+        bool left,
+        float size)
+    {
+        var icon = left ? nativeSwitch.LeftIcon : nativeSwitch.RightIcon;
+        var rect = icon?.GetComponent<RectTransform>();
+        if (rect is not null)
+        {
+            rect.sizeDelta = new Vector2(size, size);
+        }
+    }
+
     public static PortalSegmentButton? CreateSegmentButton(
+        PortalPlayView view,
         Transform parent,
         string name,
         SpookedOutlineButton styleSource,
@@ -209,10 +244,7 @@ internal static class PortalSettingsLayout
         outline.raycastTarget = false;
         button.transition = Selectable.Transition.None;
 
-        label.fontSize = fontSize;
-        label.fontSizeMin = Mathf.Max(8f, fontSize - 3f);
-        label.fontSizeMax = fontSize;
-        label.enableAutoSizing = true;
+        ApplyFixedNativeOptionTextStyle(label, GetPreferredRoleOptionLabel(view), fontSize);
         label.enableWordWrapping = false;
         label.overflowMode = TextOverflowModes.Ellipsis;
         label.fontStyle = FontStyles.Bold;
@@ -244,8 +276,8 @@ internal static class PortalSettingsLayout
         rect.anchoredPosition = new Vector2(x, y);
 
         var centerRect = nativeSwitch.CenterRect;
-        centerRect.anchorMin = new Vector2(0.34f, 0f);
-        centerRect.anchorMax = new Vector2(0.66f, 1f);
+        centerRect.anchorMin = new Vector2(0.323f, 0f);
+        centerRect.anchorMax = new Vector2(0.677f, 1f);
         centerRect.pivot = new Vector2(0.5f, 0.5f);
         centerRect.offsetMin = Vector2.zero;
         centerRect.offsetMax = Vector2.zero;
@@ -261,8 +293,8 @@ internal static class PortalSettingsLayout
             raycastTarget.localScale = Vector3.one;
         }
 
-        LayoutSwitchIcon(nativeSwitch.LeftIcon);
-        LayoutSwitchIcon(nativeSwitch.RightIcon);
+        LayoutSwitchIcon(nativeSwitch.LeftIcon, left: true);
+        LayoutSwitchIcon(nativeSwitch.RightIcon, left: false);
     }
 
     public static void SetNativeSwitchPresentation(
@@ -274,8 +306,10 @@ internal static class PortalSettingsLayout
         bool dimmed = false)
     {
         nativeSwitch.Button.interactable = interactable;
-        nativeSwitch.LeftBackground.color = leftSelected ? selectedColor : deselectedColor;
-        nativeSwitch.RightBackground.color = leftSelected ? deselectedColor : selectedColor;
+        var transparentDeselectedColor = deselectedColor;
+        transparentDeselectedColor.a = 0f;
+        nativeSwitch.LeftBackground.color = leftSelected ? selectedColor : transparentDeselectedColor;
+        nativeSwitch.RightBackground.color = leftSelected ? transparentDeselectedColor : selectedColor;
         nativeSwitch.CenterBackground.color = selectedColor;
         nativeSwitch.LeftLabel.text = nativeSwitch.LeftText;
         nativeSwitch.RightLabel.text = nativeSwitch.RightText;
@@ -322,8 +356,14 @@ internal static class PortalSettingsLayout
             return;
         }
 
+        ApplyPublicPrivateOptionText(view);
+
+        var dummySection = settingsBackground.Find(DummySectionName);
+        var roleSwitch = dummySection?.Find("LobbyTestBotRoleSwitch");
+        var roleVisible = roleSwitch?.gameObject.activeSelf == true;
+
         var backgroundSize = settingsBackground.sizeDelta;
-        backgroundSize.y = ExpandedBackgroundHeight;
+        backgroundSize.y = roleVisible ? ExpandedBackgroundHeight : CollapsedBackgroundHeight;
         settingsBackground.sizeDelta = backgroundSize;
         var backgroundPosition = settingsBackground.anchoredPosition;
         backgroundPosition.y = ExpandedBackgroundOffsetY;
@@ -331,13 +371,17 @@ internal static class PortalSettingsLayout
 
         LayoutRow(
             FindDirectSection(view._preferredRoleButton?.transform, settingsBackground),
-            PreferredRoleY,
+            roleVisible ? ExpandedPreferredRoleY : CollapsedPreferredRoleY,
             StockRowHeight);
         LayoutRow(
             FindDirectSection(view._privateGameButton?.transform, settingsBackground),
-            PublicGameY,
+            roleVisible ? ExpandedPublicGameY : CollapsedPublicGameY,
             StockRowHeight);
-        LayoutRow(settingsBackground.Find(DummySectionName), DummyBotY, DummyRowHeight, NativeTitleY);
+        LayoutRow(
+            dummySection,
+            roleVisible ? ExpandedDummyBotY : CollapsedDummyBotY,
+            roleVisible ? DummyRowHeight : StockRowHeight,
+            roleVisible ? DummyTitleY : NativeTitleY);
         LayoutRow(settingsBackground.Find(ModeSectionName), ModeY, CompactRowHeight, NativeTitleY);
         LayoutRow(settingsBackground.Find(MapsSectionName), MapsY, MapsHeight, NativeTitleY);
 
@@ -349,7 +393,7 @@ internal static class PortalSettingsLayout
         if (exitButton is not null)
         {
             var position = exitButton.anchoredPosition;
-            position.y = ExitButtonY;
+            position.y = roleVisible ? ExpandedExitButtonY : CollapsedExitButtonY;
             exitButton.anchoredPosition = position;
         }
     }
@@ -400,7 +444,8 @@ internal static class PortalSettingsLayout
         TMP_Text label,
         bool left,
         string text,
-        float fontSize)
+        TMP_Text? nativeOptionLabel,
+        float fallbackFontSize)
     {
         if (half is null)
         {
@@ -417,10 +462,7 @@ internal static class PortalSettingsLayout
         background.preserveAspect = false;
         background.fillCenter = true;
         label.text = text;
-        label.fontSize = fontSize;
-        label.fontSizeMin = Mathf.Max(8f, fontSize - 3f);
-        label.fontSizeMax = fontSize;
-        label.enableAutoSizing = true;
+        ApplyNativeOptionTextStyle(label, nativeOptionLabel, fallbackFontSize);
         label.enableWordWrapping = false;
         label.overflowMode = TextOverflowModes.Ellipsis;
         label.fontStyle = FontStyles.Bold;
@@ -435,7 +477,82 @@ internal static class PortalSettingsLayout
         label.rectTransform.offsetMax = Vector2.zero;
     }
 
-    private static void LayoutSwitchIcon(GameObject? icon)
+    private static TMP_Text? GetPreferredRoleOptionLabel(PortalPlayView view)
+    {
+        var preferredRoot = view._preferredRoleButton?.transform.parent;
+        return preferredRoot?.Find("Victim")?.GetComponentInChildren<TMP_Text>(true)
+            ?? preferredRoot?.Find("Hunter")?.GetComponentInChildren<TMP_Text>(true);
+    }
+
+    private static void ApplyPublicPrivateOptionText(PortalPlayView view)
+    {
+        var switchRoot = view._privateGameButton?.transform.parent;
+        var nativeOptionLabel = GetPreferredRoleOptionLabel(view);
+        ApplyFixedOptionText(
+            switchRoot?.Find("Public")?.GetComponentInChildren<TMP_Text>(true),
+            nativeOptionLabel,
+            "PUBLIC");
+        ApplyFixedOptionText(
+            switchRoot?.Find("Private")?.GetComponentInChildren<TMP_Text>(true),
+            nativeOptionLabel,
+            "PRIVATE");
+    }
+
+    private static void ApplyFixedOptionText(
+        TMP_Text? label,
+        TMP_Text? nativeOptionLabel,
+        string text)
+    {
+        if (label is null)
+        {
+            return;
+        }
+
+        RemoveClonedTextBehaviours(label);
+        label.text = text;
+        ApplyNativeOptionTextStyle(label, nativeOptionLabel, label.fontSize);
+        label.enableWordWrapping = false;
+        label.overflowMode = TextOverflowModes.Ellipsis;
+    }
+
+    private static void ApplyNativeOptionTextStyle(
+        TMP_Text label,
+        TMP_Text? nativeOptionLabel,
+        float fallbackFontSize)
+    {
+        var fontSize = nativeOptionLabel?.fontSize ?? fallbackFontSize;
+        if (nativeOptionLabel?.font is { } font)
+        {
+            label.font = font;
+        }
+
+        label.fontSize = fontSize;
+        label.fontSizeMin = Mathf.Max(10f, fontSize * 0.6f);
+        label.fontSizeMax = fontSize;
+        label.enableAutoSizing = true;
+        label.fontStyle = nativeOptionLabel?.fontStyle ?? FontStyles.Bold;
+        label.characterSpacing = nativeOptionLabel?.characterSpacing ?? 0f;
+    }
+
+    private static void ApplyFixedNativeOptionTextStyle(
+        TMP_Text label,
+        TMP_Text? nativeOptionLabel,
+        float fontSize)
+    {
+        if (nativeOptionLabel?.font is { } font)
+        {
+            label.font = font;
+        }
+
+        label.fontSize = fontSize;
+        label.fontSizeMin = fontSize;
+        label.fontSizeMax = fontSize;
+        label.enableAutoSizing = false;
+        label.fontStyle = nativeOptionLabel?.fontStyle ?? FontStyles.Bold;
+        label.characterSpacing = nativeOptionLabel?.characterSpacing ?? 0f;
+    }
+
+    private static void LayoutSwitchIcon(GameObject? icon, bool left)
     {
         var rect = icon?.GetComponent<RectTransform>();
         if (rect is null)
@@ -443,10 +560,11 @@ internal static class PortalSettingsLayout
             return;
         }
 
-        rect.anchorMin = new Vector2(0.5f, 0.5f);
-        rect.anchorMax = new Vector2(0.5f, 0.5f);
+        var horizontalAnchor = left ? 0.2f : 0.82f;
+        rect.anchorMin = new Vector2(horizontalAnchor, 0.5f);
+        rect.anchorMax = new Vector2(horizontalAnchor, 0.5f);
         rect.pivot = new Vector2(0.5f, 0.5f);
-        rect.sizeDelta = new Vector2(22f, 22f);
+        rect.sizeDelta = new Vector2(28f, 28f);
         rect.anchoredPosition = Vector2.zero;
         rect.localScale = Vector3.one;
     }

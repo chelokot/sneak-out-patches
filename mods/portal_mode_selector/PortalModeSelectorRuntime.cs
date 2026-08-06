@@ -23,8 +23,8 @@ namespace SneakOut.PortalModeSelector;
 
 internal static class PortalModeSelectorRuntime
 {
-    private const float ModeSwitchWidth = 220f;
-    private const float ModeSwitchHeight = 36f;
+    private const float ModeSwitchWidth = 315.3f;
+    private const float ModeSwitchHeight = 37.4f;
     private const float ModeSwitchY = -11.4f;
     private const float MapButtonHeight = 26f;
     private const float MapButtonWidth = 78f;
@@ -167,6 +167,11 @@ internal static class PortalModeSelectorRuntime
             return false;
         }
 
+        PortalSettingsLayout.UseNativeSwitchIcons(
+            modeSwitch,
+            "PortalInteractionIcon",
+            "crown_icon");
+
         var modeClickAction = (UnityAction)(() => ToggleMode(view.Pointer));
         modeSwitch.Button.onClick.AddListener(modeClickAction);
 
@@ -185,7 +190,7 @@ internal static class PortalModeSelectorRuntime
         foreach (var map in PreferredMapSelection.GetAvailableMaps(GameModeType.Default).OrderBy(GetMapDisplayOrder))
         {
             var option = CreateMapOption(
-                view.Pointer,
+                view,
                 mapsSection.Root.transform,
                 view._playButton,
                 map,
@@ -199,7 +204,7 @@ internal static class PortalModeSelectorRuntime
         foreach (var map in PreferredMapSelection.GetAvailableMaps(GameModeType.Berek).OrderBy(GetMapDisplayOrder))
         {
             var option = CreateMapOption(
-                view.Pointer,
+                view,
                 mapsSection.Root.transform,
                 view._playButton,
                 map,
@@ -227,13 +232,14 @@ internal static class PortalModeSelectorRuntime
     }
 
     private static PortalMapOptionUiState? CreateMapOption(
-        IntPtr viewPointer,
+        PortalPlayView view,
         Transform parent,
         SpookedOutlineButton styleSource,
         SceneType sceneType,
         GameModeType gameModeType)
     {
         var segment = PortalSettingsLayout.CreateSegmentButton(
+            view,
             parent,
             $"CodexPortalMap_{gameModeType}_{sceneType}",
             styleSource,
@@ -243,9 +249,9 @@ internal static class PortalModeSelectorRuntime
             return null;
         }
 
-        var clickAction = (UnityAction)(() => ToggleMap(viewPointer, sceneType, gameModeType));
+        var clickAction = (UnityAction)(() => ToggleMap(view.Pointer, sceneType, gameModeType));
         segment.Button.onClick.AddListener(clickAction);
-        segment.Label.text = FormatMapName(sceneType);
+        segment.Label.text = FormatMapName(sceneType).ToUpperInvariant();
         return new PortalMapOptionUiState(
             sceneType,
             gameModeType,
@@ -292,7 +298,7 @@ internal static class PortalModeSelectorRuntime
             var itemsInRow = Mathf.Min(4, visibleCount - row * 4);
             var rowY = rowCount == 1
                 ? -7f
-                : -37f + visualRow * (MapButtonHeight + MapButtonGap);
+                : -33f + visualRow * (MapButtonHeight + MapButtonGap);
             rect.anchoredPosition = new Vector2(
                 -(itemsInRow - 1) * (MapButtonWidth + MapButtonGap) * 0.5f
                     + column * (MapButtonWidth + MapButtonGap),
@@ -324,7 +330,7 @@ internal static class PortalModeSelectorRuntime
                 continue;
             }
 
-            option.Label.text = FormatMapName(option.SceneType);
+            option.Label.text = FormatMapName(option.SceneType).ToUpperInvariant();
             option.Label.enabled = true;
             option.Background.color = selectedMaps.Contains(option.SceneType)
                 ? classic ? ClassicModeColor : CrownModeColor

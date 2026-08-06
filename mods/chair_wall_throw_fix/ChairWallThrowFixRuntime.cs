@@ -6,6 +6,7 @@ using Gameplay.Player.Components;
 using HarmonyLib;
 using Il2CppInterop.Runtime;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
+using Il2CppInterop.Runtime.Injection;
 using Types;
 using UI.Interactions;
 using UnityEngine;
@@ -24,6 +25,10 @@ internal static class ChairWallThrowFixRuntime
     private static Harmony? _harmony;
     private static bool _loggedFailure;
     private static bool _frontBlockOverlaySuppressed;
+    private static bool _overlayWatcherInstalled;
+    private static ChairInteractionView? _cachedChairView;
+    private static ChairInteractionView? _suppressedChairView;
+    private static float _nextOverlayViewSearchAt;
     private static readonly HashSet<string> LoggedPatchFailures = new(StringComparer.Ordinal);
 
     public static void Initialize(ManualLogSource logger, ChairWallThrowFixConfig configuration)
@@ -32,6 +37,7 @@ internal static class ChairWallThrowFixRuntime
         _configuration = configuration;
         _harmony ??= new Harmony(ChairWallThrowFixPlugin.PluginGuid);
         _harmony.PatchAll();
+        EnsureOverlayWatcher();
     }
 
     [HarmonyPatch(typeof(Chair), nameof(Chair.GetInteraction))]
@@ -76,94 +82,102 @@ internal static class ChairWallThrowFixRuntime
         }
     }
 
-    [HarmonyPatch(typeof(ChairInteractionView), nameof(ChairInteractionView.UpdateView))]
-    private static class ChairInteractionViewUpdatePatch
+    private static void EnsureOverlayWatcher()
     {
-        [HarmonyPostfix]
-        private static void Postfix(ChairInteractionView __instance, NetworkId interactableId)
+        if (_overlayWatcherInstalled)
         {
-            if (_configuration?.EnableMod.Value != true)
-            {
-                _frontBlockOverlaySuppressed = false;
-                return;
-            }
-
-            try
-            {
-                var currentInteractable = __instance._currentInteractable;
-                var localInternalId = SneakOutGame.InternalId;
-                if (!__instance._isInputBlocked
-                    || localInternalId < 0
-                    || !IsHeldThrowableOwnedBy(currentInteractable, localInternalId))
-                {
-                    _frontBlockOverlaySuppressed = false;
-                    return;
-                }
-
-                // The stock view reads InteractionTargets.IsSomethingInFrontOfPlayer and turns
-                // this overlay on without consulting IsAvailableInteraction. Keep the shared
-                // detector intact for other mechanics and suppress only this held-item view.
-                __instance._isInputBlocked = false;
-                var blockImage = __instance._blockImage;
-                if (blockImage is not null && blockImage.gameObject.activeSelf)
-                {
-                    blockImage.gameObject.SetActive(false);
-                }
-
-                if (!_frontBlockOverlaySuppressed && _configuration.EnableLogging.Value)
-                {
-                    _logger?.LogInfo(
-                        $"Suppressed held-throwable front-obstacle overlay: "
-                        + $"interactable={interactableId}, player={localInternalId}.");
-                }
-
-                _frontBlockOverlaySuppressed = true;
-            }
-            catch (Exception exception)
-            {
-                _frontBlockOverlaySuppressed = false;
-                LogPatchFailureOnce("ChairInteractionView.UpdateView", exception);
-            }
+            return;
         }
+
+        ClassInjector.RegisterTypeInIl2Cpp<ThrowableOverlayWatcher>();
+        var watcherObject = new GameObject("ChairWallThrowFixOverlayWatcher");
+        watcherObject.hideFlags = HideFlags.HideAndDontSave;
+        UnityEngine.Object.DontDestroyOnLoad(watcherObject);
+        watcherObject.AddComponent<ThrowableOverlayWatcher>();
+        _overlayWatcherInstalled = true;
     }
 
-    [HarmonyPatch(typeof(Chair), nameof(Chair.IsAvailableInteraction))]
-    private static class ChairIsAvailableInteractionPatch
+    private static void UpdateCrossedOverlay()
     {
-        [HarmonyPostfix]
-        private static void Postfix(ref bool __result)
+        if (_configuration?.EnableMod.Value != true)
         {
-            if (_configuration?.EnableMod.Value == true)
-            {
-                __result = true;
-            }
+            RestoreCrossedOverlay();
+            return;
         }
+
+        var chairView = ResolveChairView();
+        var localInternalId = SneakOutGame.InternalId;
+        var currentInteractable = chairView?._currentInteractable;
+        if (chairView is null
+            || localInternalId < 0
+            || !IsHeldThrowableOwnedBy(currentInteractable, localInternalId))
+        {
+            RestoreCrossedOverlay();
+            return;
+        }
+
+        if (_suppressedChairView is not null && _suppressedChairView.Pointer != chairView.Pointer)
+        {
+            RestoreCrossedOverlay();
+        }
+
+        var blockImage = chairView._blockImage;
+        if (blockImage is null)
+        {
+            return;
+        }
+
+        blockImage.enabled = false;
+        _suppressedChairView = chairView;
+        if (!_frontBlockOverlaySuppressed && _configuration.EnableLogging.Value)
+        {
+            _logger?.LogInfo(
+                $"Suppressed held-throwable front-obstacle overlay: "
+                + $"interactable={currentInteractable!.NetworkObjectId}, player={localInternalId}.");
+        }
+
+        _frontBlockOverlaySuppressed = true;
     }
 
-    [HarmonyPatch(typeof(Barrel), nameof(Barrel.IsAvailableInteraction))]
-    private static class BarrelIsAvailableInteractionPatch
+    private static ChairInteractionView? ResolveChairView()
     {
-        [HarmonyPostfix]
-        private static void Postfix(ref bool __result)
+        if (_cachedChairView is not null && _cachedChairView.Pointer != IntPtr.Zero)
         {
-            if (_configuration?.EnableMod.Value == true)
+            var cachedObject = _cachedChairView.gameObject;
+            if (cachedObject is not null && cachedObject.activeInHierarchy)
             {
-                __result = true;
+                return _cachedChairView;
             }
         }
+
+        if (Time.unscaledTime < _nextOverlayViewSearchAt)
+        {
+            return _cachedChairView;
+        }
+
+        _nextOverlayViewSearchAt = Time.unscaledTime + 0.5f;
+        var activeChairView = UnityEngine.Object.FindObjectOfType<ChairInteractionView>();
+        if (activeChairView is not null)
+        {
+            _cachedChairView = activeChairView;
+        }
+
+        return _cachedChairView;
     }
 
-    [HarmonyPatch(typeof(Ingredient), nameof(Ingredient.IsAvailableInteraction))]
-    private static class IngredientIsAvailableInteractionPatch
+    private static void RestoreCrossedOverlay()
     {
-        [HarmonyPostfix]
-        private static void Postfix(ref bool __result)
+        if (_suppressedChairView is not null && _suppressedChairView.Pointer != IntPtr.Zero)
         {
-            if (_configuration?.EnableMod.Value == true)
+            var blockImage = _suppressedChairView._blockImage;
+            if (blockImage is not null)
             {
-                __result = true;
+                blockImage.enabled = true;
             }
         }
+
+        _suppressedChairView = null;
+        _frontBlockOverlaySuppressed = false;
     }
 
     [HarmonyPatch(
@@ -281,6 +295,45 @@ internal static class ChairWallThrowFixRuntime
         }
 
         return false;
+    }
+
+    private sealed class ThrowableOverlayWatcher : MonoBehaviour
+    {
+        public ThrowableOverlayWatcher(IntPtr pointer) : base(pointer)
+        {
+        }
+
+        public ThrowableOverlayWatcher() : base(ClassInjector.DerivedConstructorPointer<ThrowableOverlayWatcher>())
+        {
+            ClassInjector.DerivedConstructorBody(this);
+        }
+
+        private void Update()
+        {
+            try
+            {
+                UpdateCrossedOverlay();
+            }
+            catch (Exception exception)
+            {
+                _cachedChairView = null;
+                _suppressedChairView = null;
+                _frontBlockOverlaySuppressed = false;
+                LogPatchFailureOnce("ThrowableOverlayWatcher.Update", exception);
+            }
+        }
+
+        private void OnDestroy()
+        {
+            try
+            {
+                RestoreCrossedOverlay();
+            }
+            catch
+            {
+                // The referenced scene UI may already be destroyed during shutdown.
+            }
+        }
     }
 
     private static void LogPatchFailureOnce(string stage, Exception exception)

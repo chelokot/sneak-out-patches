@@ -94,9 +94,10 @@ External prerequisites:
 
 ## Runtime mod catalog
 
-The normal install enables every stable mod below. `Minimap` and `Alternate Skill Hotkey`
-are opt-in gameplay modifiers; `Lobby Test Bot`, `Free Fly`, and `Runtime Profiler` are
-development tools. Install any of them with `--all` or select them with `--interactive`.
+The normal install enables every stable mod below. `Network Host Selector` and
+`Alternate Skill Hotkey` are opt-in gameplay modifiers; `Lobby Test Bot`, `Free Fly`,
+and `Runtime Profiler` are development tools. Install any of them with `--all` or select
+them with `--interactive`.
 
 | Mod id | Name | Default | What it does |
 | --- | --- | :---: | --- |

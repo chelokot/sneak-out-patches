@@ -46,7 +46,7 @@
     "label": "Minimap",
     "details": "Generates a configurable camera-aligned floor plan with runtime rooms and POIs, guides off-screen task rooms, wardrobes, and item rollers around zoomed views, shows only the local player, and adds an in-game Map settings tab.",
     "category": "quality-of-life",
-    "default_enabled": false,
+    "default_enabled": true,
     "project_relative_path": "mods/minimap/Minimap.csproj",
     "assembly_name": "SneakOut.Minimap",
     "config_relative_path": "BepInEx/config/chelokot.sneakout.minimap.cfg",

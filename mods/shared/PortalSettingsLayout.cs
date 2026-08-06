@@ -12,6 +12,7 @@ internal static class PortalSettingsLayout
     public const string ModeSectionName = "CodexPortalModeSection";
     public const string MapsSectionName = "CodexPortalMapsSection";
 
+    private const float NoDummyBackgroundHeight = 569f;
     private const float CollapsedBackgroundHeight = 657f;
     private const float ExpandedBackgroundHeight = 694f;
     private const float ExpandedBackgroundOffsetY = 0f;
@@ -25,6 +26,8 @@ internal static class PortalSettingsLayout
     private const float ExpandedPreferredRoleY = 615.5f;
     private const float ExpandedPublicGameY = 527.5f;
     private const float ExpandedDummyBotY = 421f;
+    private const float NoDummyPreferredRoleY = 490.5f;
+    private const float NoDummyPublicGameY = 402.5f;
     private const float CollapsedPreferredRoleY = 578.5f;
     private const float CollapsedPublicGameY = 490.5f;
     private const float CollapsedDummyBotY = 402.5f;
@@ -32,6 +35,7 @@ internal static class PortalSettingsLayout
     private const float MapsY = 216.5f;
     private const float PlayPanelY = 97f;
     private const float ExpandedExitButtonY = 332f;
+    private const float NoDummyExitButtonY = 269.5f;
     private const float CollapsedExitButtonY = 313.5f;
 
     private static Sprite? _roundedButtonSprite;
@@ -360,10 +364,13 @@ internal static class PortalSettingsLayout
 
         var dummySection = settingsBackground.Find(DummySectionName);
         var roleSwitch = dummySection?.Find("LobbyTestBotRoleSwitch");
+        var dummyPresent = dummySection is not null;
         var roleVisible = roleSwitch?.gameObject.activeSelf == true;
 
         var backgroundSize = settingsBackground.sizeDelta;
-        backgroundSize.y = roleVisible ? ExpandedBackgroundHeight : CollapsedBackgroundHeight;
+        backgroundSize.y = roleVisible
+            ? ExpandedBackgroundHeight
+            : dummyPresent ? CollapsedBackgroundHeight : NoDummyBackgroundHeight;
         settingsBackground.sizeDelta = backgroundSize;
         var backgroundPosition = settingsBackground.anchoredPosition;
         backgroundPosition.y = ExpandedBackgroundOffsetY;
@@ -371,11 +378,15 @@ internal static class PortalSettingsLayout
 
         LayoutRow(
             FindDirectSection(view._preferredRoleButton?.transform, settingsBackground),
-            roleVisible ? ExpandedPreferredRoleY : CollapsedPreferredRoleY,
+            roleVisible
+                ? ExpandedPreferredRoleY
+                : dummyPresent ? CollapsedPreferredRoleY : NoDummyPreferredRoleY,
             StockRowHeight);
         LayoutRow(
             FindDirectSection(view._privateGameButton?.transform, settingsBackground),
-            roleVisible ? ExpandedPublicGameY : CollapsedPublicGameY,
+            roleVisible
+                ? ExpandedPublicGameY
+                : dummyPresent ? CollapsedPublicGameY : NoDummyPublicGameY,
             StockRowHeight);
         LayoutRow(
             dummySection,
@@ -393,7 +404,9 @@ internal static class PortalSettingsLayout
         if (exitButton is not null)
         {
             var position = exitButton.anchoredPosition;
-            position.y = roleVisible ? ExpandedExitButtonY : CollapsedExitButtonY;
+            position.y = roleVisible
+                ? ExpandedExitButtonY
+                : dummyPresent ? CollapsedExitButtonY : NoDummyExitButtonY;
             exitButton.anchoredPosition = position;
         }
     }

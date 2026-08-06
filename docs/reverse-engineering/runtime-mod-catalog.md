@@ -26,8 +26,9 @@ These are narrow runtime replacements for old binary patches or scene edits.
 - `start-delay-reducer`
 - `background-loading-guard`
 - `friend-invite-unlock`
+- `minimap`
 
-These stay separate because each one owns a single gameplay or lobby concern and has a clear rollback boundary.
+These stay separate because each one owns a single gameplay or lobby concern and has a clear rollback boundary. `minimap` is enabled by default and remains local-player-only; it does not publish or reveal network-player positions.
 
 ### Progression
 

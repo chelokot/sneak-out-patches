@@ -19,6 +19,8 @@
 
 ## gameplay
 
+- `gameplay/runtime-minimap.md`
+  Runtime-only floor-plan and point-of-interest generation, local-player projection, configuration, and validation evidence for the minimap mod.
 - `gameplay/proximity-voice-chat.md`
   Architecture, privacy model, Steam transport, adaptive playback, and release validation status for proximity voice.
 - `gameplay/geometry-fixes.md`

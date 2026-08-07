@@ -113,5 +113,15 @@ Require(
 Require(
     VoiceOcclusionPolicy.Combine(VoiceOcclusionKind.Wall, VoiceOcclusionKind.Item) == VoiceOcclusionKind.Wall,
     "item occlusion incorrectly weakened an existing wall blocker");
+Require(
+    VoiceOcclusionPolicy.IsStructuralName("Wall_wood_standard_a_4m_prefab")
+    && VoiceOcclusionPolicy.IsStructuralName("Door_a")
+    && VoiceOcclusionPolicy.IsStructuralName("labyrinth_collision_02"),
+    "known structural collider names were not classified as walls");
+Require(
+    !VoiceOcclusionPolicy.IsStructuralName("EnvironmentCollider")
+    && !VoiceOcclusionPolicy.IsStructuralName("BlackboardSet_a_BB_b_base")
+    && !VoiceOcclusionPolicy.IsStructuralName("OpenableGlobe_a_prefab"),
+    "ordinary environment items were classified as walls");
 
 Console.WriteLine("Proximity voice protocol, jitter, fragmentation, audibility, and occlusion tests passed.");

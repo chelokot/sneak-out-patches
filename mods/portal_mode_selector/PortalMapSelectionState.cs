@@ -5,8 +5,8 @@ namespace SneakOut.PortalModeSelector;
 
 internal sealed class PortalMapSelectionState
 {
-    private readonly HashSet<SceneType> _availableClassicMaps = new();
-    private readonly HashSet<SceneType> _availableCrownMaps = new();
+    private readonly HashSet<SceneType> _displayedClassicMaps = new();
+    private readonly HashSet<SceneType> _displayedCrownMaps = new();
     private readonly HashSet<SceneType> _selectedClassicMaps = new();
     private readonly HashSet<SceneType> _selectedCrownMaps = new();
 
@@ -17,20 +17,20 @@ internal sealed class PortalMapSelectionState
 
     public void SynchronizeDefaults()
     {
-        AddDefaultMap(SceneType.Map01, _availableClassicMaps, _selectedClassicMaps);
-        AddDefaultMap(SceneType.Map02, _availableClassicMaps, _selectedClassicMaps);
-        AddDefaultMap(SceneType.Map03, _availableClassicMaps, _selectedClassicMaps);
-        AddDefaultMap(SceneType.Map04, _availableClassicMaps, _selectedClassicMaps);
-        AddDefaultMap(SceneType.Map_East01, _availableClassicMaps, _selectedClassicMaps);
-        AddDefaultMap(SceneType.Map_East02, _availableClassicMaps, _selectedClassicMaps);
-        AddDefaultMap(SceneType.Map05_TagGame, _availableCrownMaps, _selectedCrownMaps);
-        AddDefaultMap(SceneType.Map_School01, _availableCrownMaps, _selectedCrownMaps);
-        AddDefaultMap(SceneType.Map_School02, _availableCrownMaps, _selectedCrownMaps);
+        AddDefaultMap(SceneType.Map01, _displayedClassicMaps, _selectedClassicMaps);
+        AddDefaultMap(SceneType.Map02, _displayedClassicMaps, _selectedClassicMaps);
+        AddDefaultMap(SceneType.Map03, _displayedClassicMaps, _selectedClassicMaps);
+        AddDefaultMap(SceneType.Map04, _displayedClassicMaps, _selectedClassicMaps);
+        AddDefaultMap(SceneType.Map_East01, _displayedClassicMaps, _selectedClassicMaps);
+        AddDefaultMap(SceneType.Map_East02, _displayedClassicMaps, _selectedClassicMaps);
+        AddDefaultMap(SceneType.Map05_TagGame, _displayedCrownMaps, _selectedCrownMaps);
+        AddDefaultMap(SceneType.Map_School01, _displayedCrownMaps, _selectedCrownMaps);
+        AddDefaultMap(SceneType.Map_School02, _displayedCrownMaps, _selectedCrownMaps);
     }
 
-    public IReadOnlyCollection<SceneType> GetAvailableMaps(GameModeType gameModeType)
+    public IReadOnlyCollection<SceneType> GetDisplayedMaps(GameModeType gameModeType)
     {
-        return gameModeType == GameModeType.Berek ? _availableCrownMaps : _availableClassicMaps;
+        return gameModeType == GameModeType.Berek ? _displayedCrownMaps : _displayedClassicMaps;
     }
 
     public HashSet<SceneType> GetSelectedMaps(GameModeType gameModeType)
@@ -38,11 +38,18 @@ internal sealed class PortalMapSelectionState
         return gameModeType == GameModeType.Berek ? _selectedCrownMaps : _selectedClassicMaps;
     }
 
+    public static bool IsSelectable(SceneType sceneType)
+    {
+        // East 1 ships in the client but is unfinished. Keep it visible in the party
+        // configurator without allowing it into a matchmaking map pool.
+        return sceneType != SceneType.Map_East01;
+    }
+
     public PortalMapSelectionState Snapshot()
     {
         var snapshot = new PortalMapSelectionState();
-        snapshot._availableClassicMaps.UnionWith(_availableClassicMaps);
-        snapshot._availableCrownMaps.UnionWith(_availableCrownMaps);
+        snapshot._displayedClassicMaps.UnionWith(_displayedClassicMaps);
+        snapshot._displayedCrownMaps.UnionWith(_displayedCrownMaps);
         snapshot._selectedClassicMaps.UnionWith(_selectedClassicMaps);
         snapshot._selectedCrownMaps.UnionWith(_selectedCrownMaps);
         return snapshot;
@@ -57,37 +64,38 @@ internal sealed class PortalMapSelectionState
 
         SynchronizeMode(
             availableMaps.Where(sceneType => !IsBerekMap(sceneType)),
-            _availableClassicMaps,
+            _displayedClassicMaps,
             _selectedClassicMaps
         );
         SynchronizeMode(
             availableMaps.Where(IsBerekMap),
-            _availableCrownMaps,
+            _displayedCrownMaps,
             _selectedCrownMaps
         );
     }
 
     private static void SynchronizeMode(
         IEnumerable<SceneType> maps,
-        HashSet<SceneType> availableMaps,
+        HashSet<SceneType> displayedMaps,
         HashSet<SceneType> selectedMaps
     )
     {
-        var newAvailableMaps = maps.ToArray();
-        var mapsAdded = newAvailableMaps.Where(sceneType => !availableMaps.Contains(sceneType)).ToArray();
+        var newDisplayedMaps = maps.ToArray();
+        var mapsAdded = newDisplayedMaps.Where(sceneType => !displayedMaps.Contains(sceneType)).ToArray();
 
-        availableMaps.Clear();
-        availableMaps.UnionWith(newAvailableMaps);
-        selectedMaps.IntersectWith(availableMaps);
-        selectedMaps.UnionWith(mapsAdded);
+        displayedMaps.Clear();
+        displayedMaps.UnionWith(newDisplayedMaps);
+        selectedMaps.IntersectWith(displayedMaps);
+        selectedMaps.RemoveWhere(sceneType => !IsSelectable(sceneType));
+        selectedMaps.UnionWith(mapsAdded.Where(IsSelectable));
     }
 
     private static void AddDefaultMap(
         SceneType sceneType,
-        HashSet<SceneType> availableMaps,
+        HashSet<SceneType> displayedMaps,
         HashSet<SceneType> selectedMaps)
     {
-        if (availableMaps.Add(sceneType))
+        if (displayedMaps.Add(sceneType) && IsSelectable(sceneType))
         {
             selectedMaps.Add(sceneType);
         }

@@ -187,7 +187,7 @@ internal static class PortalModeSelectorRuntime
         }
 
         var mapOptions = new List<PortalMapOptionUiState>();
-        foreach (var map in PreferredMapSelection.GetAvailableMaps(GameModeType.Default).OrderBy(GetMapDisplayOrder))
+        foreach (var map in PreferredMapSelection.GetDisplayedMaps(GameModeType.Default).OrderBy(GetMapDisplayOrder))
         {
             var option = CreateMapOption(
                 view,
@@ -201,7 +201,7 @@ internal static class PortalModeSelectorRuntime
             }
         }
 
-        foreach (var map in PreferredMapSelection.GetAvailableMaps(GameModeType.Berek).OrderBy(GetMapDisplayOrder))
+        foreach (var map in PreferredMapSelection.GetDisplayedMaps(GameModeType.Berek).OrderBy(GetMapDisplayOrder))
         {
             var option = CreateMapOption(
                 view,
@@ -273,7 +273,7 @@ internal static class PortalModeSelectorRuntime
             ModeSwitchHeight);
 
         var visibleIndex = 0;
-        var visibleCount = PreferredMapSelection.GetAvailableMaps(_preferredMode).Count;
+        var visibleCount = PreferredMapSelection.GetDisplayedMaps(_preferredMode).Count;
         foreach (var option in state.MapOptions)
         {
             if (option.GameModeType != _preferredMode)
@@ -319,8 +319,9 @@ internal static class PortalModeSelectorRuntime
             interactable: true);
 
         var selectedMaps = PreferredMapSelection.GetSelectedMaps(_preferredMode);
-        var availableMaps = PreferredMapSelection.GetAvailableMaps(_preferredMode);
-        state.MapsTitle.text = $"Maps  {selectedMaps.Count}/{availableMaps.Count}";
+        var displayedMaps = PreferredMapSelection.GetDisplayedMaps(_preferredMode);
+        var selectableMapCount = displayedMaps.Count(PortalMapSelectionState.IsSelectable);
+        state.MapsTitle.text = $"Maps  {selectedMaps.Count}/{selectableMapCount}";
         foreach (var option in state.MapOptions)
         {
             var visible = option.GameModeType == _preferredMode;
@@ -332,7 +333,10 @@ internal static class PortalModeSelectorRuntime
 
             option.Label.text = FormatMapName(option.SceneType).ToUpperInvariant();
             option.Label.enabled = true;
-            option.Background.color = selectedMaps.Contains(option.SceneType)
+            var selectable = PortalMapSelectionState.IsSelectable(option.SceneType);
+            option.Button.interactable = selectable;
+            option.Label.color = selectable ? Color.white : new Color(1f, 1f, 1f, 0.45f);
+            option.Background.color = selectable && selectedMaps.Contains(option.SceneType)
                 ? classic ? ClassicModeColor : CrownModeColor
                 : MapDisabledColor;
         }
@@ -352,6 +356,11 @@ internal static class PortalModeSelectorRuntime
 
     private static void ToggleMap(IntPtr viewPointer, SceneType sceneType, GameModeType gameModeType)
     {
+        if (!PortalMapSelectionState.IsSelectable(sceneType))
+        {
+            return;
+        }
+
         var selectedMaps = PreferredMapSelection.GetSelectedMaps(gameModeType);
         if (selectedMaps.Contains(sceneType))
         {
@@ -559,6 +568,7 @@ internal static class PortalModeSelectorRuntime
 
         var selectedPool = _activeMapSelection
             .GetSelectedMaps(_activeMode.Value)
+            .Where(PortalMapSelectionState.IsSelectable)
             .ToArray();
         if (selectedPool.Length == 0)
         {

@@ -24,7 +24,7 @@
   {
     "option_id": "portal-mode-selector",
     "label": "Portal Mode Selector",
-    "details": "Builds and installs the BepInEx runtime mod that replaces fragile portal UI scene edits with runtime hooks and keeps the unfinished East 1 map visible but unavailable.",
+    "details": "Builds and installs the BepInEx runtime mod that replaces fragile portal UI scene edits with runtime hooks and keeps Map 4 and the unfinished East 1 map visible but unavailable.",
     "category": "gameplay",
     "default_enabled": true,
     "project_relative_path": "mods/portal_mode_selector/PortalModeSelector.csproj",

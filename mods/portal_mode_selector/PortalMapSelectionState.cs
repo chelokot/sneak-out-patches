@@ -40,9 +40,10 @@ internal sealed class PortalMapSelectionState
 
     public static bool IsSelectable(SceneType sceneType)
     {
-        // East 1 ships in the client but is unfinished. Keep it visible in the party
-        // configurator without allowing it into a matchmaking map pool.
-        return sceneType != SceneType.Map_East01;
+        // Keep disabled maps visible in the party configurator without allowing
+        // them into a matchmaking map pool.
+        return sceneType is not SceneType.Map04
+            and not SceneType.Map_East01;
     }
 
     public PortalMapSelectionState Snapshot()

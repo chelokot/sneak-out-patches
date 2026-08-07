@@ -1,4 +1,5 @@
 using BepInEx.Logging;
+using Gameplay.Interactions;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using UnityEngine;
 
@@ -7,10 +8,23 @@ namespace SneakOut.ProximityVoiceChat;
 internal sealed class RemoteVoicePlayback : IDisposable
 {
     private const float OcclusionProbeIntervalSeconds = 0.12f;
-    private const float UnoccludedLowPassFrequency = 22000f;
+    private const float OcclusionBlendSpeed = 7f;
     private const float FullVolumeDistanceMetres = 2.5f;
-    private const float MaximumAudibleDistanceMetres = 10f;
-    private const int OcclusionHitCapacity = 16;
+    private const float MaximumAudibleDistanceMetres = 20f;
+    private const int OcclusionHitCapacity = 32;
+
+    private static readonly string[] WallLayerNames =
+    {
+        "Wall",
+        "HardEnvironment",
+        "Room_a",
+        "Room_b",
+        "Room_c",
+        "Room_d",
+    };
+
+    private static int _wallLayerMask;
+    private static bool _wallLayerMaskInitialized;
 
     private readonly ProximityVoiceChatConfig _configuration;
     private readonly ManualLogSource _logger;
@@ -32,8 +46,9 @@ internal sealed class RemoteVoicePlayback : IDisposable
     private int _lastPlaybackPosition;
     private int _queuedSamples;
     private float _nextOcclusionProbe;
-    private float _occlusionAmount;
-    private bool _isOccluded;
+    private float _currentOcclusionVolumeMultiplier = 1f;
+    private float _currentLowPassFrequency = VoiceOcclusionPolicy.UnoccludedLowPassFrequency;
+    private VoiceOcclusionKind _occlusionKind;
     private float _lastPacketTime;
     private float _lastTickTime;
     private bool _started;
@@ -81,7 +96,7 @@ internal sealed class RemoteVoicePlayback : IDisposable
         _audioSource.rolloffMode = AudioRolloffMode.Custom;
         ConfigureDistanceCurve();
         _audioSource.volume = Mathf.Clamp01(configuration.MasterVolume.Value);
-        _lowPassFilter.cutoffFrequency = UnoccludedLowPassFrequency;
+        _lowPassFilter.cutoffFrequency = VoiceOcclusionPolicy.UnoccludedLowPassFrequency;
     }
 
     public Transform Anchor => _anchor;
@@ -265,8 +280,9 @@ internal sealed class RemoteVoicePlayback : IDisposable
             && nowSeconds >= _nextOcclusionProbe)
         {
             _nextOcclusionProbe = nowSeconds + OcclusionProbeIntervalSeconds;
-            var wasOccluded = _isOccluded;
+            var previousKind = _occlusionKind;
             var blockingColliderName = string.Empty;
+            var blockingLayerName = string.Empty;
             var from = listener.position;
             var offset = _host.transform.position - from;
             var distance = offset.magnitude;
@@ -279,7 +295,7 @@ internal sealed class RemoteVoicePlayback : IDisposable
                     Physics.DefaultRaycastLayers,
                     QueryTriggerInteraction.Ignore)
                 : 0;
-            _isOccluded = false;
+            _occlusionKind = VoiceOcclusionKind.None;
             for (var index = 0; index < hitCount; index++)
             {
                 var collider = _occlusionHits[index].collider;
@@ -291,33 +307,72 @@ internal sealed class RemoteVoicePlayback : IDisposable
                     continue;
                 }
 
-                _isOccluded = true;
-                blockingColliderName = collider.gameObject.name;
-                break;
+                var candidateKind = IsWall(collider)
+                    ? VoiceOcclusionKind.Wall
+                    : VoiceOcclusionKind.Item;
+                var combinedKind = VoiceOcclusionPolicy.Combine(_occlusionKind, candidateKind);
+                if (combinedKind != _occlusionKind)
+                {
+                    _occlusionKind = combinedKind;
+                    blockingColliderName = collider.gameObject.name;
+                    blockingLayerName = LayerMask.LayerToName(collider.gameObject.layer);
+                }
+                if (_occlusionKind == VoiceOcclusionKind.Wall)
+                {
+                    break;
+                }
             }
-            if (wasOccluded != _isOccluded && _configuration.EnableLogging.Value)
+            if (previousKind != _occlusionKind && _configuration.EnableLogging.Value)
             {
                 _logger.LogInfo(
-                    $"Proximity voice occlusion: peer={_peerLabel}, occluded={_isOccluded}, "
-                    + $"distance={distance:F2}, blocker={blockingColliderName}");
+                    $"Proximity voice occlusion: peer={_peerLabel}, kind={_occlusionKind}, "
+                    + $"distance={distance:F2}, blocker={blockingColliderName}, layer={blockingLayerName}");
             }
         }
         else if (listener is null)
         {
-            _isOccluded = false;
+            _occlusionKind = VoiceOcclusionKind.None;
         }
 
-        var target = _isOccluded ? 1f : 0f;
-        _occlusionAmount = Mathf.MoveTowards(_occlusionAmount, target, Time.unscaledDeltaTime * 7f);
+        var profile = VoiceOcclusionPolicy.GetProfile(_occlusionKind);
+        var blend = 1f - Mathf.Exp(-OcclusionBlendSpeed * Time.unscaledDeltaTime);
+        _currentOcclusionVolumeMultiplier = Mathf.Lerp(
+            _currentOcclusionVolumeMultiplier,
+            profile.VolumeMultiplier,
+            blend);
+        _currentLowPassFrequency = Mathf.Lerp(
+            _currentLowPassFrequency,
+            profile.LowPassFrequency,
+            blend);
         var unoccludedVolume = Mathf.Clamp01(_configuration.MasterVolume.Value);
-        _audioSource.volume = unoccludedVolume * Mathf.Lerp(
-            1f,
-            _configuration.OccludedVolumeMultiplier.Value,
-            _occlusionAmount);
-        _lowPassFilter.cutoffFrequency = Mathf.Lerp(
-            UnoccludedLowPassFrequency,
-            _configuration.OccludedLowPassFrequency.Value,
-            _occlusionAmount);
+        _audioSource.volume = unoccludedVolume * _currentOcclusionVolumeMultiplier;
+        _lowPassFilter.cutoffFrequency = _currentLowPassFrequency;
+    }
+
+    private static bool IsWall(Collider collider)
+    {
+        var layer = collider.gameObject.layer;
+        return (layer is >= 0 and < 32 && (GetWallLayerMask() & (1 << layer)) != 0)
+            || collider.GetComponentInParent<Door>() is not null;
+    }
+
+    private static int GetWallLayerMask()
+    {
+        if (_wallLayerMaskInitialized)
+        {
+            return _wallLayerMask;
+        }
+
+        _wallLayerMaskInitialized = true;
+        foreach (var layerName in WallLayerNames)
+        {
+            var layer = LayerMask.NameToLayer(layerName);
+            if (layer >= 0)
+            {
+                _wallLayerMask |= 1 << layer;
+            }
+        }
+        return _wallLayerMask;
     }
 
     private static bool BelongsToPlayer(Transform? candidate, Transform playerTransform)

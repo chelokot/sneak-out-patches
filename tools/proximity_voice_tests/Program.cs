@@ -96,4 +96,22 @@ Require(VoiceAudibilityPolicy.CanHear(localPlayerIsDead: true, remotePlayerIsDea
 // must become inaudible on the first policy evaluation after that replicated state changes.
 Require(!VoiceAudibilityPolicy.CanHear(localPlayerIsDead: false, remotePlayerIsDead: true), "resurrection did not restore living-only channel");
 
-Console.WriteLine("Proximity voice protocol, jitter, fragmentation, and audibility tests passed.");
+var clearProfile = VoiceOcclusionPolicy.GetProfile(VoiceOcclusionKind.None);
+var itemProfile = VoiceOcclusionPolicy.GetProfile(VoiceOcclusionKind.Item);
+var wallProfile = VoiceOcclusionPolicy.GetProfile(VoiceOcclusionKind.Wall);
+Require(
+    clearProfile.VolumeMultiplier > itemProfile.VolumeMultiplier
+    && itemProfile.VolumeMultiplier > wallProfile.VolumeMultiplier,
+    "voice occlusion volume profiles are not ordered clear > item > wall");
+Require(
+    clearProfile.LowPassFrequency > itemProfile.LowPassFrequency
+    && itemProfile.LowPassFrequency > wallProfile.LowPassFrequency,
+    "voice occlusion low-pass profiles are not ordered clear > item > wall");
+Require(
+    VoiceOcclusionPolicy.Combine(VoiceOcclusionKind.Item, VoiceOcclusionKind.Wall) == VoiceOcclusionKind.Wall,
+    "a wall did not take precedence over item occlusion");
+Require(
+    VoiceOcclusionPolicy.Combine(VoiceOcclusionKind.Wall, VoiceOcclusionKind.Item) == VoiceOcclusionKind.Wall,
+    "item occlusion incorrectly weakened an existing wall blocker");
+
+Console.WriteLine("Proximity voice protocol, jitter, fragmentation, audibility, and occlusion tests passed.");

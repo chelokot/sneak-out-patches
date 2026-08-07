@@ -9,6 +9,7 @@
   <ItemGroup>
     <Compile Include="../../mods/proximity_voice_chat/AdaptiveJitterBuffer.cs" Link="AdaptiveJitterBuffer.cs" />
     <Compile Include="../../mods/proximity_voice_chat/VoiceAudibilityPolicy.cs" Link="VoiceAudibilityPolicy.cs" />
+    <Compile Include="../../mods/proximity_voice_chat/VoiceOcclusionPolicy.cs" Link="VoiceOcclusionPolicy.cs" />
     <Compile Include="../../mods/proximity_voice_chat/VoiceFragmentAssembler.cs" Link="VoiceFragmentAssembler.cs" />
     <Compile Include="../../mods/proximity_voice_chat/VoiceProtocol.cs" Link="VoiceProtocol.cs" />
     <Compile Include="../../mods/proximity_voice_chat/VoicePeerAdmission.cs" Link="VoicePeerAdmission.cs" />

@@ -26,7 +26,7 @@ No external voice server, account, native codec, or microphone recording file is
 - Enabled state and focus behavior use stock toggle rows, voice mode uses a stock dropdown,
   push-to-talk uses the stock key-binding row, and volume/sensitivity use stock sliders inside the
   game's Audio settings scroll. The normal rounded panels, hover outline, mouse, and controller
-  navigation are kept. Audible distance is fixed at 10 metres.
+  navigation are kept. Audible distance is fixed at 20 metres.
 
 ## Living and ghost channels
 
@@ -84,9 +84,10 @@ Each remote speaker owns:
 - Steam voice decompression into a three-second circular PCM clip
 - a child `AudioSource` attached near the remote avatar's head
 - normalized custom 3D rolloff: full volume within 2.5 metres, progressively quieter with
-  distance, and exactly silent at the fixed 10-metre edge
-- a throttled wall probe that ignores both players' colliders and smoothly blends volume and
-  low-pass filtering only for intervening level geometry
+  distance, and exactly silent at the fixed 20-metre edge
+- a throttled geometry probe that ignores both players' colliders, lightly attenuates ordinary
+  items (82% volume, 9 kHz low-pass), and heavily muffles structural walls and doors (20% volume,
+  1.1 kHz low-pass)
 
 The implementation prefers dropping stale speech and resynchronizing over accumulating seconds of
 latency. All packet, fragment, PCM, and per-tick decode work is bounded.

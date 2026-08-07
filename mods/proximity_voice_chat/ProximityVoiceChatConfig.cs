@@ -25,8 +25,6 @@ internal sealed class ProximityVoiceChatConfig
         ConfigEntry<float> masterVolume,
         ConfigEntry<float> jitterBufferMilliseconds,
         ConfigEntry<float> maximumJitterMilliseconds,
-        ConfigEntry<float> occludedVolumeMultiplier,
-        ConfigEntry<float> occludedLowPassFrequency,
         ConfigEntry<string> mutedSteamIds,
         ConfigEntry<string> additionalPeerSteamIds,
         ConfigEntry<bool> captureSettingsScreenshot,
@@ -42,8 +40,6 @@ internal sealed class ProximityVoiceChatConfig
         MasterVolume = masterVolume;
         JitterBufferMilliseconds = jitterBufferMilliseconds;
         MaximumJitterMilliseconds = maximumJitterMilliseconds;
-        OccludedVolumeMultiplier = occludedVolumeMultiplier;
-        OccludedLowPassFrequency = occludedLowPassFrequency;
         MutedSteamIds = mutedSteamIds;
         AdditionalPeerSteamIds = additionalPeerSteamIds;
         CaptureSettingsScreenshot = captureSettingsScreenshot;
@@ -60,8 +56,6 @@ internal sealed class ProximityVoiceChatConfig
     public ConfigEntry<float> MasterVolume { get; }
     public ConfigEntry<float> JitterBufferMilliseconds { get; }
     public ConfigEntry<float> MaximumJitterMilliseconds { get; }
-    public ConfigEntry<float> OccludedVolumeMultiplier { get; }
-    public ConfigEntry<float> OccludedLowPassFrequency { get; }
     public ConfigEntry<string> MutedSteamIds { get; }
     public ConfigEntry<string> AdditionalPeerSteamIds { get; }
     public ConfigEntry<bool> CaptureSettingsScreenshot { get; }
@@ -75,6 +69,8 @@ internal sealed class ProximityVoiceChatConfig
         var legacyMinimumDistanceDefinition = new ConfigDefinition("Playback", "MinimumDistance");
         var legacyMaximumDistanceDefinition = new ConfigDefinition("Playback", "MaximumDistance");
         var legacyEnableOcclusionDefinition = new ConfigDefinition("Playback", "EnableOcclusion");
+        var legacyOccludedVolumeDefinition = new ConfigDefinition("Playback", "OccludedVolumeMultiplier");
+        var legacyOccludedLowPassDefinition = new ConfigDefinition("Playback", "OccludedLowPassFrequency");
 
         var hasLegacyPushToTalkKey = HasConfigKey(config, legacyPushToTalkKeyDefinition);
         var hasLegacyTransmitWhileUnfocused = HasConfigKey(config, legacyTransmitWhileUnfocusedDefinition);
@@ -82,6 +78,8 @@ internal sealed class ProximityVoiceChatConfig
         var hasLegacyMinimumDistance = HasConfigKey(config, legacyMinimumDistanceDefinition);
         var hasLegacyMaximumDistance = HasConfigKey(config, legacyMaximumDistanceDefinition);
         var hasLegacyEnableOcclusion = HasConfigKey(config, legacyEnableOcclusionDefinition);
+        var hasLegacyOccludedVolume = HasConfigKey(config, legacyOccludedVolumeDefinition);
+        var hasLegacyOccludedLowPass = HasConfigKey(config, legacyOccludedLowPassDefinition);
 
         var migratedPushToTalkBinding = DefaultPushToTalkBinding;
         if (hasLegacyPushToTalkKey)
@@ -122,7 +120,7 @@ internal sealed class ProximityVoiceChatConfig
             config.Bind(
                 legacyMaximumDistanceDefinition,
                 10f,
-                new ConfigDescription("Legacy voice-distance setting; maximum range is now fixed at 10 metres."));
+                new ConfigDescription("Legacy voice-distance setting; maximum range is now fixed at 20 metres."));
         }
         if (hasLegacyEnableOcclusion)
         {
@@ -130,6 +128,20 @@ internal sealed class ProximityVoiceChatConfig
                 legacyEnableOcclusionDefinition,
                 true,
                 new ConfigDescription("Legacy occlusion toggle; corrected wall occlusion is always active."));
+        }
+        if (hasLegacyOccludedVolume)
+        {
+            config.Bind(
+                legacyOccludedVolumeDefinition,
+                0.68f,
+                new ConfigDescription("Legacy occlusion tuning; material-aware profiles are now fixed."));
+        }
+        if (hasLegacyOccludedLowPass)
+        {
+            config.Bind(
+                legacyOccludedLowPassDefinition,
+                1800f,
+                new ConfigDescription("Legacy occlusion tuning; material-aware profiles are now fixed."));
         }
 
         var enableMod = config.Bind("General", "Enabled", true, "Enable proximity voice chat.");
@@ -178,16 +190,6 @@ internal sealed class ProximityVoiceChatConfig
             "MaximumJitterMilliseconds",
             280f,
             new ConfigDescription("Maximum adaptive playout delay.", new AcceptableValueRange<float>(100f, 1000f)));
-        var occludedVolumeMultiplier = config.Bind(
-            "Playback",
-            "OccludedVolumeMultiplier",
-            0.68f,
-            new ConfigDescription("Volume multiplier behind geometry.", new AcceptableValueRange<float>(0f, 1f)));
-        var occludedLowPassFrequency = config.Bind(
-            "Playback",
-            "OccludedLowPassFrequency",
-            1800f,
-            new ConfigDescription("Low-pass cutoff behind geometry.", new AcceptableValueRange<float>(500f, 8000f)));
         var mutedSteamIds = config.Bind(
             "Privacy",
             "MutedSteamIds",
@@ -214,7 +216,9 @@ internal sealed class ProximityVoiceChatConfig
             || hasLegacySuppressWhileTyping
             || hasLegacyMinimumDistance
             || hasLegacyMaximumDistance
-            || hasLegacyEnableOcclusion)
+            || hasLegacyEnableOcclusion
+            || hasLegacyOccludedVolume
+            || hasLegacyOccludedLowPass)
         {
             config.Remove(legacyPushToTalkKeyDefinition);
             config.Remove(legacyTransmitWhileUnfocusedDefinition);
@@ -222,6 +226,8 @@ internal sealed class ProximityVoiceChatConfig
             config.Remove(legacyMinimumDistanceDefinition);
             config.Remove(legacyMaximumDistanceDefinition);
             config.Remove(legacyEnableOcclusionDefinition);
+            config.Remove(legacyOccludedVolumeDefinition);
+            config.Remove(legacyOccludedLowPassDefinition);
             config.Save();
         }
 
@@ -236,8 +242,6 @@ internal sealed class ProximityVoiceChatConfig
             masterVolume,
             jitterBufferMilliseconds,
             maximumJitterMilliseconds,
-            occludedVolumeMultiplier,
-            occludedLowPassFrequency,
             mutedSteamIds,
             additionalPeerSteamIds,
             captureSettingsScreenshot,

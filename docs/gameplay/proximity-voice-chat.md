@@ -85,9 +85,11 @@ Each remote speaker owns:
 - a child `AudioSource` attached near the remote avatar's head
 - normalized custom 3D rolloff: full volume within 2.5 metres, progressively quieter with
   distance, and exactly silent at the fixed 20-metre edge
-- a throttled geometry probe that ignores both players' colliders, lightly attenuates ordinary
-  items (82% volume, 9 kHz low-pass), and heavily muffles structural walls and doors (20% volume,
-  1.1 kHz low-pass)
+- a throttled, narrow sphere probe that ignores player colliders, lightly attenuates ordinary
+  items (75% volume, 6.5 kHz low-pass), and heavily muffles structurally named walls and doors
+  (20% volume, 1.1 kHz low-pass), even when the map puts both on shared environment/room layers
+- participation in the game's existing `AudioReverbZone`s, so voice naturally inherits authored
+  room echo while retaining its own distance and occlusion filters
 
 The implementation prefers dropping stale speech and resynchronizing over accumulating seconds of
 latency. All packet, fragment, PCM, and per-tick decode work is bounded.

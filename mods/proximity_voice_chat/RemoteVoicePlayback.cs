@@ -9,22 +9,14 @@ internal sealed class RemoteVoicePlayback : IDisposable
 {
     private const float OcclusionProbeIntervalSeconds = 0.12f;
     private const float OcclusionBlendSpeed = 7f;
+    private const float OcclusionProbeRadiusMetres = 0.22f;
     private const float FullVolumeDistanceMetres = 2.5f;
     private const float MaximumAudibleDistanceMetres = 20f;
     private const int OcclusionHitCapacity = 32;
 
-    private static readonly string[] WallLayerNames =
-    {
-        "Wall",
-        "HardEnvironment",
-        "Room_a",
-        "Room_b",
-        "Room_c",
-        "Room_d",
-    };
-
-    private static int _wallLayerMask;
-    private static bool _wallLayerMaskInitialized;
+    private static int _wallLayer = int.MinValue;
+    private static int _playerLayer = int.MinValue;
+    private static int _additivePlayerLayer = int.MinValue;
 
     private readonly ProximityVoiceChatConfig _configuration;
     private readonly ManualLogSource _logger;
@@ -287,8 +279,9 @@ internal sealed class RemoteVoicePlayback : IDisposable
             var offset = _host.transform.position - from;
             var distance = offset.magnitude;
             var hitCount = distance > 0.01f
-                ? Physics.RaycastNonAlloc(
+                ? Physics.SphereCastNonAlloc(
                     from,
+                    OcclusionProbeRadiusMetres,
                     offset / distance,
                     _occlusionHits,
                     distance,
@@ -301,6 +294,7 @@ internal sealed class RemoteVoicePlayback : IDisposable
                 var collider = _occlusionHits[index].collider;
                 if (collider is null
                     || collider.Pointer == IntPtr.Zero
+                    || IsPlayerLayer(collider.gameObject.layer)
                     || BelongsToPlayer(collider.transform, listener)
                     || BelongsToPlayer(collider.transform, _anchor))
                 {
@@ -351,28 +345,42 @@ internal sealed class RemoteVoicePlayback : IDisposable
 
     private static bool IsWall(Collider collider)
     {
-        var layer = collider.gameObject.layer;
-        return (layer is >= 0 and < 32 && (GetWallLayerMask() & (1 << layer)) != 0)
-            || collider.GetComponentInParent<Door>() is not null;
+        if (_wallLayer == int.MinValue)
+        {
+            _wallLayer = LayerMask.NameToLayer("Wall");
+        }
+        if (_wallLayer >= 0 && collider.gameObject.layer == _wallLayer)
+        {
+            return true;
+        }
+        if (collider.GetComponentInParent<Door>() is not null)
+        {
+            return true;
+        }
+
+        // The authored maps mix walls and furniture on Environment, SeeThroughEnvironment, and
+        // Room_* layers. Wall and door objects consistently retain a structural name somewhere in
+        // their ancestry, while ordinary props keep item-specific names.
+        var current = collider.transform;
+        for (var depth = 0; depth < 8 && current is not null; depth++)
+        {
+            if (VoiceOcclusionPolicy.IsStructuralName(current.name))
+            {
+                return true;
+            }
+            current = current.parent;
+        }
+        return false;
     }
 
-    private static int GetWallLayerMask()
+    private static bool IsPlayerLayer(int layer)
     {
-        if (_wallLayerMaskInitialized)
+        if (_playerLayer == int.MinValue)
         {
-            return _wallLayerMask;
+            _playerLayer = LayerMask.NameToLayer("Player");
+            _additivePlayerLayer = LayerMask.NameToLayer("AdditivePlayer");
         }
-
-        _wallLayerMaskInitialized = true;
-        foreach (var layerName in WallLayerNames)
-        {
-            var layer = LayerMask.NameToLayer(layerName);
-            if (layer >= 0)
-            {
-                _wallLayerMask |= 1 << layer;
-            }
-        }
-        return _wallLayerMask;
+        return layer == _playerLayer || layer == _additivePlayerLayer;
     }
 
     private static bool BelongsToPlayer(Transform? candidate, Transform playerTransform)

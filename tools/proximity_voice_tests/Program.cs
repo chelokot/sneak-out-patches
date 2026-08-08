@@ -96,6 +96,23 @@ Require(VoiceAudibilityPolicy.CanHear(localPlayerIsDead: true, remotePlayerIsDea
 // must become inaudible on the first policy evaluation after that replicated state changes.
 Require(!VoiceAudibilityPolicy.CanHear(localPlayerIsDead: false, remotePlayerIsDead: true), "resurrection did not restore living-only channel");
 
+Require(
+    VoiceDistancePolicy.EvaluateVolume(0f) == 1f
+    && VoiceDistancePolicy.EvaluateVolume(VoiceDistancePolicy.FullVolumeDistanceMetres) == 1f,
+    "voice distance curve attenuates inside its full-volume radius");
+Require(
+    VoiceDistancePolicy.EvaluateVolume(VoiceDistancePolicy.MaximumAudibleDistanceMetres) == 0f
+    && !VoiceDistancePolicy.IsAudible(VoiceDistancePolicy.MaximumAudibleDistanceMetres + 0.01f),
+    "voice distance curve does not end at the fixed audible edge");
+Require(
+    VoiceDistancePolicy.EvaluateVolume(17f) < VoiceDistancePolicy.EvaluateVolume(15f)
+    && VoiceDistancePolicy.EvaluateVolume(15f) < VoiceDistancePolicy.EvaluateVolume(8f),
+    "longer routed voice paths are not progressively quieter");
+Require(
+    VoiceDistancePolicy.EvaluateVolume(float.NaN) == 0f
+    && !VoiceDistancePolicy.IsAudible(float.PositiveInfinity),
+    "invalid voice route distances remain audible");
+
 var clearProfile = VoiceOcclusionPolicy.GetProfile(VoiceOcclusionKind.None);
 var itemProfile = VoiceOcclusionPolicy.GetProfile(VoiceOcclusionKind.Item);
 var wallProfile = VoiceOcclusionPolicy.GetProfile(VoiceOcclusionKind.Wall);
@@ -124,4 +141,4 @@ Require(
     && !VoiceOcclusionPolicy.IsStructuralName("OpenableGlobe_a_prefab"),
     "ordinary environment items were classified as walls");
 
-Console.WriteLine("Proximity voice protocol, jitter, fragmentation, audibility, and occlusion tests passed.");
+Console.WriteLine("Proximity voice protocol, jitter, fragmentation, audibility, distance, and occlusion tests passed.");

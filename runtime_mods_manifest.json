@@ -185,7 +185,7 @@
   {
     "option_id": "proximity-voice-chat",
     "label": "Proximity Voice Chat",
-    "details": "Adds Steam-relayed spatial voice with push-to-talk, voice activation, stock-style audio settings, up to 500% voice boost, fixed 20-metre distance falloff, material-aware occlusion, and living/ghost channel separation.",
+    "details": "Adds Steam-relayed spatial voice with push-to-talk, voice activation, stock-style audio settings, up to 500% voice boost, fixed 20-metre routed-distance falloff, doorway/corridor propagation, closed-door occlusion, and living/ghost channel separation.",
     "category": "gameplay",
     "default_enabled": true,
     "project_relative_path": "mods/proximity_voice_chat/ProximityVoiceChat.csproj",

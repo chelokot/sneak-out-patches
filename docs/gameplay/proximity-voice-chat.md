@@ -82,12 +82,16 @@ Each remote speaker owns:
 - an adaptive packet-jitter buffer based on arrival/capture delta variation
 - late/duplicate packet rejection and bounded loss recovery
 - Steam voice decompression into a three-second circular PCM clip
-- a child `AudioSource` attached near the remote avatar's head
-- normalized custom 3D rolloff: full volume within 2.5 metres, progressively quieter with
-  distance, and exactly silent at the fixed 20-metre edge
-- a throttled, narrow sphere probe that ignores player colliders, lightly attenuates ordinary
-  items (75% volume, 6.5 kHz low-pass), and heavily muffles structurally named walls and doors
-  (20% volume, 1.1 kHz low-pass), even when the map puts both on shared environment/room layers
+- a world-space `AudioSource` placed at the remote avatar's head while the direct route is clear
+- manual evaluation of the existing 3D rolloff: full volume within 2.5 metres, progressively
+  quieter using travelled route distance, and exactly silent at the fixed 20-metre edge
+- throttled direct-path physics probing that ignores player colliders and lightly attenuates
+  ordinary items (75% volume, 6.5 kHz low-pass)
+- NavMesh propagation around structurally named walls: the source moves to the first route corner,
+  so speech comes from the nearest doorway/corridor while volume uses the complete route length
+- rejection of straight baked paths through physics blockers, plus route-segment door probing;
+  an intersecting closed door or unavailable route retains heavy fallback muffling (20% volume,
+  1.1 kHz low-pass)
 - participation in the game's existing `AudioReverbZone`s, so voice naturally inherits authored
   room echo while retaining its own distance and occlusion filters
 
@@ -112,8 +116,8 @@ and failure-boundary messages needed in a bug report.
 
 The implementation is bound against Sneak Out 1.1.10 interop and has loaded successfully through
 the BepInEx chainloader into a real online lobby. Deterministic tests cover packet validation,
-out-of-order fragmentation, jitter delay, packet-loss recovery, and the complete living/ghost
-audibility matrix.
+out-of-order fragmentation, jitter delay, packet-loss recovery, route-distance attenuation, and
+the complete living/ghost audibility matrix.
 
 The current unattended client later developed a Unity graphics-startup stall before plugin
 discovery, with the same behavior both with and without this plugin and under both DXVK and

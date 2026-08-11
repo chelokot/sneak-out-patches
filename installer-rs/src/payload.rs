@@ -160,6 +160,24 @@ fn materialize_directory(directory: &Dir<'_>, destination: &Path) -> Result<()> 
     Ok(())
 }
 
+fn embedded_directory_is_materialized(directory: &Dir<'_>, destination: &Path) -> bool {
+    directory
+        .files()
+        .all(|file| exists(destination.join(file.path())))
+        && directory
+            .dirs()
+            .all(|child| embedded_directory_is_materialized(child, destination))
+}
+
+fn is_embedded_payload_root(root: &Path) -> bool {
+    is_payload_root(root)
+        && embedded_directory_is_materialized(&EMBEDDED_MODS, &root.join("artifacts/runtime_mods"))
+        && embedded_directory_is_materialized(
+            &EMBEDDED_CONFIGS,
+            &root.join("config_templates/runtime_mods"),
+        )
+}
+
 fn digest_embedded_directory(digest: &mut Sha256, directory: &Dir<'_>) {
     for file in directory.files() {
         digest.update(file.path().to_string_lossy().as_bytes());
@@ -187,7 +205,7 @@ fn embedded_payload_lock_path(root: &Path) -> PathBuf {
 }
 
 fn materialize_embedded_payload(root: &Path) -> Result<()> {
-    if is_payload_root(&root) {
+    if is_embedded_payload_root(root) {
         return Ok(());
     }
     let lock_path = embedded_payload_lock_path(root);
@@ -202,7 +220,7 @@ fn materialize_embedded_payload(root: &Path) -> Result<()> {
         .with_context(|| format!("failed to open cache lock {}", lock_path.display()))?;
     lock.lock()
         .with_context(|| format!("failed to acquire cache lock {}", lock_path.display()))?;
-    if is_payload_root(root) {
+    if is_embedded_payload_root(root) {
         return Ok(());
     }
 
@@ -361,9 +379,11 @@ mod tests {
     fn embedded_payload_materialization_waits_for_the_cache_lock() {
         let temporary = tempfile::tempdir().unwrap();
         let root = temporary.path().join("embedded-payload");
-        fs::create_dir_all(&root).unwrap();
-        let incomplete = root.join("incomplete");
-        fs::write(&incomplete, []).unwrap();
+        materialize_embedded_payload(&root).unwrap();
+        let missing = root.join("config_templates/runtime_mods/lobby-test-bot.cfg");
+        fs::remove_file(&missing).unwrap();
+        assert!(is_payload_root(&root));
+        assert!(!is_embedded_payload_root(&root));
 
         let lock_path = embedded_payload_lock_path(&root);
         let lock = OpenOptions::new()
@@ -385,13 +405,13 @@ mod tests {
         thread::sleep(Duration::from_millis(100));
 
         assert!(
-            incomplete.exists(),
-            "the incomplete cache must remain untouched while its lock is held"
+            !worker.is_finished(),
+            "an incomplete cache must wait for the process that owns its lock"
         );
         lock.unlock().unwrap();
         worker.join().unwrap().unwrap();
 
-        assert!(is_payload_root(&root));
-        assert!(!incomplete.exists());
+        assert!(is_embedded_payload_root(&root));
+        assert!(missing.exists());
     }
 }

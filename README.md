@@ -1,282 +1,84 @@
-# Sneak Out Runtime Mods
+# Sneak Out Mods
 
-Reverse-engineering notes, runtime mod code, and installation tooling for `Sneak Out`.
+Runtime mods for **Sneak Out**.
 
-The repository is runtime-mod first:
+## Install
 
-- no `GameAssembly.dll` byte patches are currently shipped
-- the patcher installs `BepInEx IL2CPP` and selected runtime mods
-- committed DLL artifacts in `artifacts/runtime_mods/` let other people install with `--nobuild`
+Download and extract the latest GitHub release, then run:
 
-## Native graphical installer
+- `SneakOutPatches.exe` on Windows
+- `./SneakOutPatches` on Linux
 
-Download the current Windows or Linux archive from
-[GitHub Releases](https://github.com/chelokot/sneak-out-patches/releases/latest).
+Use the installer to choose or remove mods.
 
-- Windows: extract the ZIP and run `SneakOutPatches.exe`.
-- Linux: extract the tarball and run `./SneakOutPatches`.
+## Mods
 
-The graphical installer detects Steam, lets you choose mods, verifies downloads and the
-installed game build, and can remove everything it manages. It is a standalone native
-application; end users do not need a repository checkout or a development toolchain.
+### Core
 
-Each archive also contains the native `sneakout-patches` command-line installer.
-The current Windows build is not code-signed, so Windows may show a SmartScreen warning
-until a signing certificate is configured for release CI.
+| Id | Name | Default | Description |
+| --- | --- | :---: | --- |
+| `uniform-seeker-random` | Uniform Seeker Random | Yes | Gives every player an equal chance of being selected as the seeker. |
 
-## Native command-line installer
+### Performance
 
-The release archive includes `sneakout-patches.exe` on Windows and
-`sneakout-patches` on Linux. Install the current stable default set into an
-automatically detected Steam installation:
+| Id | Name | Default | Description |
+| --- | --- | :---: | --- |
+| `performance-optimizer` | Performance Optimizer | Yes | Improves startup times, frame pacing, loading, memory use, rendering, and network performance. |
+
+### Gameplay
+
+| Id | Name | Default | Description |
+| --- | --- | :---: | --- |
+| `portal-mode-selector` | Portal Mode Selector | Yes | Lets you choose Classic or Crown maps from the portal while keeping unfinished maps unavailable. |
+| `mummy-unlock` | Mummy Unlock | Yes | Makes Mummy available as a selectable hunter. |
+| `alternate-skill-hotkey` | Alternate Skill Hotkey | No | Lets you press Left Alt to use your character's unequipped alternate active skill. |
+| `prop-buff` | Prop Buff | Yes | Lets you move slowly while disguised and change your prop with the mouse wheel. |
+| `first-person-experiment` | First Person Experiment | No | Adds an experimental first-person mode with mouse look, immersive hiding and task views, a top-center stamina bar, and hold-X cursor release. |
+| `locker-stun-fix` | Locker Stun Fix | Yes | Prevents an unwanted stun and Boo cooldown when another player opens your occupied locker. |
+| `magic-wardrobe-hook-fix` | Magic Wardrobe Hook Fix | Yes | Prevents a Butcher hook from snapping you back to a magic wardrobe after interrupting your entry. |
+| `chair-wall-throw-fix` | Chair Wall Throw Fix | Yes | Lets you throw held chairs, barrels, and ingredients even when they overlap a wall or exceed the usual distance. |
+| `pumpkin-radius-indicator-fix` | Pumpkin Radius Indicator Fix | Yes | Shows accurate kill and stun radius rings when the pumpkin activates. |
+| `ripper-corner-blink-fix` | Ripper Corner Blink Fix | Yes | Fixes the Ripper's through-wall blink at room corners without changing the normal blink. |
+| `proximity-voice-chat` | Proximity Voice Chat | Yes | Adds spatial proximity voice chat with push-to-talk, voice activation, wall and door occlusion, volume controls, and separate living and ghost channels. |
+| `lobby-skill-sandbox` | Lobby Skill Sandbox | Yes | Lets you open the skill panel and safely practice sliding in the lobby. |
+
+### Quality of life
+
+| Id | Name | Default | Description |
+| --- | --- | :---: | --- |
+| `network-host-selector` | Network Host Selector | No | Lets the party leader choose who hosts the match when every player has the compatible mod. |
+| `minimap` | Minimap | Yes | Adds a configurable minimap showing rooms, objectives, hiding spots, item dispensers, and your position. |
+| `start-delay-reducer` | Start Now | Yes | Lets the host start the match immediately after the normal connection wait. |
+| `background-loading-guard` | Background Loading Guard | Yes | Allows loading to continue while the game is in the background and restores your previous setting afterward. |
+| `keyboard-layout-fix` | Keyboard Layout Fix | Yes | Keeps physical WASD controls working on Cyrillic keyboard layouts under Wine and updates key labels when layouts change. |
+| `friend-invite-unlock` | Friend Invite Unlock | Yes | Lets you invite offline friends from the lobby list. |
+
+### Progression
+
+| Id | Name | Default | Description |
+| --- | --- | :---: | --- |
+| `unlock-everything` | Unlock Everything | Yes | Unlocks supported characters, emotes, and skill cards, and lets you buy and keep every cosmetic for 1,000 Gold. |
+
+### Debug
+
+| Id | Name | Default | Description |
+| --- | --- | :---: | --- |
+| `lobby-test-bot` | Lobby Test Bot | No | Lets the host add an idle bot, choose it as the Classic-mode hunter, and start private test matches. |
+| `runtime-profiler` | Runtime Profiler (Debug) | No | Creates a performance report when the game closes to help diagnose slow mods and game functions. |
+
+## Command line
 
 ```bash
 sneakout-patches --install-mods=default
-```
-
-Selections are authoritative: known plugins outside the requested selection are
-disabled. `default` and `all` can be combined with explicit mod ids:
-
-```bash
-sneakout-patches --install-mods=default,lobby-test-bot
+sneakout-patches --install-mods=default,mod1,mod2
 sneakout-patches --install-mods=all
-sneakout-patches --install-mods=keyboard-layout-fix,portal-mode-selector
-```
-
-Remove all managed mods and restore replaced files:
-
-```bash
 sneakout-patches --remove-mods
 ```
 
-The CLI checks the latest GitHub Release, verifies the payload SHA-256, installs only
-release builds newer than their local counterparts, and preserves locally newer private
-builds. Pass `--no-update` to make no GitHub update request and use the payload embedded
-in the executable:
-
-```bash
-sneakout-patches --install-mods=default --no-update
-sneakout-patches --remove-mods --no-update
-```
-
-A `LEGACY` badge means only that a mod exists in the installer's embedded catalog but
-not in the latest public release. It remains selectable and is installed from the
-embedded artifact, which also supports locally packaged development mods.
-
-Useful overrides:
-
-```bash
-sneakout-patches --install-mods=default --game-dir "C:\path\to\Sneak Out"
-sneakout-patches --install-mods=default --allow-unsupported-build
-```
-
-The older `install --mods ...` and `uninstall` subcommand forms remain accepted for
-command-line compatibility.
-
-## Development prerequisites
-
-Native installer development requires the pinned Rust toolchain from
-`installer-rs/rust-toolchain.toml`. Runtime mod compilation additionally requires a
-.NET SDK and BepInEx-generated interop assemblies from a game installation that has
-been launched once with BepInEx. Python 3 is used by the reverse-engineering and payload
-packaging helpers.
-
-## Repository layout
-
-- `mods/`
-  Runtime BepInEx IL2CPP plugins.
-- `runtime_mods_manifest.json`
-  The single source of truth for runtime mod ids, labels, categories, build paths, and default install settings.
-- `supported_game_build.json`
-  The supported Steam build and native/interop fingerprints checked by `doctor`.
-- `mods/Directory.Build.props`
-  Shared portable build paths and references for all runtime mod projects.
-- `config_templates/runtime_mods/`
-  Default config templates consumed by the patcher.
-- `artifacts/runtime_mods/`
-  Committed runtime mod DLLs for `--nobuild` installs.
-- `installer-rs/`
-  Native GUI/CLI installer, embedded payload, and integration tests.
-- `tools/patch_sneak_out.py`
-  Interactive installer, rollback tool, and validator for the game directory.
-- `tools/interop_inspector/`
-  Helper for inspecting BepInEx-generated interop assemblies.
-- `docs/`
-  Reverse-engineering notes, gameplay findings, and historical experiments.
-
-## Runtime mod catalog
-
-The normal install enables every stable mod below. `Network Host Selector`,
-`Alternate Skill Hotkey`, and `First Person Experiment` are opt-in gameplay modifiers;
-`Lobby Test Bot` and `Runtime Profiler` are development tools. Install any of them with
-`--install-mods=all` or include their ids in an explicit selection.
-
-| Mod id | Name | Default | What it does |
-| --- | --- | :---: | --- |
-| `performance-optimizer` | Performance Optimizer | Yes | Preserves compatible interop caches for faster starts, follows the display refresh rate, removes measured main-thread scans and adapts the expensive additional-light shadows/vSync only under sustained low FPS. Normal play keeps its frame histogram in memory and performs no periodic telemetry writes. |
-| `uniform-seeker-random` | Uniform Seeker Random | Yes | Replaces the game's biased/default seeker selection with an equal random choice between eligible real players. |
-| `portal-mode-selector` | Portal Mode Selector | Yes | Adds a stock-styled Maps settings row for choosing Classic or Crown maps before matchmaking, without permanently editing Unity scenes. Map 4 and the unfinished East 1 map remain visible but unavailable. |
-| `network-host-selector` | Network Host Selector | No | Experimental: lets the party leader choose which real player receives Fusion network authority for the next match. It is disabled by default while invite-to-match reconnection stability is being investigated. |
-| `minimap` | Minimap | Yes | Generates a lightweight camera-aligned floor plan with rounded rooms, doors, pass-through doorway frames, teleport wardrobes, and item rollers from loaded runtime geometry. Zoomed views guide off-screen task rooms and POIs with colored perimeter strips and dots. It shows only the local player and uses no second render camera. |
-| `mummy-unlock` | Mummy Unlock | Yes | Restores Mummy as a selectable hunter, including its shop entry, localized text, abilities and current-client selection flow. |
-| `unlock-everything` | Unlock Everything | Yes | Exposes supported characters, emotes and skill cards, shows every declared skin part (including hidden/unreleased entries) as locally purchasable for exactly 1000 Gold, persists the purchase ledger and subtracts it from the authoritative Gold balance after every refresh, persists loadouts, and restricts live outfit writes to the local input-authority player. Missing client assets appear as blank cards instead of blocking the wardrobe. |
-| `alternate-skill-hotkey` | Alternate Skill Hotkey | No | Maps Left Alt to the character's unequipped alternate active perk through the ordinary skill dispatch path. It is deliberately separate and disabled by default. |
-| `prop-buff` | Prop Buff | Yes | Lets a transformed prop move at 25% speed and cycle through the game's supported prop models with the mouse wheel. Rerolls use the stock all-client prop RPC and preserve the current ability duration and cooldown. |
-| `globe-launch` | Globe Launch | Yes | Tracks successful hits on each lobby globe and, after the second distinct player lands their second hit, preserves its spin while every modded client flies it straight up exactly 100 metres. |
-| `first-person-experiment` | First Person Experiment | No | Experimental: captures the live eye midpoint as a player-root-relative camera anchor, ignores locomotion head sway, and admits only the vertical displacement of the exact Yay jump state, hides only the local penguin's head, face, eyes, beak, equipped head cosmetic, and overhead identity plate while keeping the body, other clothing, and carried items visible, adds mouse yaw with 10° upward/85° downward pitch, locks the cursor outside open UI (hold X to release it), disables every through-wall outline back pass and fully suppresses hunter/coin outlines, hides task icons and item-generator costs only behind classified wall/door colliders, removes the wall-cutout ellipse, preserves stock task-marker placement, keeps painting tasks in the gameplay camera and presents their complete live interaction view without its redundant E-key prompt as a fixed-size centered HUD panel, pulls other non-Toilet task cameras back, faces the player toward the ritual circle's rendered center, keeps ±30° horizontal limits with normal vertical look during selection, and holds the first-person lock until the post-caging gameplay-camera blend is complete, always gives Toilet and normal Locker hiding immersive unshifted cameras with ±30° horizontal look, culls the player-attached 3D stamina circle, mirrors its visibility and fade state onto the stock linear stamina bar, moves the rendered stamina-canvas visuals to top-center, removes the entire Shift hint, keeps every world interaction prompt small and in front of the camera, preserves stock interaction targeting and range, keeps physical RMB exclusively on the native networked Aim path for wand-like items, immediately promotes every chair/barrel release to `ReleaseAfterHold`, keeps those throwables in the native low `HoldBarrel` pose instead of playing the HoldCharge elevation, and preserves the barrel's actual held release height instead of the stock fixed world Y of 0.28, applies forced strafe semantics only during the native movement call, and hides the labyrinth E-hold prompt. WASD remains full-speed camera-relative strafing without steering player facing. |
-| `start-delay-reducer` | Start Now | Yes | Keeps the normal 30-second connection grace period for slow clients but gives the authoritative host a `Start now` button once the lobby is ready. |
-| `locker-stun-fix` | Locker Stun Fix | Yes | Keeps Boo on a penguin's own locker exit, but prevents the stun and cooldown spend when another player opened the occupied locker first. |
-| `magic-wardrobe-hook-fix` | Magic Wardrobe Hook Fix | Yes | Cancels a pending magic-wardrobe teleport when a Butcher hook interrupts entry, so the pulled player is not snapped back to the wardrobe after the animation finishes. |
-| `chair-wall-throw-fix` | Chair Wall Throw Fix | Yes | Lets an already held chair/stool, barrel or task ingredient be released beside walls: bypasses the stock forward-ray `None` result and hides its crossed-out `E` overlay without disabling the shared obstacle detector. Immediately before a chair receives throw velocity, a torso-height wall probe and five held-pose support rays clamp its full projected collider radius to the player's side; overlap fallback compares player/chair obstacle distances before choosing its correction direction. |
-| `pumpkin-radius-indicator-fix` | Pumpkin Radius Indicator Fix | Yes | Makes the persistent hunter-only ring match the authoritative trigger radius. Once triggered, it shows a full-opacity kill-radius ring and a 20%-opacity outer stun-radius ring without changing gameplay radii. |
-| `ripper-corner-blink-fix` | Ripper Corner Blink Fix | Yes | Lets the equipped `ReaperHelloThere` through-wall perk traverse the game's dedicated room-corner intersection strips even when ordinary scenery is also detected. It does not grant wall blink without the perk. |
-| `background-loading-guard` | Background Loading Guard | Yes | Temporarily keeps Unity updating while a scene loads, then restores the player's previous background-running preference instead of forcing it permanently. |
-| `keyboard-layout-fix` | Keyboard Layout Fix | Yes | Repairs physical WASD movement on Wine with Cyrillic layouts without injecting an entire synthetic keyboard, refreshes visible key labels when the layout changes, and checks again when the game regains focus. |
-| `proximity-voice-chat` | Proximity Voice Chat | Yes | Adds Steam-relayed positional voice with push-to-talk, voice activation and always-on modes, stock-style in-game audio settings, fixed 20-metre routed-distance falloff, doorway/corridor propagation and closed-door occlusion. Living players hear living players; ghosts hear living players and other ghosts, while living players cannot hear ghosts. |
-| `friend-invite-unlock` | Friend Invite Unlock | Yes | Keeps offline Steam friends available in the lobby invite list while preserving the normal self, teammate, leave and remove actions. |
-| `lobby-skill-sandbox` | Lobby Skill Sandbox | Yes | Enables the penguin skill panel and lobby-safe slide for practice. Match-only prop transformation is deliberately suppressed because the stock RPC has no safe lobby state and can freeze movement or drop the player through the floor. |
-| `lobby-test-bot` | Lobby Test Bot | No | Adds a native Dummy bot settings row that spawns or removes one inert real Fusion bot and chooses Penguin or Hunter Priority for Classic private tests. A hunter bot automatically confirms the stock Ripper so selection cannot stall. It is excluded from compatibility and host-selection counts. |
-| `runtime-profiler` | Runtime Profiler (Debug) | No | Instruments explicitly selected managed methods and writes timing reports for focused performance investigations. Expensive broad profiling is not enabled by default. |
-
-`runtime_mods_manifest.json` is the authoritative machine-readable source for these ids,
-categories and default states.
-
-## Common commands
-
-List runtime mods:
-
-```bash
-python3 tools/patch_sneak_out.py --list-mods
-```
-
-Build one runtime mod:
-
-```bash
-dotnet build mods/unlock_everything/UnlockEverything.csproj
-```
-
-Build all runtime mods:
+## Development
 
 ```bash
 make mods-build
-```
-
-The projects resolve interop assemblies from `SNEAKOUT_INTEROP_DIR`, then the
-repo-local `.tmp/runtime-mod/interop` cache, then an automatically detected Steam
-install. Set `SNEAKOUT_GAME_DIR` when Steam cannot be detected.
-`SNEAKOUT_BEPINEX_CORE_DIR` overrides the BepInEx references.
-
-Start the interactive installer:
-
-```bash
-python3 tools/patch_sneak_out.py
-```
-
-Install specific runtime mods into an explicit game directory:
-
-```bash
-python3 tools/patch_sneak_out.py \
-  --game-dir "/path/to/Sneak Out" \
-  --mods unlock-everything,start-delay-reducer
-```
-
-Install from committed artifacts without local builds:
-
-```bash
-python3 tools/patch_sneak_out.py \
-  --game-dir "/path/to/Sneak Out" \
-  --mods unlock-everything,start-delay-reducer \
-  --nobuild
-```
-
-Rollback script-managed changes:
-
-```bash
-python3 tools/patch_sneak_out.py --rollback --game-dir "/path/to/Sneak Out"
-```
-
-Validate the current install:
-
-```bash
-python3 tools/patch_sneak_out.py --validate --game-dir "/path/to/Sneak Out"
-```
-
-Build and test the native installer or package its release payload:
-
-```bash
 make installer-test
 make installer-build
-make installer-payload
 ```
-
-## Patcher behavior
-
-When started without `--game-dir`, the patcher:
-
-1. detects the current operating system
-2. looks for Steam library folders
-3. tries to locate the `Sneak Out` install automatically
-4. asks for confirmation before installing into that directory
-
-The interactive selector is runtime-mod oriented and keyboard driven:
-
-- `Up` and `Down`
-  Move between runtime mod options.
-- `Space`
-  Toggle the highlighted runtime mod.
-- `Enter`
-  Apply the selected install set.
-
-`--list-mods` prints ids, labels, and categories directly from `runtime_mods_manifest.json`.
-
-## Linux and Proton
-
-When the target install is the Proton Windows build, BepInEx also needs:
-
-```text
-XMODIFIERS=@im=none WINEDLLOVERRIDES="winhttp=n,b" %command%
-```
-
-The patcher configures that launch option automatically on Linux Steam installs by updating Steam `localconfig.vdf` for app `2410490`. Disabling XIM only for the game keeps GNOME/IBus character translation from swallowing physical gameplay bindings; it does not change the desktop input sources. When Linux GameMode is available, the same per-game command uses `gamemoderun`; the measured Map02 route improved from 71.49 to 88.40 FPS without lowering render scale or quality.
-
-See [the measured performance report](docs/performance/performance-overhaul.md) before enabling aggressive graphics overrides. The default `Auto` preset retains normal visuals until sustained low frame rate triggers the measured additional-shadow/vSync fallback. Heavyweight scene census, interval CSV writes and experimental Unity recorders are opt-in because profiling work can itself cause hitches.
-
-### Chair jump geometry replay
-
-The chair release analyser reads the shipped `rig|emote_jumpup.kinguin` clip, the
-complete player rig, the held-item transform, and each chair's real mesh and
-collider directly from `resources.assets`. It replays the exact swept chair box
-plus the five diagnostic support rays and labels frames where the old rays miss
-a short wall but the volume sweep correctly clamps the chair:
-
-```bash
-python3 -m pip install UnityPy numpy matplotlib tornado
-python3 tools/chair_jump_geometry.py
-```
-
-Use the emote and wall sliders to inspect individual frames, or click **Find
-false clear** to search the exact animation trajectory. `--chair chair-a` through
-`chair-d` and `--chair stool` select the real prefab geometry. `--save
-.tmp/chair-jump.png` renders the current default frame without opening a window.
-`--find-false-clear` searches first and then opens or renders the counterexample.
-On systems without Tk/Qt/GTK (including a minimal Fedora toolbox), Matplotlib's
-WebAgg backend opens the same interactive canvas in the browser; keep the command
-running while using it.
-The wall transform remains a slider because the historical network log recorded
-only `EnvironmentCollider`, not the transform/path ID of the particular wall.
-
-## Interop inspection
-
-Example:
-
-```bash
-dotnet run --project tools/interop_inspector/InteropInspector.csproj -- \
-  "/path/to/Sneak Out/BepInEx/interop/Assembly-CSharp.dll" \
-  "PortalPlayView"
-```
-
-## Documentation
-
-See [docs/README.md](docs/README.md).
-
-Historical patching notes are still kept under `docs/patching/`, but they describe previous binary-patch eras and should not be treated as the current install architecture.

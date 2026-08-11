@@ -6,6 +6,7 @@ using Gameplay.Player.Components;
 using HarmonyLib;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using Networking.Photon;
+using TMPro;
 using UI.Views;
 using UI.VideoSettings;
 using UnityEngine;
@@ -236,6 +237,71 @@ internal static class ResolutionSelectorRefreshShownValuePatch
             closestResolution.width,
             closestResolution.height);
         return false;
+    }
+}
+
+[HarmonyPatch(typeof(ResolutionSelector), "OnAwake")]
+internal static class ResolutionSelectorAvailableResolutionsPatch
+{
+    [HarmonyPostfix]
+    private static void Postfix(ResolutionSelector __instance)
+    {
+        var displayResolutions = Screen.resolutions;
+        var dropdown = __instance._dropdown;
+        if (displayResolutions is null || displayResolutions.Length == 0 || dropdown is null)
+        {
+            return;
+        }
+
+        var dimensions = new ResolutionDimensions[displayResolutions.Length];
+        for (var index = 0; index < displayResolutions.Length; index++)
+        {
+            var resolution = displayResolutions[index];
+            dimensions[index] = new ResolutionDimensions(resolution.width, resolution.height);
+        }
+
+        var uniqueIndices = ResolutionOptionPolicy.GetUniqueDimensionIndices(dimensions);
+        var stockResolutions = __instance._availableResolutions;
+        if (HasSameDimensions(stockResolutions, displayResolutions, uniqueIndices))
+        {
+            return;
+        }
+
+        var availableResolutions = new Il2CppStructArray<Resolution>(uniqueIndices.Count);
+        var options = dropdown.options;
+        options.Clear();
+        for (var index = 0; index < uniqueIndices.Count; index++)
+        {
+            var resolution = displayResolutions[uniqueIndices[index]];
+            availableResolutions[index] = resolution;
+            options.Add(new TMP_Dropdown.OptionData($"{resolution.width}x{resolution.height}"));
+        }
+
+        __instance._availableResolutions = availableResolutions;
+    }
+
+    private static bool HasSameDimensions(
+        Il2CppStructArray<Resolution>? stockResolutions,
+        Il2CppStructArray<Resolution> displayResolutions,
+        IReadOnlyList<int> uniqueIndices)
+    {
+        if (stockResolutions is null || stockResolutions.Length != uniqueIndices.Count)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < uniqueIndices.Count; index++)
+        {
+            var stockResolution = stockResolutions[index];
+            var displayResolution = displayResolutions[uniqueIndices[index]];
+            if (stockResolution.width != displayResolution.width
+                || stockResolution.height != displayResolution.height)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 }
 

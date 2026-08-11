@@ -8,7 +8,7 @@ public sealed class PerformanceOptimizerPlugin : BasePlugin
 {
     public const string PluginGuid = "chelokot.sneakout.performance-optimizer";
     public const string PluginName = "Performance Optimizer";
-    public const string PluginVersion = "1.0.8";
+    public const string PluginVersion = "1.0.9";
 
     public override void Load()
     {

@@ -97,4 +97,4 @@ At the final 88 FPS state the GPU is commonly 87–100% utilized. Substantially 
 - `Balanced`: preserves quality and applies safe loading/upload settings plus explicit overrides.
 - `LowSpec`: opts into shorter shadows, fewer cascades and particles, disabled real-time reflection probes and optional mip streaming for memory-constrained PCs.
 
-The optimizer never sets resolution, fullscreen mode or window position. It also repairs the game's resolution-dropdown lookup without changing the active mode. Heavy scene census, Unity `ProfilerRecorder` markers and interval CSV reports are diagnostic-only because all three can distort the workload they are meant to observe.
+The optimizer never sets resolution, fullscreen mode or window position. It preserves every distinct width/height pair reported by the display, so modes with the same width but different aspect ratios remain selectable, and repairs the resolution-dropdown lookup without changing the active mode. Heavy scene census, Unity `ProfilerRecorder` markers and interval CSV reports are diagnostic-only because all three can distort the workload they are meant to observe.

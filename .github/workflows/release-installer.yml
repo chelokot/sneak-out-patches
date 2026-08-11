@@ -10,7 +10,19 @@ permissions:
   contents: write
 
 jobs:
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install 1.94.1 --profile minimal
+
+      - name: Test the native installer
+        run: cargo +1.94.1 test --locked --manifest-path installer-rs/Cargo.toml --all-features
+
   native:
+    needs: test
     strategy:
       fail-fast: false
       matrix:
@@ -23,9 +35,6 @@ jobs:
 
       - name: Install the pinned Rust toolchain
         run: rustup toolchain install 1.94.1 --profile minimal
-
-      - name: Test the native installer
-        run: cargo +1.94.1 test --locked --manifest-path installer-rs/Cargo.toml --all-features
 
       - name: Build native release binaries
         run: >-
@@ -40,32 +49,32 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          mkdir -p dist-native/package
-          install -m 755 installer-rs/target/release/sneakout-patches-gui dist-native/package/SneakOutPatches
-          install -m 755 installer-rs/target/release/sneakout-patches dist-native/package/sneakout-patches
-          tar -C dist-native/package -czf dist-native/SneakOutPatches-linux-x86_64.tar.gz SneakOutPatches sneakout-patches
+          mkdir -p dist-native
+          install -m 755 installer-rs/target/release/sneakout-patches-gui dist-native/SneakOutPatches-linux-x86_64
+          install -m 755 installer-rs/target/release/sneakout-patches dist-native/sneakout-patches-linux-x86_64
           cd dist-native
-          sha256sum SneakOutPatches-linux-x86_64.tar.gz > SneakOutPatches-linux-x86_64.tar.gz.sha256
+          sha256sum SneakOutPatches-linux-x86_64 > SneakOutPatches-linux-x86_64.sha256
+          sha256sum sneakout-patches-linux-x86_64 > sneakout-patches-linux-x86_64.sha256
 
       - name: Package Windows binaries
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force dist-native/package | Out-Null
-          Copy-Item installer-rs/target/release/sneakout-patches-gui.exe dist-native/package/SneakOutPatches.exe
-          Copy-Item installer-rs/target/release/sneakout-patches.exe dist-native/package/sneakout-patches.exe
-          $archive = "dist-native/SneakOutPatches-windows-x86_64.zip"
-          Compress-Archive -Path dist-native/package/* -DestinationPath $archive
-          $hash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLower()
-          "$hash  SneakOutPatches-windows-x86_64.zip" | Set-Content "$archive.sha256"
+          New-Item -ItemType Directory -Force dist-native | Out-Null
+          $gui = "dist-native/SneakOutPatches-windows-x86_64.exe"
+          $cli = "dist-native/sneakout-patches-windows-x86_64.exe"
+          Copy-Item installer-rs/target/release/sneakout-patches-gui.exe $gui
+          Copy-Item installer-rs/target/release/sneakout-patches.exe $cli
+          foreach ($path in @($gui, $cli)) {
+            $hash = (Get-FileHash -Algorithm SHA256 $path).Hash.ToLower()
+            $name = Split-Path -Leaf $path
+            "$hash  $name" | Set-Content "$path.sha256"
+          }
 
       - uses: actions/upload-artifact@v4
         with:
           name: native-${{ runner.os }}
-          path: |
-            dist-native/*.tar.gz
-            dist-native/*.zip
-            dist-native/*.sha256
+          path: dist-native/*
           if-no-files-found: error
 
   release:
@@ -73,6 +82,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
@@ -86,14 +97,55 @@ jobs:
       - name: Package the release payload
         run: python tools/package_installer_payload.py
 
+      - name: Build commit changelog
+        id: changelog
+        uses: mikepenz/release-changelog-builder-action@v6
+        with:
+          mode: COMMIT
+          toTag: ${{ github.ref_name }}
+          failOnError: "true"
+          configurationJson: |
+            {
+              "template": "## What's Changed\n\n#{{CHANGELOG}}\n\n**Full Changelog**: #{{RELEASE_DIFF}}",
+              "commit_template": "- #{{TITLE}}",
+              "categories": [
+                {
+                  "title": "### Features",
+                  "labels": ["feat", "feature"]
+                },
+                {
+                  "title": "### Fixes",
+                  "labels": ["fix", "bug"]
+                },
+                {
+                  "title": "### Maintenance",
+                  "labels": ["build", "chore", "ci", "docs", "perf", "refactor", "revert", "style", "test"]
+                },
+                {
+                  "title": "### Other",
+                  "labels": []
+                }
+              ],
+              "label_extractor": [
+                {
+                  "pattern": "^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test){1}(\\([\\w\\-\\.]+\\))?(!)?: ([\\w ])+([\\s\\S]*)",
+                  "on_property": "title",
+                  "target": "$1"
+                }
+              ]
+            }
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
       - name: Create GitHub release
         if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_NOTES: ${{ steps.changelog.outputs.changelog }}
         run: >-
           gh release create "${GITHUB_REF_NAME}"
           dist/sneakout-patches-payload.zip
           dist/sneakout-patches-payload.zip.sha256
           dist/native/*
-          --generate-notes
+          --notes "${RELEASE_NOTES}"
           --verify-tag

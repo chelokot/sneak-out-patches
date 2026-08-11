@@ -31,21 +31,21 @@ internal sealed class GlobeLaunchConfig
                 "general",
                 "EnableMod",
                 true,
-                "Launch the lobby globe when vanilla recognizes two concurrent players spinning it."),
+                "Launch after the sixth distinct participant's third hit, then disable the empty stand."),
             configFile.Bind(
                 "launch",
                 "DistanceMeters",
                 100f,
-                "Vertical distance travelled by the launched globe (1 to 1000 metres)."),
+                "Maximum distance travelled toward the local camera before cleanup (1 to 1000 metres)."),
             configFile.Bind(
                 "launch",
                 "SpeedMetersPerSecond",
-                25f,
-                "Speed of the globe's straight-up flight (1 to 200 metres per second)."),
+                20f,
+                "Speed of the globe's leftward horizontal curve toward the local camera (1 to 200 metres per second)."),
             configFile.Bind(
                 "diagnostics",
                 "EnableLogging",
                 false,
-                "Log the vanilla concurrent-player state used to arm the globe launch."));
+                "Log the sixth participant's hit count and concurrent-player state used to arm the launch."));
     }
 }

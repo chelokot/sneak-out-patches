@@ -7,8 +7,17 @@ namespace SneakOut.GlobeLaunch;
 
 internal static class GlobeLaunchRuntime
 {
-    private const int RequiredConcurrentPlayers = 2;
+    private const int RequiredConcurrentPlayers = 6;
+    private const int RequiredHitCount = 3;
     private const float StockHitDelaySeconds = 0.25f;
+    private const float CameraImpactOffsetMeters = 0.35f;
+    private const float CameraAcquireTimeoutSeconds = 5f;
+    private const float MinimumHorizontalShiftMeters = 1.5f;
+    private const float MaximumHorizontalShiftMeters = 3f;
+    private const float HorizontalShiftDistanceRatio = 0.3f;
+    private const float CameraApproachControlRatio = 0.15f;
+    private const float MinimumFlightDurationSeconds = 0.1f;
+    private const int IgnoreRaycastLayer = 2;
 
     private sealed class FlightState
     {
@@ -16,11 +25,24 @@ internal static class GlobeLaunchRuntime
         public bool Flying;
         public bool Complete;
         public Vector3 Origin;
-        public float TargetY;
-        public float Distance;
+        public Vector3 HorizontalDirection;
+        public float DurationSeconds;
+        public float ElapsedSeconds;
+        public float HorizontalShift;
+        public float MaximumDistance;
+        public float DistanceTravelled;
+        public readonly List<Transform> ParticleRoots = new();
+    }
+
+    private sealed class HitState
+    {
+        public bool HasTriggerPlayer;
+        public int TriggerPlayerId;
+        public int TriggerPlayerHitCount;
     }
 
     private static readonly Dictionary<IntPtr, FlightState> Flights = new();
+    private static readonly Dictionary<IntPtr, HitState> HitStates = new();
     private static readonly HashSet<string> LoggedFailures = new(StringComparer.Ordinal);
 
     private static ManualLogSource? _logger;
@@ -43,6 +65,81 @@ internal static class GlobeLaunchRuntime
         }
 
         Flights.Remove(globe.Pointer);
+        HitStates.Remove(globe.Pointer);
+    }
+
+    public static void ObserveVanillaHit(Globe._AddDelayedForce_d__21 delayedForce)
+    {
+        if (_configuration?.EnableMod.Value != true
+            || delayedForce.Pointer == IntPtr.Zero)
+        {
+            return;
+        }
+
+        try
+        {
+            if (delayedForce.__1__state != 0)
+            {
+                return;
+            }
+
+            var globe = delayedForce.__4__this;
+            if (globe is null || globe.Pointer == IntPtr.Zero)
+            {
+                return;
+            }
+
+            var playersInInteraction = globe._playersInInteraction;
+            if (playersInInteraction is null || playersInInteraction.Pointer == IntPtr.Zero)
+            {
+                return;
+            }
+
+            if (!HitStates.TryGetValue(globe.Pointer, out var hitState))
+            {
+                hitState = new HitState();
+                HitStates[globe.Pointer] = hitState;
+            }
+
+            var playerId = delayedForce.playerId;
+
+            if (!hitState.HasTriggerPlayer)
+            {
+                var isExistingParticipant = playersInInteraction.Contains(playerId);
+                var playerCountAfterHit = playersInInteraction.Count
+                    + (isExistingParticipant ? 0 : 1);
+
+                if (playerCountAfterHit < RequiredConcurrentPlayers)
+                {
+                    return;
+                }
+
+                hitState.HasTriggerPlayer = true;
+                hitState.TriggerPlayerId = playerId;
+                hitState.TriggerPlayerHitCount = 1;
+            }
+            else if (playerId == hitState.TriggerPlayerId)
+            {
+                hitState.TriggerPlayerHitCount = Math.Min(
+                    hitState.TriggerPlayerHitCount + 1,
+                    RequiredHitCount);
+            }
+            else
+            {
+                return;
+            }
+
+            if (_configuration.EnableLogging.Value)
+            {
+                _logger?.LogInfo(
+                    $"Sixth globe participant hit observed: "
+                    + $"{hitState.TriggerPlayerHitCount}/{RequiredHitCount}.");
+            }
+        }
+        catch (Exception exception)
+        {
+            LogFailureOnce("hit counter", exception);
+        }
     }
 
     public static void ObserveVanillaInteractionState(Globe globe)
@@ -62,15 +159,29 @@ internal static class GlobeLaunchRuntime
             }
 
             var concurrentPlayerCount = playersInInteraction.Count;
+            var hitState = HitStates.TryGetValue(globe.Pointer, out var currentHitState)
+                ? currentHitState
+                : null;
+
+            if (hitState?.HasTriggerPlayer == true
+                && !playersInInteraction.Contains(hitState.TriggerPlayerId))
+            {
+                HitStates.Remove(globe.Pointer);
+                hitState = null;
+            }
+
+            var triggerPlayerHitCount = hitState?.TriggerPlayerHitCount ?? 0;
 
             if (_configuration.EnableLogging.Value)
             {
                 _logger?.LogInfo(
                     $"Globe vanilla interaction state: globe=0x{globe.Pointer:X}, "
-                    + $"concurrentPlayers={concurrentPlayerCount}/{RequiredConcurrentPlayers}.");
+                    + $"concurrentPlayers={concurrentPlayerCount}/{RequiredConcurrentPlayers}, "
+                    + $"sixthPlayerHits={triggerPlayerHitCount}/{RequiredHitCount}.");
             }
 
             if (concurrentPlayerCount < RequiredConcurrentPlayers
+                || triggerPlayerHitCount < RequiredHitCount
                 || Flights.ContainsKey(globe.Pointer))
             {
                 return;
@@ -81,7 +192,7 @@ internal static class GlobeLaunchRuntime
                 BeginAt = Time.time + StockHitDelaySeconds,
             };
             _logger?.LogInfo(
-                "Globe launch armed by the vanilla two-player interaction; "
+                "Globe launch armed by the sixth participant's third vanilla hit; "
                 + "flight begins after the stock hit lands.");
         }
         catch (Exception exception)
@@ -114,36 +225,117 @@ internal static class GlobeLaunchRuntime
                     return;
                 }
 
-                flight.Distance = LaunchDistance;
+                var camera = Camera.main;
+                if (camera is null || camera.Pointer == IntPtr.Zero)
+                {
+                    if (Time.time >= flight.BeginAt + CameraAcquireTimeoutSeconds)
+                    {
+                        CompleteFlight(body, flight, "no local camera became available");
+                    }
+
+                    return;
+                }
+
+                var initialCameraTransform = camera.transform;
+                if (initialCameraTransform is null || initialCameraTransform.Pointer == IntPtr.Zero)
+                {
+                    if (Time.time >= flight.BeginAt + CameraAcquireTimeoutSeconds)
+                    {
+                        CompleteFlight(body, flight, "no local camera transform became available");
+                    }
+
+                    return;
+                }
+
                 flight.Origin = body.position;
-                flight.TargetY = flight.Origin.y + flight.Distance;
+                var initialTarget = initialCameraTransform.position
+                    + initialCameraTransform.forward * CameraImpactOffsetMeters;
+                var directDistance = Vector3.Distance(flight.Origin, initialTarget);
+                var horizontalDirection = initialCameraTransform.right * -1f;
+                horizontalDirection.y = 0f;
+                flight.HorizontalDirection = horizontalDirection.sqrMagnitude > 0.0001f
+                    ? horizontalDirection.normalized
+                    : Vector3.left;
+                flight.HorizontalShift = Mathf.Clamp(
+                    directDistance * HorizontalShiftDistanceRatio,
+                    MinimumHorizontalShiftMeters,
+                    MaximumHorizontalShiftMeters);
+
+                var initialControlPoint1 = flight.Origin
+                    + flight.HorizontalDirection * flight.HorizontalShift;
+                var initialControlPoint2 = initialControlPoint1
+                    + (initialTarget - flight.Origin) * CameraApproachControlRatio;
+                var controlPolygonLength = Vector3.Distance(
+                        flight.Origin,
+                        initialControlPoint1)
+                    + Vector3.Distance(initialControlPoint1, initialControlPoint2)
+                    + Vector3.Distance(initialControlPoint2, initialTarget);
+                flight.DurationSeconds = Mathf.Max(
+                    controlPolygonLength / LaunchSpeed,
+                    MinimumFlightDurationSeconds);
+                flight.MaximumDistance = LaunchDistance;
                 flight.Flying = true;
 
                 body.useGravity = false;
                 body.detectCollisions = false;
-                body.velocity = Vector3.up * LaunchSpeed;
+                PrepareParticlesForFlight(globe, flight);
+                DisableStandInteraction(globe);
 
                 _logger?.LogInfo(
-                    $"Globe launched straight up: originY={flight.Origin.y:F2}, "
-                    + $"targetY={flight.TargetY:F2}, distance={flight.Distance:F1}m, "
+                    $"Globe launched toward the local camera on a leftward horizontal curve: "
+                    + $"horizontalShift={flight.HorizontalShift:F1}m, "
+                    + $"maxDistance={flight.MaximumDistance:F1}m, "
                     + $"speed={LaunchSpeed:F1}m/s.");
             }
 
-            var position = body.position;
-            if (position.y >= flight.TargetY)
+            var activeCamera = Camera.main;
+            if (activeCamera is null || activeCamera.Pointer == IntPtr.Zero)
             {
-                body.position = new Vector3(flight.Origin.x, flight.TargetY, flight.Origin.z);
-                body.velocity = Vector3.zero;
-                flight.Complete = true;
-                _logger?.LogInfo($"Globe completed its {flight.Distance:F1}-metre vertical flight.");
+                CompleteFlight(body, flight, "the local camera disappeared during flight");
                 return;
             }
 
-            // The stock angular velocity remains untouched so the globe keeps spinning while
-            // its local Rigidbody follows the same collision-free path on every client. The
-            // stock globe also replays its unsynchronized child-Rigidbody motion this way.
-            body.position = new Vector3(flight.Origin.x, position.y, flight.Origin.z);
-            body.velocity = Vector3.up * LaunchSpeed;
+            var position = body.position;
+            var cameraTransform = activeCamera.transform;
+            if (cameraTransform is null || cameraTransform.Pointer == IntPtr.Zero)
+            {
+                CompleteFlight(body, flight, "the local camera transform was unavailable");
+                return;
+            }
+
+            var target = cameraTransform.position
+                + cameraTransform.forward * CameraImpactOffsetMeters;
+            var deltaTime = Mathf.Max(Time.deltaTime, 0f);
+            flight.ElapsedSeconds += deltaTime;
+            var progress = Mathf.Clamp01(flight.ElapsedSeconds / flight.DurationSeconds);
+            var horizontalOffset = flight.HorizontalDirection * flight.HorizontalShift;
+            var controlPoint1 = flight.Origin + horizontalOffset;
+            var controlPoint2 = controlPoint1
+                + (target - flight.Origin) * CameraApproachControlRatio;
+            var nextPosition = EvaluateCubicBezier(
+                flight.Origin,
+                controlPoint1,
+                controlPoint2,
+                target,
+                progress);
+            var travelledThisFrame = Vector3.Distance(position, nextPosition);
+            flight.DistanceTravelled += travelledThisFrame;
+
+            if (flight.DistanceTravelled >= flight.MaximumDistance)
+            {
+                CompleteFlight(body, flight, "it reached the configured distance limit");
+                return;
+            }
+
+            var movementDelta = nextPosition - position;
+            body.position = nextPosition;
+            body.velocity = Vector3.zero;
+            MoveParticleRoots(flight, movementDelta);
+
+            if (progress >= 1f)
+            {
+                CompleteFlight(body, flight, "it reached the local camera");
+            }
         }
         catch (Exception exception)
         {
@@ -151,8 +343,123 @@ internal static class GlobeLaunchRuntime
         }
     }
 
+    private static void DisableStandInteraction(Globe globe)
+    {
+        var standObject = globe.gameObject;
+        if (standObject is not null && standObject.Pointer != IntPtr.Zero)
+        {
+            standObject.layer = IgnoreRaycastLayer;
+        }
+    }
+
+    private static void PrepareParticlesForFlight(Globe globe, FlightState flight)
+    {
+        var particleSystems = globe._particleSystems;
+        if (particleSystems is null || particleSystems.Pointer == IntPtr.Zero)
+        {
+            return;
+        }
+
+        var globeTransform = globe.transform;
+        if (globeTransform is null || globeTransform.Pointer == IntPtr.Zero)
+        {
+            return;
+        }
+
+        var knownRoots = new HashSet<IntPtr>();
+
+        for (var index = 0; index < particleSystems.Length; index++)
+        {
+            var particleSystem = particleSystems[index];
+            if (particleSystem is null || particleSystem.Pointer == IntPtr.Zero)
+            {
+                continue;
+            }
+
+            var main = particleSystem.main;
+            main.simulationSpace = ParticleSystemSimulationSpace.Local;
+
+            var particleTransform = particleSystem.transform;
+            if (particleTransform is null || particleTransform.Pointer == IntPtr.Zero)
+            {
+                continue;
+            }
+
+            var effectRoot = FindEffectRoot(particleTransform, globeTransform);
+            if (knownRoots.Add(effectRoot.Pointer))
+            {
+                flight.ParticleRoots.Add(effectRoot);
+            }
+        }
+    }
+
+    private static Transform FindEffectRoot(Transform particleTransform, Transform globeTransform)
+    {
+        var effectRoot = particleTransform;
+        var parent = effectRoot.parent;
+
+        while (parent is not null
+            && parent.Pointer != IntPtr.Zero
+            && parent.Pointer != globeTransform.Pointer)
+        {
+            effectRoot = parent;
+            parent = effectRoot.parent;
+        }
+
+        return parent is not null && parent.Pointer == globeTransform.Pointer
+            ? effectRoot
+            : particleTransform;
+    }
+
+    private static void MoveParticleRoots(FlightState flight, Vector3 movementDelta)
+    {
+        if (movementDelta.sqrMagnitude <= 0f)
+        {
+            return;
+        }
+
+        foreach (var particleRoot in flight.ParticleRoots)
+        {
+            if (particleRoot is not null && particleRoot.Pointer != IntPtr.Zero)
+            {
+                particleRoot.position += movementDelta;
+            }
+        }
+    }
+
+    private static Vector3 EvaluateCubicBezier(
+        Vector3 start,
+        Vector3 controlPoint1,
+        Vector3 controlPoint2,
+        Vector3 end,
+        float progress)
+    {
+        var inverseProgress = 1f - progress;
+        return start * (inverseProgress * inverseProgress * inverseProgress)
+            + controlPoint1 * (3f * inverseProgress * inverseProgress * progress)
+            + controlPoint2 * (3f * inverseProgress * progress * progress)
+            + end * (progress * progress * progress);
+    }
+
+    private static void CompleteFlight(Rigidbody body, FlightState flight, string reason)
+    {
+        body.velocity = Vector3.zero;
+        body.angularVelocity = Vector3.zero;
+        flight.Complete = true;
+
+        var globeObject = body.gameObject;
+        if (globeObject is not null && globeObject.Pointer != IntPtr.Zero)
+        {
+            globeObject.SetActive(false);
+        }
+
+        _logger?.LogInfo(
+            $"Globe flight completed and the launched globe was hidden because {reason}; "
+            + $"distanceTravelled={flight.DistanceTravelled:F1}m.");
+    }
+
     private static float LaunchSpeed => Mathf.Clamp(
-        _configuration?.LaunchSpeedMetersPerSecond.Value ?? 25f,
+        _configuration?.LaunchSpeedMetersPerSecond.Value ?? 20f,
         1f,
         200f);
 

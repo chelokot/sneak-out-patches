@@ -17,5 +17,8 @@
     <Reference Include="UnityEngine.PhysicsModule">
       <HintPath>$(InteropDir)/UnityEngine.PhysicsModule.dll</HintPath>
     </Reference>
+    <Reference Include="UnityEngine.ParticleSystemModule">
+      <HintPath>$(InteropDir)/UnityEngine.ParticleSystemModule.dll</HintPath>
+    </Reference>
   </ItemGroup>
 </Project>

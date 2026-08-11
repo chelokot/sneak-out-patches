@@ -97,7 +97,7 @@
   {
     "option_id": "globe-launch",
     "label": "Globe Launch",
-    "details": "Launches the lobby globe when vanilla recognizes two concurrent players spinning it.",
+    "details": "Launches the lobby globe and its vanilla particles after the sixth participant's third hit, then disables the empty stand.",
     "category": "gameplay",
     "default_enabled": true,
     "project_relative_path": "mods/globe_launch/GlobeLaunch.csproj",

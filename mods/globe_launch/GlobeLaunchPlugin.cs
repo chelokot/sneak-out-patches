@@ -8,7 +8,7 @@ public sealed class GlobeLaunchPlugin : BasePlugin
 {
     public const string PluginGuid = "chelokot.sneakout.globe-launch";
     public const string PluginName = "Globe Launch";
-    public const string PluginVersion = "0.1.0";
+    public const string PluginVersion = "0.1.1";
 
     public override void Load()
     {

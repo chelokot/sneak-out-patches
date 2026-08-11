@@ -1,9 +1,22 @@
+PYTHON ?= python3
+DOTNET ?= dotnet
+CARGO ?= cargo
+RUNTIME_MOD_PROJECTS := $(sort $(wildcard mods/*/*.csproj))
+
 install:
-	npm install
-	npm run tooling:install
+	$(CARGO) fetch --manifest-path installer-rs/Cargo.toml
 
 doctor:
-	npm run doctor
+	$(PYTHON) tools/patch_sneak_out.py --list-mods
 
 mods-build:
-	npm run mods:build
+	@for project in $(RUNTIME_MOD_PROJECTS); do $(DOTNET) build "$$project" || exit 1; done
+
+installer-test:
+	$(CARGO) test --manifest-path installer-rs/Cargo.toml --all-features
+
+installer-build:
+	$(CARGO) build --manifest-path installer-rs/Cargo.toml --release --all-features --bins
+
+installer-payload:
+	$(PYTHON) tools/package_installer_payload.py

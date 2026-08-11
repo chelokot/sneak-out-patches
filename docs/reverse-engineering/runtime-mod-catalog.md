@@ -27,8 +27,9 @@ These are narrow runtime replacements for old binary patches or scene edits.
 - `background-loading-guard`
 - `friend-invite-unlock`
 - `minimap`
+- `globe-launch`
 
-These stay separate because each one owns a single gameplay or lobby concern and has a clear rollback boundary. `minimap` is enabled by default and remains local-player-only; it does not publish or reveal network-player positions.
+These stay separate because each one owns a single gameplay or lobby concern and has a clear rollback boundary. `minimap` is enabled by default and remains local-player-only; it does not publish or reveal network-player positions. `globe-launch` changes only the lobby globe after its two-player hit sequence, mirrors the stock per-client Rigidbody model, and leaves the stock spin path intact until then.
 
 ### Progression
 

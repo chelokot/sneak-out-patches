@@ -3,7 +3,7 @@
 ## installation
 
 - `installation/one-line-installer.md`
-  Cross-platform `npx` install/uninstall commands, release payloads, compatibility checks, and rollback ownership.
+  Native GUI/CLI installation commands, release payloads, compatibility checks, and rollback ownership.
 
 ## performance
 

@@ -17,11 +17,48 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-python@v6
         with:
-          node-version: 20
-          cache: npm
-      - run: npm ci --ignore-scripts
-      - run: npm run installer:test
-      - run: npm run installer:payload
-      - run: npm pack --dry-run
+          python-version: "3.13"
+
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install 1.94.1 --profile minimal --component rustfmt
+
+      - name: Check Rust formatting
+        run: cargo +1.94.1 fmt --manifest-path installer-rs/Cargo.toml --all -- --check
+
+      - name: Test the native installer
+        run: cargo +1.94.1 test --locked --manifest-path installer-rs/Cargo.toml --all-features
+
+      - name: Package the release payload
+        run: python tools/package_installer_payload.py
+
+      - name: Build native release binaries
+        if: github.event_name == 'push'
+        run: >-
+          cargo +1.94.1 build
+          --locked
+          --manifest-path installer-rs/Cargo.toml
+          --release
+          --all-features
+          --bins
+
+      - name: Upload Linux binaries
+        if: github.event_name == 'push' && runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: main-linux-x86_64
+          path: |
+            installer-rs/target/release/sneakout-patches
+            installer-rs/target/release/sneakout-patches-gui
+          if-no-files-found: error
+
+      - name: Upload Windows binaries
+        if: github.event_name == 'push' && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: main-windows-x86_64
+          path: |
+            installer-rs/target/release/sneakout-patches.exe
+            installer-rs/target/release/sneakout-patches-gui.exe
+          if-no-files-found: error

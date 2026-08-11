@@ -4,7 +4,9 @@
 *.tmp
 .tmp/
 dist/
-node_modules/
 **/bin/
+!installer-rs/src/bin/
+!installer-rs/src/bin/*.rs
 **/obj/
+**/target/
 __pycache__/

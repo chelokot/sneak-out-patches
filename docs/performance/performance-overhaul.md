@@ -12,14 +12,9 @@ This is the measurement record behind `performance-optimizer` and the Linux inst
 - opt-in in-game frame histograms and narrow managed-method profiling
 - Linux `perf` sampling for native/Unity/DXVK work
 
-Capture and analyze a diagnostic session with:
-
-```bash
-npm run performance:session -- --duration-seconds 120 --session my-test
-npm run performance:analyze -- .tmp/performance-sessions/<session>
-```
-
-`performance:session` temporarily enables interval reports. Pass `--no-interval-reports` to exercise the production no-I/O path. The runner owns one exact game PID, snapshots only files changed by that run, restores the original config and stops its test client.
+Diagnostic measurements use the runtime profiler's opt-in interval reports alongside
+host process, GPU, and cgroup sampling. Keep production measurements on the default
+no-I/O path unless the session explicitly needs detailed CSV output.
 
 ## Host state mattered
 

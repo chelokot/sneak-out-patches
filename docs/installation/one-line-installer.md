@@ -1,22 +1,43 @@
-# One-line installer
+# Native installer
 
-The public installer is the npm CLI package `@chelokot/sneak-out-patches`.
+The primary public installer is a lightweight Rust application distributed with each
+GitHub Release:
 
 ```text
-npx -y @chelokot/sneak-out-patches install
-npx -y @chelokot/sneak-out-patches uninstall
-npx -y @chelokot/sneak-out-patches install --interactive
+SneakOutPatches-windows-x86_64.zip
+SneakOutPatches-linux-x86_64.tar.gz
 ```
+
+Each archive contains the graphical `SneakOutPatches` installer and a native
+`sneakout-patches` CLI. Both query the latest GitHub Release for the mod payload, verify
+its SHA-256, and retain the payload embedded at compile time as an offline fallback.
+
+```text
+sneakout-patches --install-mods=default
+sneakout-patches --install-mods=default,lobby-test-bot
+sneakout-patches --install-mods=all
+sneakout-patches --remove-mods
+```
+
+Pass `--no-update` to either binary to skip the GitHub check entirely and use the
+embedded catalog and artifacts.
 
 ## Distribution model
 
-The npm package contains the cross-platform Node CLI and a fallback copy of the committed runtime-mod artifacts. On a normal online install, the CLI queries the latest GitHub Release and downloads `sneakout-patches-payload.zip` plus its SHA-256 file. BepInEx is downloaded from the pinned upstream build and checked against a repository-pinned SHA-256.
+The native binaries use one release payload and installation-state schema. On a normal
+online install, they query the latest GitHub Release and download
+`sneakout-patches-payload.zip` plus its SHA-256 file. BepInEx is downloaded from the
+pinned upstream build and checked against a repository-pinned SHA-256.
 
 End users do not build mods and do not need Python, .NET, Git, or an interop cache. BepInEx generates the runtime interop cache during the first modded game launch.
 
 ## Defaults and compatibility
 
-`install` is deliberately noninteractive. It finds Steam library folders, chooses the detected Sneak Out installation, and installs every manifest entry with `default_enabled: true`, including the lobby skill panel, slide, and networked prop-change. Lobby prop-change assumes every participant has the mod. The host-only test bot and debug plugins are not defaults. `--all`, `--mods`, and `--interactive` provide explicit opt-in paths.
+The GUI selects every stable `default_enabled` entry and exposes each mod as a checkbox.
+The CLI is deliberately noninteractive by default. `default` and `all` expand inside
+`--install-mods`, explicit ids are unioned with those expansions, and the resulting
+selection is authoritative. The compatibility `install --mods`, `install --all`, and
+`uninstall` forms remain accepted.
 
 Before writing anything, the installer compares the Steam build id, `GameAssembly.dll`, and `global-metadata.dat` with the release metadata. An unsupported client is rejected unless the user explicitly passes `--allow-unsupported-build` or confirms the override interactively.
 
@@ -28,4 +49,6 @@ On Linux, the original Steam `localconfig.vdf` content is retained before adding
 
 ## Publishing
 
-`npm run installer:payload` creates the two GitHub Release assets under `dist/`. The `Release installer` GitHub Actions workflow tests the installer, creates the release assets for `v*` tags, and publishes the public npm package. npm publication requires the repository `NPM_TOKEN` secret or an equivalent trusted-publishing setup.
+`python3 tools/package_installer_payload.py` creates the payload assets under `dist/`.
+The `Release installer` workflow builds and tests the native binaries on Windows and
+Linux, packages them with SHA-256 files, and creates the GitHub Release for `v*` tags.

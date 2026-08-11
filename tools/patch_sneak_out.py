@@ -833,7 +833,8 @@ def ensure_local_bepinex_bundle() -> None:
         return
     raise SystemExit(
         f"Missing local BepInEx bundle: {LOCAL_BEPINEX_DIR}\n"
-        "Run npm run tooling:install first so the repo can bootstrap its local BepInEx runtime files."
+        "Populate .tmp/runtime-mod/bepinex from the pinned BepInEx IL2CPP bundle, "
+        "or use the native installer."
     )
 
 

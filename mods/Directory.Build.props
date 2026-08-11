@@ -49,7 +49,7 @@
   <Target Name="ValidateSneakOutBuildInputs" BeforeTargets="ResolveAssemblyReferences">
     <Error
       Condition="!Exists('$(BepInExCoreDir)/BepInEx.Core.dll')"
-      Text="Missing BepInEx build references at '$(BepInExCoreDir)'. Run 'npm run tooling:install' or set SNEAKOUT_BEPINEX_CORE_DIR." />
+      Text="Missing BepInEx build references at '$(BepInExCoreDir)'. Populate '.tmp/runtime-mod/bepinex/BepInEx/core' or set SNEAKOUT_BEPINEX_CORE_DIR." />
     <Error
       Condition="!Exists('$(InteropDir)/Assembly-CSharp.dll')"
       Text="Missing Sneak Out interop assemblies at '$(InteropDir)'. Run the game once with BepInEx, set SNEAKOUT_GAME_DIR or SNEAKOUT_INTEROP_DIR, or populate '.tmp/runtime-mod/interop'." />

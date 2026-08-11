@@ -2,7 +2,7 @@
   {
     "option_id": "performance-optimizer",
     "label": "Performance Optimizer",
-    "details": "Reduces startup overhead and provides measured frame pacing, memory, loading, render, GC, and Fusion network optimization presets.",
+    "details": "Improves startup times, frame pacing, loading, memory use, rendering, and network performance.",
     "category": "performance",
     "default_enabled": true,
     "project_relative_path": "mods/performance_optimizer/PerformanceOptimizer.csproj",
@@ -13,7 +13,7 @@
   {
     "option_id": "uniform-seeker-random",
     "label": "Uniform Seeker Random",
-    "details": "Builds and installs the BepInEx runtime mod that replaces the default seeker selection with a uniform random choice.",
+    "details": "Gives every player an equal chance of being selected as the seeker.",
     "category": "core",
     "default_enabled": true,
     "project_relative_path": "mods/uniform_seeker_random/UniformSeekerRandom.csproj",
@@ -24,7 +24,7 @@
   {
     "option_id": "portal-mode-selector",
     "label": "Portal Mode Selector",
-    "details": "Builds and installs the BepInEx runtime mod that replaces fragile portal UI scene edits with runtime hooks and keeps Map 4 and the unfinished East 1 map visible but unavailable.",
+    "details": "Lets you choose Classic or Crown maps from the portal while keeping unfinished maps unavailable.",
     "category": "gameplay",
     "default_enabled": true,
     "project_relative_path": "mods/portal_mode_selector/PortalModeSelector.csproj",
@@ -33,7 +33,7 @@
   {
     "option_id": "network-host-selector",
     "label": "Network Host Selector",
-    "details": "Lets the party leader choose the actual Fusion match host before PLAY, but only after every real participant confirms the same mod protocol.",
+    "details": "Lets the party leader choose who hosts the match when every player has the compatible mod.",
     "category": "quality-of-life",
     "default_enabled": false,
     "project_relative_path": "mods/network_host_selector/NetworkHostSelector.csproj",
@@ -44,7 +44,7 @@
   {
     "option_id": "minimap",
     "label": "Minimap",
-    "details": "Generates a configurable camera-aligned floor plan with runtime rooms and POIs, guides off-screen task rooms, wardrobes, and item rollers around zoomed views, shows only the local player, and adds an in-game Map settings tab.",
+    "details": "Adds a configurable minimap showing rooms, objectives, hiding spots, item dispensers, and your position.",
     "category": "quality-of-life",
     "default_enabled": true,
     "project_relative_path": "mods/minimap/Minimap.csproj",
@@ -55,7 +55,7 @@
   {
     "option_id": "mummy-unlock",
     "label": "Mummy Unlock",
-    "details": "Builds and installs the BepInEx runtime mod used for restoring Mummy as a selectable hunter.",
+    "details": "Makes Mummy available as a selectable hunter.",
     "category": "gameplay",
     "default_enabled": true,
     "project_relative_path": "mods/mummy_unlock/MummyUnlock.csproj",
@@ -64,7 +64,7 @@
   {
     "option_id": "unlock-everything",
     "label": "Unlock Everything",
-    "details": "Provides profile unlocks, durable 1000-Gold local skin purchases, persisted selections, and local-authority-only outfit sync.",
+    "details": "Unlocks supported characters, emotes, and skill cards, and lets you buy and keep every cosmetic for 1,000 Gold.",
     "category": "progression",
     "default_enabled": true,
     "project_relative_path": "mods/unlock_everything/UnlockEverything.csproj",
@@ -75,7 +75,7 @@
   {
     "option_id": "alternate-skill-hotkey",
     "label": "Alternate Skill Hotkey",
-    "details": "Maps Left Alt to the character's unequipped alternate active perk through the stock skill dispatch path.",
+    "details": "Lets you press Left Alt to use your character's unequipped alternate active skill.",
     "category": "gameplay",
     "default_enabled": false,
     "project_relative_path": "mods/alternate_skill_hotkey/AlternateSkillHotkey.csproj",
@@ -86,7 +86,7 @@
   {
     "option_id": "prop-buff",
     "label": "Prop Buff",
-    "details": "Allows slow stock-networked movement while disguised and cycles the active prop model with the mouse wheel without restarting the ability.",
+    "details": "Lets you move slowly while disguised and change your prop with the mouse wheel.",
     "category": "gameplay",
     "default_enabled": true,
     "project_relative_path": "mods/prop_buff/PropBuff.csproj",
@@ -95,9 +95,31 @@
     "default_config_template_path": "config_templates/runtime_mods/prop-buff.cfg"
   },
   {
+    "option_id": "globe-launch",
+    "label": "Globe Launch",
+    "details": "Launches the lobby globe into the air when the second distinct player lands their second hit.",
+    "category": "gameplay",
+    "default_enabled": true,
+    "project_relative_path": "mods/globe_launch/GlobeLaunch.csproj",
+    "assembly_name": "SneakOut.GlobeLaunch",
+    "config_relative_path": "BepInEx/config/chelokot.sneakout.globe-launch.cfg",
+    "default_config_template_path": "config_templates/runtime_mods/globe-launch.cfg"
+  },
+  {
+    "option_id": "first-person-experiment",
+    "label": "First Person Experiment",
+    "details": "Adds an experimental first-person mode with mouse look, immersive hiding and task views, a top-center stamina bar, and hold-X cursor release.",
+    "category": "gameplay",
+    "default_enabled": false,
+    "project_relative_path": "mods/first_person_experiment/FirstPersonExperiment.csproj",
+    "assembly_name": "SneakOut.FirstPersonExperiment",
+    "config_relative_path": "BepInEx/config/chelokot.sneakout.first-person-experiment.cfg",
+    "default_config_template_path": "config_templates/runtime_mods/first-person-experiment.cfg"
+  },
+  {
     "option_id": "start-delay-reducer",
     "label": "Start Now",
-    "details": "Keeps the full stock connection wait and gives the authoritative host a button to start immediately.",
+    "details": "Lets the host start the match immediately after the normal connection wait.",
     "category": "quality-of-life",
     "default_enabled": true,
     "project_relative_path": "mods/start_delay_reducer/StartDelayReducer.csproj",
@@ -108,7 +130,7 @@
   {
     "option_id": "locker-stun-fix",
     "label": "Locker Stun Fix",
-    "details": "Preserves Boo for a penguin's own locker exit, but suppresses stun and cooldown when another player opened the occupied locker first.",
+    "details": "Prevents an unwanted stun and Boo cooldown when another player opens your occupied locker.",
     "category": "gameplay",
     "default_enabled": true,
     "project_relative_path": "mods/locker_stun_fix/LockerStunFix.csproj",
@@ -119,7 +141,7 @@
   {
     "option_id": "magic-wardrobe-hook-fix",
     "label": "Magic Wardrobe Hook Fix",
-    "details": "Cancels an interrupted magic-wardrobe entry so a Butcher hook does not pull the player away and then snap them back to the wardrobe.",
+    "details": "Prevents a Butcher hook from snapping you back to a magic wardrobe after interrupting your entry.",
     "category": "gameplay",
     "default_enabled": true,
     "project_relative_path": "mods/magic_wardrobe_hook_fix/MagicWardrobeHookFix.csproj",
@@ -130,7 +152,7 @@
   {
     "option_id": "chair-wall-throw-fix",
     "label": "Chair Wall Throw Fix",
-    "details": "Keeps Throw valid for held chairs, barrels and ingredients regardless of distance or wall overlap, eliminating the crossed-out release state.",
+    "details": "Lets you throw held chairs, barrels, and ingredients even when they overlap a wall or exceed the usual distance.",
     "category": "gameplay",
     "default_enabled": true,
     "project_relative_path": "mods/chair_wall_throw_fix/ChairWallThrowFix.csproj",
@@ -141,7 +163,7 @@
   {
     "option_id": "pumpkin-radius-indicator-fix",
     "label": "Pumpkin Radius Indicator Fix",
-    "details": "Matches the persistent hunter ring to the trigger radius, then shows exact kill and 20%-opacity outer stun rings when the pumpkin triggers.",
+    "details": "Shows accurate kill and stun radius rings when the pumpkin activates.",
     "category": "gameplay",
     "default_enabled": true,
     "project_relative_path": "mods/pumpkin_radius_indicator_fix/PumpkinRadiusIndicatorFix.csproj",
@@ -152,7 +174,7 @@
   {
     "option_id": "ripper-corner-blink-fix",
     "label": "Ripper Corner Blink Fix",
-    "details": "Fixes the ReaperHelloThere through-wall perk at the game's dedicated Intersections-layer room junctions; without that perk, stock blink remains untouched.",
+    "details": "Fixes the Ripper's through-wall blink at room corners without changing the normal blink.",
     "category": "gameplay",
     "default_enabled": true,
     "project_relative_path": "mods/ripper_corner_blink_fix/RipperCornerBlinkFix.csproj",
@@ -163,7 +185,7 @@
   {
     "option_id": "background-loading-guard",
     "label": "Background Loading Guard",
-    "details": "Builds and installs the BepInEx runtime mod that temporarily enables runInBackground during loading and restores the previous value afterwards.",
+    "details": "Allows loading to continue while the game is in the background and restores your previous setting afterward.",
     "category": "quality-of-life",
     "default_enabled": true,
     "project_relative_path": "mods/background_loading_guard/BackgroundLoadingGuard.csproj",
@@ -174,7 +196,7 @@
   {
     "option_id": "keyboard-layout-fix",
     "label": "Keyboard Layout Fix",
-    "details": "Repairs physical WASD on Wine Cyrillic layouts without synthetic keyboard-state injection and refreshes displayed labels when the layout changes or the game regains focus.",
+    "details": "Keeps physical WASD controls working on Cyrillic keyboard layouts under Wine and updates key labels when layouts change.",
     "category": "quality-of-life",
     "default_enabled": true,
     "project_relative_path": "mods/keyboard_layout_fix/KeyboardLayoutFix.csproj",
@@ -185,7 +207,7 @@
   {
     "option_id": "proximity-voice-chat",
     "label": "Proximity Voice Chat",
-    "details": "Adds Steam-relayed spatial voice with push-to-talk, voice activation, stock-style audio settings, up to 500% voice boost, fixed 20-metre routed-distance falloff, doorway/corridor propagation, closed-door occlusion, and living/ghost channel separation.",
+    "details": "Adds spatial proximity voice chat with push-to-talk, voice activation, wall and door occlusion, volume controls, and separate living and ghost channels.",
     "category": "gameplay",
     "default_enabled": true,
     "project_relative_path": "mods/proximity_voice_chat/ProximityVoiceChat.csproj",
@@ -196,7 +218,7 @@
   {
     "option_id": "friend-invite-unlock",
     "label": "Friend Invite Unlock",
-    "details": "Builds and installs the BepInEx runtime mod that keeps offline friends inviteable from the lobby list.",
+    "details": "Lets you invite offline friends from the lobby list.",
     "category": "quality-of-life",
     "default_enabled": true,
     "project_relative_path": "mods/friend_invite_unlock/FriendInviteUnlock.csproj",
@@ -207,7 +229,7 @@
   {
     "option_id": "lobby-skill-sandbox",
     "label": "Lobby Skill Sandbox",
-    "details": "Enables the lobby penguin skill panel and lobby-safe slide handling. Match-only prop-change stays suppressed because its stock RPC corrupts lobby movement state.",
+    "details": "Lets you open the skill panel and safely practice sliding in the lobby.",
     "category": "gameplay",
     "default_enabled": true,
     "project_relative_path": "mods/lobby_skill_sandbox/LobbySkillSandbox.csproj",
@@ -218,7 +240,7 @@
   {
     "option_id": "lobby-test-bot",
     "label": "Lobby Test Bot",
-    "details": "Installs the host-only portal tool that spawns one inert Fusion player, lets the host prioritize it as the Classic-mode hunter, and starts private test matches with it.",
+    "details": "Lets the host add an idle bot, choose it as the Classic-mode hunter, and start private test matches.",
     "category": "debug",
     "default_enabled": false,
     "project_relative_path": "mods/lobby_test_bot/LobbyTestBot.csproj",
@@ -229,7 +251,7 @@
   {
     "option_id": "runtime-profiler",
     "label": "Runtime Profiler (Debug)",
-    "details": "Builds and installs the BepInEx runtime mod that profiles configured managed methods and writes a report on exit.",
+    "details": "Creates a performance report when the game closes to help diagnose slow mods and game functions.",
     "category": "debug",
     "default_enabled": false,
     "project_relative_path": "mods/runtime_profiler/RuntimeProfiler.csproj",

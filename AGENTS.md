@@ -106,3 +106,26 @@ Even exploratory fixes should be:
 - understandable on reread
 
 A debugging shortcut that pollutes the final architecture is still a bad fix.
+
+## Installer and repository tooling
+
+- The maintained installer is Rust-only under `installer-rs/`. Do not add JavaScript,
+  package-manager manifests, dependency directories, or JavaScript wrappers.
+- Use `cargo test --manifest-path installer-rs/Cargo.toml --all-features` for installer
+  coverage and `python3 tools/package_installer_payload.py` for release payloads.
+- The primary noninteractive CLI actions are `--install-mods=<selection>` and
+  `--remove-mods`. Keep the compatibility subcommands unless a migration explicitly
+  removes them.
+- Mod selections are authoritative. `default` expands to every current
+  `default_enabled` mod, `all` expands to the entire current release manifest, and
+  explicit ids are unioned with those expansions without duplicates.
+- `--no-update` must make no GitHub update request. It uses the embedded payload in both
+  the GUI and CLI, while local payload overrides used by tests remain allowed.
+- Never replace a selected plugin when its local semantic version is newer than the
+  release version; it may be a private build. Equal versions remain untouched. Copy a
+  release DLL only when the plugin is missing or the release version is newer.
+- Catalog-known plugins outside an installed selection must be removed. Plugins absent
+  from the latest catalog remain visible as `LEGACY` in the GUI when known to the
+  embedded catalog. They remain selectable and install from their embedded artifacts,
+  because `LEGACY` may also represent an unreleased local development mod. Unrelated
+  third-party DLLs remain untouched.

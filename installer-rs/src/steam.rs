@@ -42,7 +42,6 @@ pub fn candidate_steam_roots() -> Vec<PathBuf> {
     if let Some(value) = env::var_os("SNEAKOUT_STEAM_ROOTS") {
         return unique(env::split_paths(&value).collect());
     }
-    let home = BaseDirs::new().map(|dirs| dirs.home_dir().to_path_buf());
     #[cfg(windows)]
     {
         let mut paths = Vec::new();
@@ -61,6 +60,7 @@ pub fn candidate_steam_roots() -> Vec<PathBuf> {
     }
     #[cfg(not(windows))]
     {
+        let home = BaseDirs::new().map(|dirs| dirs.home_dir().to_path_buf());
         let Some(home) = home else {
             return Vec::new();
         };

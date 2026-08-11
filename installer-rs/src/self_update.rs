@@ -416,7 +416,10 @@ fn replace_executable(replacement: &Path, target: &Path) -> Result<()> {
             temporary.display()
         )
     })?;
-    File::open(&temporary)?.sync_all()?;
+    OpenOptions::new()
+        .write(true)
+        .open(&temporary)?
+        .sync_all()?;
 
     let had_target = move_target_to_backup(target, &backup)?;
     if let Err(error) = fs::rename(&temporary, target) {

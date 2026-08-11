@@ -68,6 +68,9 @@ Use the installer to choose or remove mods.
 
 ## Command line
 
+Running `sneakout-patches` without arguments opens the graphical installer. Pass an
+action for noninteractive use:
+
 ```bash
 sneakout-patches --install-mods=default
 sneakout-patches --install-mods=default,mod1,mod2

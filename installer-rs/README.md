@@ -12,6 +12,9 @@ resolution when installing or removing mods.
 
 ## Command line
 
+Running `sneakout-patches` without arguments opens the GUI. Pass an action to use the
+noninteractive command-line flow.
+
 Install an authoritative selection:
 
 ```bash

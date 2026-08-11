@@ -11,6 +11,8 @@ SneakOutPatches-linux-x86_64.tar.gz
 Each archive contains the graphical `SneakOutPatches` installer and a native
 `sneakout-patches` CLI. Both query the latest GitHub Release for the mod payload, verify
 its SHA-256, and retain the payload embedded at compile time as an offline fallback.
+Running `sneakout-patches` without arguments opens the graphical installer; pass an
+action to use it noninteractively.
 
 ```text
 sneakout-patches --install-mods=default

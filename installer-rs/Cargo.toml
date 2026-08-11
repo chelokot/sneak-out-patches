@@ -2,6 +2,7 @@
 name = "sneakout-patches-installer"
 version = "0.8.4"
 edition = "2024"
+autobins = false
 description = "Native Sneak Out runtime mod installer"
 repository = "https://github.com/chelokot/sneak-out-patches"
 
@@ -15,7 +16,7 @@ path = "src/bin/cli.rs"
 
 [[bin]]
 name = "sneakout-patches-gui"
-path = "src/bin/gui.rs"
+path = "src/bin/gui_main.rs"
 required-features = ["gui"]
 
 [features]

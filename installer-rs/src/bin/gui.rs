@@ -1,8 +1,5 @@
-#![cfg_attr(windows, windows_subsystem = "windows")]
-
 use anyhow::{Result, bail};
 use base64::prelude::{BASE64_STANDARD, Engine as _};
-use clap::Parser;
 use eframe::egui::{self, Color32, RichText};
 use sneakout_installer::payload::embedded_manifest;
 use sneakout_installer::{
@@ -39,18 +36,6 @@ const BUTTON_HEIGHT: f32 = 44.0;
 const SECTION_FONT_FAMILY: &str = "Open Sans Bold";
 const SECTION_FONT_DATA: &str = "open-sans-bold";
 const LOBBY_TEST_BOT_ID: &str = "lobby-test-bot";
-
-#[derive(Debug, Parser)]
-#[command(
-    name = "SneakOutPatches",
-    version,
-    about = "Sneak Out patches graphical installer"
-)]
-struct GuiArgs {
-    /// Use the embedded payload without checking GitHub for updates.
-    #[arg(long, alias = "offline")]
-    no_update: bool,
-}
 
 enum WorkerMessage {
     Progress(ProgressEvent),
@@ -1284,8 +1269,7 @@ impl eframe::App for InstallerApp {
     }
 }
 
-fn main() -> eframe::Result {
-    let args = GuiArgs::parse();
+pub(crate) fn run(no_update: bool) -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([980.0, 900.0])
@@ -1297,7 +1281,7 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "Sneak Out Patches",
         options,
-        Box::new(move |context| Ok(Box::new(InstallerApp::new(context, args.no_update)))),
+        Box::new(move |context| Ok(Box::new(InstallerApp::new(context, no_update)))),
     )
 }
 

@@ -59,27 +59,24 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          mkdir -p dist-native
-          install -m 755 installer-rs/target/release/sneakout-patches-gui dist-native/SneakOutPatches-linux-x86_64
-          install -m 755 installer-rs/target/release/sneakout-patches dist-native/sneakout-patches-linux-x86_64
+          mkdir -p dist-native/package
+          install -m 755 installer-rs/target/release/sneakout-patches-gui dist-native/package/SneakOutPatches
+          install -m 755 installer-rs/target/release/sneakout-patches dist-native/package/sneakout-patches
+          tar -C dist-native/package -czf dist-native/SneakOutPatches-linux-x86_64.tar.gz SneakOutPatches sneakout-patches
           cd dist-native
-          sha256sum SneakOutPatches-linux-x86_64 > SneakOutPatches-linux-x86_64.sha256
-          sha256sum sneakout-patches-linux-x86_64 > sneakout-patches-linux-x86_64.sha256
+          sha256sum SneakOutPatches-linux-x86_64.tar.gz > SneakOutPatches-linux-x86_64.tar.gz.sha256
 
       - name: Package Windows binaries
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force dist-native | Out-Null
-          $gui = "dist-native/SneakOutPatches-windows-x86_64.exe"
-          $cli = "dist-native/sneakout-patches-windows-x86_64.exe"
-          Copy-Item installer-rs/target/release/sneakout-patches-gui.exe $gui
-          Copy-Item installer-rs/target/release/sneakout-patches.exe $cli
-          foreach ($path in @($gui, $cli)) {
-            $hash = (Get-FileHash -Algorithm SHA256 $path).Hash.ToLower()
-            $name = Split-Path -Leaf $path
-            "$hash  $name" | Set-Content "$path.sha256"
-          }
+          New-Item -ItemType Directory -Force dist-native/package | Out-Null
+          Copy-Item installer-rs/target/release/sneakout-patches-gui.exe dist-native/package/SneakOutPatches.exe
+          Copy-Item installer-rs/target/release/sneakout-patches.exe dist-native/package/sneakout-patches.exe
+          $archive = "dist-native/SneakOutPatches-windows-x86_64.zip"
+          Compress-Archive -Path dist-native/package/* -DestinationPath $archive
+          $hash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLower()
+          "$hash  SneakOutPatches-windows-x86_64.zip" | Set-Content "$archive.sha256"
 
       - uses: actions/upload-artifact@v4
         with:

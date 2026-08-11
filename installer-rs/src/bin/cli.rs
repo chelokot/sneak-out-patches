@@ -13,6 +13,10 @@ use std::collections::HashSet;
 use std::io::{self, IsTerminal, Write};
 use std::path::PathBuf;
 
+#[cfg(feature = "gui")]
+#[path = "gui.rs"]
+mod gui;
+
 #[derive(Debug, Parser)]
 #[command(
     name = "sneakout-patches",
@@ -387,31 +391,56 @@ fn run_uninstall(common: &CommonArgs) -> Result<()> {
     Ok(())
 }
 
+fn should_launch_gui(cli: &Cli) -> bool {
+    cli.install_mods.is_none()
+        && !cli.remove_mods
+        && cli.command.is_none()
+        && !cli.common.interactive
+        && cli.common.game_dir.is_none()
+        && !cli.common.yes
+        && !cli.allow_unsupported_build
+}
+
+#[cfg(feature = "gui")]
+fn run_gui(no_update: bool) -> Result<()> {
+    gui::run(no_update)
+        .map_err(|error| anyhow::anyhow!("failed to launch graphical installer: {error}"))
+}
+
+#[cfg(not(feature = "gui"))]
+fn run_gui(_no_update: bool) -> Result<()> {
+    bail!("this build does not include the graphical installer")
+}
+
 fn main() {
     let cli = Cli::parse();
     if cli.common.interactive && !(io::stdin().is_terminal() && io::stdout().is_terminal()) {
         eprintln!("--interactive requires a terminal.");
         std::process::exit(1);
     }
-    let result = match (&cli.install_mods, cli.remove_mods, &cli.command) {
-        (Some(_), _, Some(_)) | (_, true, Some(_)) => Err(anyhow::anyhow!(
-            "do not combine --install-mods or --remove-mods with a subcommand"
-        )),
-        (Some(mods), false, None) => {
-            run_install(&cli.common, Some(mods), false, cli.allow_unsupported_build)
+    let result = if should_launch_gui(&cli) {
+        run_gui(cli.common.no_update)
+    } else {
+        match (&cli.install_mods, cli.remove_mods, &cli.command) {
+            (Some(_), _, Some(_)) | (_, true, Some(_)) => Err(anyhow::anyhow!(
+                "do not combine --install-mods or --remove-mods with a subcommand"
+            )),
+            (Some(mods), false, None) => {
+                run_install(&cli.common, Some(mods), false, cli.allow_unsupported_build)
+            }
+            (None, true, None) => run_uninstall(&cli.common),
+            (None, false, Some(Command::Install(args))) => run_install(
+                &cli.common,
+                args.mods.as_deref(),
+                args.all,
+                cli.allow_unsupported_build,
+            ),
+            (None, false, Some(Command::Uninstall)) => run_uninstall(&cli.common),
+            (None, false, None) => Err(anyhow::anyhow!(
+                "choose --install-mods=default, --install-mods=all, --install-mods=<ids>, or --remove-mods; pass no options to open the graphical installer"
+            )),
+            (Some(_), true, None) => unreachable!("clap rejects conflicting actions"),
         }
-        (None, true, None) => run_uninstall(&cli.common),
-        (None, false, Some(Command::Install(args))) => run_install(
-            &cli.common,
-            args.mods.as_deref(),
-            args.all,
-            cli.allow_unsupported_build,
-        ),
-        (None, false, Some(Command::Uninstall)) => run_uninstall(&cli.common),
-        (None, false, None) => Err(anyhow::anyhow!(
-            "choose --install-mods=default, --install-mods=all, --install-mods=<ids>, or --remove-mods"
-        )),
-        (Some(_), true, None) => unreachable!("clap rejects conflicting actions"),
     };
     if let Err(error) = result {
         eprintln!("{error:#}");
@@ -459,5 +488,27 @@ mod tests {
         let selected = expand_mod_selection(&manifest, &manifest, &["all".to_owned()]).unwrap();
 
         assert_eq!(selected, vec!["stable", "optional"]);
+    }
+
+    #[test]
+    fn no_arguments_launch_the_gui() {
+        let cli = Cli::try_parse_from(["sneakout-patches"]).unwrap();
+
+        assert!(should_launch_gui(&cli));
+    }
+
+    #[test]
+    fn no_update_without_an_action_launches_the_gui_offline() {
+        let cli = Cli::try_parse_from(["sneakout-patches", "--no-update"]).unwrap();
+
+        assert!(should_launch_gui(&cli));
+        assert!(cli.common.no_update);
+    }
+
+    #[test]
+    fn command_line_actions_do_not_launch_the_gui() {
+        let cli = Cli::try_parse_from(["sneakout-patches", "--install-mods=default"]).unwrap();
+
+        assert!(!should_launch_gui(&cli));
     }
 }

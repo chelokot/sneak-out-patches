@@ -5,7 +5,7 @@ use reqwest::blocking::{Client, Response};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::env;
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -180,13 +180,34 @@ fn embedded_payload_key() -> String {
     format!("{}-{}", env!("CARGO_PKG_VERSION"), &fingerprint[..16])
 }
 
-fn embedded_payload_root() -> Result<PathBuf> {
-    let root = cache_root()?.join("embedded").join(embedded_payload_key());
+fn embedded_payload_lock_path(root: &Path) -> PathBuf {
+    let mut path = root.as_os_str().to_owned();
+    path.push(".lock");
+    PathBuf::from(path)
+}
+
+fn materialize_embedded_payload(root: &Path) -> Result<()> {
     if is_payload_root(&root) {
-        return Ok(root);
+        return Ok(());
     }
+    let lock_path = embedded_payload_lock_path(root);
+    if let Some(parent) = lock_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let lock = OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .open(&lock_path)
+        .with_context(|| format!("failed to open cache lock {}", lock_path.display()))?;
+    lock.lock()
+        .with_context(|| format!("failed to acquire cache lock {}", lock_path.display()))?;
+    if is_payload_root(root) {
+        return Ok(());
+    }
+
     if root.exists() {
-        fs::remove_dir_all(&root)?;
+        fs::remove_dir_all(root)?;
     }
     write_file_atomic(root.join("runtime_mods_manifest.json"), EMBEDDED_MANIFEST)?;
     write_file_atomic(
@@ -198,6 +219,12 @@ fn embedded_payload_root() -> Result<PathBuf> {
         &EMBEDDED_CONFIGS,
         &root.join("config_templates/runtime_mods"),
     )?;
+    Ok(())
+}
+
+fn embedded_payload_root() -> Result<PathBuf> {
+    let root = cache_root()?.join("embedded").join(embedded_payload_key());
+    materialize_embedded_payload(&root)?;
     Ok(root)
 }
 
@@ -321,4 +348,50 @@ pub fn load_payload_metadata(root: &Path) -> Result<(Vec<RuntimeMod>, SupportedB
     let supported_build =
         serde_json::from_slice(&fs::read(root.join("supported_game_build.json"))?)?;
     Ok((manifest, supported_build))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Arc, Barrier};
+    use std::thread;
+    use std::time::Duration;
+
+    #[test]
+    fn embedded_payload_materialization_waits_for_the_cache_lock() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("embedded-payload");
+        fs::create_dir_all(&root).unwrap();
+        let incomplete = root.join("incomplete");
+        fs::write(&incomplete, []).unwrap();
+
+        let lock_path = embedded_payload_lock_path(&root);
+        let lock = OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .open(lock_path)
+            .unwrap();
+        lock.lock().unwrap();
+
+        let barrier = Arc::new(Barrier::new(2));
+        let worker_barrier = Arc::clone(&barrier);
+        let worker_root = root.clone();
+        let worker = thread::spawn(move || {
+            worker_barrier.wait();
+            materialize_embedded_payload(&worker_root)
+        });
+        barrier.wait();
+        thread::sleep(Duration::from_millis(100));
+
+        assert!(
+            incomplete.exists(),
+            "the incomplete cache must remain untouched while its lock is held"
+        );
+        lock.unlock().unwrap();
+        worker.join().unwrap().unwrap();
+
+        assert!(is_payload_root(&root));
+        assert!(!incomplete.exists());
+    }
 }

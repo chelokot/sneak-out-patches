@@ -18,6 +18,11 @@ jobs:
       - name: Install the pinned Rust toolchain
         run: rustup toolchain install 1.94.1 --profile minimal
 
+      - name: Cache Rust dependencies and build outputs
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "./installer-rs -> target"
+
       - name: Test the native installer
         run: cargo +1.94.1 test --locked --manifest-path installer-rs/Cargo.toml --all-features
 
@@ -35,6 +40,11 @@ jobs:
 
       - name: Install the pinned Rust toolchain
         run: rustup toolchain install 1.94.1 --profile minimal
+
+      - name: Cache Rust dependencies and build outputs
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "./installer-rs -> target"
 
       - name: Build native release binaries
         run: >-

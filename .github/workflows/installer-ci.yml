@@ -21,6 +21,11 @@ jobs:
       - name: Install the pinned Rust toolchain
         run: rustup toolchain install 1.94.1 --profile minimal --component rustfmt
 
+      - name: Cache Rust dependencies and build outputs
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "./installer-rs -> target"
+
       - name: Check Rust formatting
         run: cargo +1.94.1 fmt --manifest-path installer-rs/Cargo.toml --all -- --check
 

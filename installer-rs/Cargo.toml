@@ -42,6 +42,10 @@ sha2 = "0.10"
 walkdir = "2.5"
 zip = { version = "8.2", default-features = false, features = ["deflate"] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+flate2 = "1.1"
+tar = "0.4"
+
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"
 

@@ -8,7 +8,7 @@ public sealed class FriendInviteUnlockPlugin : BasePlugin
 {
     public const string PluginGuid = "chelokot.sneakout.friend-invite-unlock";
     public const string PluginName = "Friend Invite Unlock";
-    public const string PluginVersion = "0.1.1";
+    public const string PluginVersion = "0.2.1";
 
     public override void Load()
     {

@@ -23,6 +23,8 @@
   Runtime-only floor-plan and point-of-interest generation, local-player projection, configuration, and validation evidence for the minimap mod.
 - `gameplay/proximity-voice-chat.md`
   Architecture, privacy model, Steam transport, adaptive playback, and release validation status for proximity voice.
+- `gameplay/steam-party-invites.md`
+  Steam overlay invites, Join Game tokens, recipient compatibility, and the stock Nakama-to-Photon handoff.
 - `gameplay/geometry-fixes.md`
   Exact client paths and safety constraints for chair release, pumpkin radius, and Ripper shared-corner blink fixes.
 - `gameplay/tasks-and-task-steps.md`

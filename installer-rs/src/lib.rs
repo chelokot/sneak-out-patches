@@ -3,6 +3,7 @@ pub mod io;
 pub mod model;
 pub mod payload;
 pub mod runtime_mod_version;
+pub mod self_update;
 pub mod steam;
 
 pub use installer::{
@@ -19,6 +20,10 @@ pub use payload::{
     resolve_latest_payload, resolve_payload,
 };
 pub use runtime_mod_version::read_runtime_mod_version;
+pub use self_update::{
+    BinaryKind, PreparedSelfUpdate, launch_self_update, launch_self_update_without_relaunch,
+    prepare_self_update, run_self_update_helper_if_requested,
+};
 pub use steam::{detect_game_directories, is_steam_client_running, resolve_game_directory};
 
 pub type ProgressReporter<'a> = &'a dyn Fn(ProgressEvent);

@@ -9,8 +9,11 @@ SneakOutPatches-linux-x86_64.tar.gz
 ```
 
 Each archive contains the graphical `SneakOutPatches` installer and a native
-`sneakout-patches` CLI. Both query the latest GitHub Release for the mod payload, verify
-its SHA-256, and retain the payload embedded at compile time as an offline fallback.
+`sneakout-patches` CLI. Both check the latest GitHub Release for a newer installer,
+verify the platform archive's SHA-256, and replace themselves through a staged helper.
+The GUI restarts immediately; an explicit CLI install or remove action finishes first
+and applies the binary update as it exits. Both retain the mod payload embedded at
+compile time as an offline fallback.
 Running `sneakout-patches` without arguments opens the graphical installer; pass an
 action to use it noninteractively.
 
@@ -21,15 +24,17 @@ sneakout-patches --install-mods=all
 sneakout-patches --remove-mods
 ```
 
-Pass `--no-update` to either binary to skip the GitHub check entirely and use the
-embedded catalog and artifacts.
+Pass `--no-update` to either binary to skip installer and mod update checks entirely
+and use the embedded catalog and artifacts.
 
 ## Distribution model
 
 The native binaries use one release payload and installation-state schema. On a normal
-online install, they query the latest GitHub Release and download
-`sneakout-patches-payload.zip` plus its SHA-256 file. BepInEx is downloaded from the
-pinned upstream build and checked against a repository-pinned SHA-256.
+online run, an older installer first downloads its platform archive and checksum, then
+stages a verified replacement without overwriting the running process. The current
+installer downloads `sneakout-patches-payload.zip` plus its SHA-256 file. BepInEx is
+downloaded from the pinned upstream build and checked against a repository-pinned
+SHA-256.
 
 End users do not build mods and do not need Python, .NET, Git, or an interop cache. BepInEx generates the runtime interop cache during the first modded game launch.
 

@@ -8,6 +8,7 @@ use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::time::Duration;
 use zip::ZipArchive;
 
@@ -26,6 +27,7 @@ static EMBEDDED_CONFIGS: Dir<'_> =
     include_dir!("$CARGO_MANIFEST_DIR/../config_templates/runtime_mods");
 const EMBEDDED_MANIFEST: &str = include_str!("../../runtime_mods_manifest.json");
 const EMBEDDED_SUPPORTED_BUILD: &str = include_str!("../../supported_game_build.json");
+static LATEST_RELEASE: OnceLock<std::result::Result<GithubRelease, String>> = OnceLock::new();
 
 #[derive(Clone, Debug)]
 pub struct Payload {
@@ -33,20 +35,20 @@ pub struct Payload {
     pub source: String,
 }
 
-#[derive(Debug, Deserialize)]
-struct GithubRelease {
-    id: u64,
-    tag_name: String,
-    assets: Vec<GithubAsset>,
+#[derive(Clone, Debug, Deserialize)]
+pub(crate) struct GithubRelease {
+    pub(crate) id: u64,
+    pub(crate) tag_name: String,
+    pub(crate) assets: Vec<GithubAsset>,
 }
 
-#[derive(Debug, Deserialize)]
-struct GithubAsset {
-    name: String,
-    browser_download_url: String,
+#[derive(Clone, Debug, Deserialize)]
+pub(crate) struct GithubAsset {
+    pub(crate) name: String,
+    pub(crate) browser_download_url: String,
 }
 
-fn cache_root() -> Result<PathBuf> {
+pub(crate) fn cache_root() -> Result<PathBuf> {
     if let Some(path) = env::var_os("SNEAKOUT_PATCHES_CACHE_DIR") {
         return Ok(PathBuf::from(path));
     }
@@ -88,7 +90,11 @@ fn read_response(
     Ok(bytes)
 }
 
-fn fetch_bytes(url: &str, label: &str, reporter: ProgressReporter<'_>) -> Result<Vec<u8>> {
+pub(crate) fn fetch_bytes(
+    url: &str,
+    label: &str,
+    reporter: ProgressReporter<'_>,
+) -> Result<Vec<u8>> {
     let response = http_client()?
         .get(url)
         .send()
@@ -98,18 +104,33 @@ fn fetch_bytes(url: &str, label: &str, reporter: ProgressReporter<'_>) -> Result
     read_response(response, label, reporter)
 }
 
-fn fetch_release(reporter: ProgressReporter<'_>) -> Result<GithubRelease> {
+pub(crate) fn fetch_release(reporter: ProgressReporter<'_>) -> Result<GithubRelease> {
+    if let Some(result) = LATEST_RELEASE.get() {
+        return result.clone().map_err(anyhow::Error::msg);
+    }
     reporter(ProgressEvent::Message(
         "Checking the latest GitHub release...".to_owned(),
     ));
-    http_client()?
-        .get(format!(
-            "https://api.github.com/repos/{REPOSITORY}/releases/latest"
-        ))
-        .send()?
-        .error_for_status()?
-        .json()
-        .context("the latest GitHub release response was invalid")
+    let result = (|| -> Result<GithubRelease> {
+        http_client()?
+            .get(format!(
+                "https://api.github.com/repos/{REPOSITORY}/releases/latest"
+            ))
+            .send()?
+            .error_for_status()?
+            .json()
+            .context("the latest GitHub release response was invalid")
+    })();
+    match result {
+        Ok(release) => {
+            let _ = LATEST_RELEASE.set(Ok(release.clone()));
+            Ok(release)
+        }
+        Err(error) => {
+            let _ = LATEST_RELEASE.set(Err(format!("{error:#}")));
+            Err(error)
+        }
+    }
 }
 
 fn extract_verified_zip(bytes: &[u8], expected_sha256: &str, destination: &Path) -> Result<()> {
@@ -216,6 +237,7 @@ fn materialize_embedded_payload(root: &Path) -> Result<()> {
         .create(true)
         .read(true)
         .write(true)
+        .truncate(false)
         .open(&lock_path)
         .with_context(|| format!("failed to open cache lock {}", lock_path.display()))?;
     lock.lock()

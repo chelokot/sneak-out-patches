@@ -51,7 +51,7 @@ Use the installer to choose or remove mods.
 | `start-delay-reducer` | Start Now | Yes | Lets the host start the match immediately after the normal connection wait. |
 | `background-loading-guard` | Background Loading Guard | Yes | Allows loading to continue while the game is in the background and restores your previous setting afterward. |
 | `keyboard-layout-fix` | Keyboard Layout Fix | Yes | Keeps physical WASD controls working on Cyrillic keyboard layouts under Wine and updates key labels when layouts change. |
-| `friend-invite-unlock` | Friend Invite Unlock | Yes | Lets you invite offline friends from the lobby list. |
+| `friend-invite-unlock` | Friend Invite Unlock | Yes | Sends Steam game invites to offline friends and adds Steam overlay Invite to Play and Join Game support for lobby parties. |
 
 ### Progression
 

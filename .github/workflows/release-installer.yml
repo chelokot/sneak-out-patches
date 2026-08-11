@@ -46,6 +46,14 @@ jobs:
         with:
           workspaces: "./installer-rs -> target"
 
+      - name: Test platform-specific self-update behavior
+        run: >-
+          cargo +1.94.1 test
+          --locked
+          --manifest-path installer-rs/Cargo.toml
+          --lib
+          self_update::tests
+
       - name: Build native release binaries
         run: >-
           cargo +1.94.1 build
@@ -94,6 +102,13 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
+
+      - name: Verify installer version matches the release tag
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          installer_version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' installer-rs/Cargo.toml | head -n 1)"
+          test "v${installer_version}" = "${GITHUB_REF_NAME}"
 
       - uses: actions/download-artifact@v4
         with:

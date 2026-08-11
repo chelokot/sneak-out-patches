@@ -218,7 +218,7 @@
   {
     "option_id": "friend-invite-unlock",
     "label": "Friend Invite Unlock",
-    "details": "Lets you invite offline friends from the lobby list.",
+    "details": "Sends Steam game invites to offline friends and adds Steam overlay Invite to Play and Join Game support for lobby parties.",
     "category": "quality-of-life",
     "default_enabled": true,
     "project_relative_path": "mods/friend_invite_unlock/FriendInviteUnlock.csproj",

@@ -3,14 +3,15 @@ use base64::prelude::{BASE64_STANDARD, Engine as _};
 use eframe::egui::{self, Color32, RichText};
 use sneakout_installer::payload::embedded_manifest;
 use sneakout_installer::{
-    FORCED_HIDDEN_RUNTIME_MOD_ID, InstallRequest, ProgressEvent, RuntimeMod, compatibility_issues,
-    detect_game_directories, install, installed_runtime_mod_ids, is_steam_client_running,
-    load_payload_metadata, proton_launch_configuration_required, read_runtime_mod_version,
-    resolve_bepinex, resolve_embedded_payload, resolve_game_directory, resolve_latest_payload,
-    resolve_payload, uninstall, update_installed_runtime_mods, validate_installed,
+    BinaryKind, FORCED_HIDDEN_RUNTIME_MOD_ID, InstallRequest, PreparedSelfUpdate, ProgressEvent,
+    RuntimeMod, compatibility_issues, detect_game_directories, install, installed_runtime_mod_ids,
+    is_steam_client_running, launch_self_update, load_payload_metadata, prepare_self_update,
+    proton_launch_configuration_required, read_runtime_mod_version, resolve_bepinex,
+    resolve_embedded_payload, resolve_game_directory, resolve_latest_payload, resolve_payload,
+    uninstall, update_installed_runtime_mods, validate_installed,
 };
-use std::collections::HashSet;
-use std::path::PathBuf;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::TryRecvError;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
@@ -39,7 +40,7 @@ const LOBBY_TEST_BOT_ID: &str = "lobby-test-bot";
 
 enum WorkerMessage {
     Progress(ProgressEvent),
-    StartupFinished(Result<StartupSnapshot, String>),
+    StartupFinished(Result<StartupOutcome, String>),
     Finished(WorkerOperation, Result<String, String>),
 }
 
@@ -49,8 +50,14 @@ enum WorkerOperation {
     Uninstall,
 }
 
+enum StartupOutcome {
+    Ready(StartupSnapshot),
+    SelfUpdate(PreparedSelfUpdate),
+}
+
 struct StartupSnapshot {
     manifest: Vec<RuntimeMod>,
+    mod_versions: HashMap<String, String>,
     legacy_ids: HashSet<String>,
     installed_ids: HashSet<String>,
     selected_ids: HashSet<String>,
@@ -68,6 +75,7 @@ struct InstallJob {
 
 struct InstallerApp {
     manifest: Vec<RuntimeMod>,
+    mod_versions: HashMap<String, String>,
     legacy_ids: HashSet<String>,
     installed_ids: HashSet<String>,
     selected: HashSet<String>,
@@ -83,7 +91,11 @@ struct InstallerApp {
 }
 
 impl InstallerApp {
-    fn new(context: &eframe::CreationContext<'_>, no_update: bool) -> Self {
+    fn new(
+        context: &eframe::CreationContext<'_>,
+        no_update: bool,
+        binary_kind: BinaryKind,
+    ) -> Self {
         install_fonts(&context.egui_ctx);
 
         let mut visuals = egui::Visuals::dark();
@@ -167,7 +179,13 @@ impl InstallerApp {
         });
 
         let manifest = embedded_manifest().unwrap_or_default();
-        let defaults = default_selection(&manifest, &HashSet::new());
+        let no_fallback_ids = HashSet::new();
+        let defaults = default_selection(&manifest, &no_fallback_ids);
+        let mod_versions = resolve_embedded_payload()
+            .and_then(|payload| {
+                runtime_mod_versions(&manifest, &payload.root, &payload.root, &no_fallback_ids)
+            })
+            .unwrap_or_default();
         let detected = detect_game_directories().unwrap_or_default();
         let game_directory = detected
             .first()
@@ -196,7 +214,7 @@ impl InstallerApp {
             let startup_game_directory =
                 (!game_directory.is_empty()).then(|| PathBuf::from(game_directory.as_str()));
             thread::spawn(move || {
-                let result = perform_startup_check(startup_game_directory, &sender)
+                let result = perform_startup_check(startup_game_directory, binary_kind, &sender)
                     .map_err(|error| format!("{error:#}"));
                 let _ = sender.send(WorkerMessage::StartupFinished(result));
             });
@@ -208,6 +226,7 @@ impl InstallerApp {
         };
         Self {
             manifest,
+            mod_versions,
             legacy_ids: HashSet::new(),
             installed_ids,
             selected,
@@ -231,7 +250,7 @@ impl InstallerApp {
         }
     }
 
-    fn poll_worker(&mut self) {
+    fn poll_worker(&mut self, context: &egui::Context) {
         let mut messages = Vec::new();
         let mut disconnected = false;
         if let Some(receiver) = &self.worker {
@@ -277,12 +296,27 @@ impl InstallerApp {
                     self.busy = false;
                     self.download = None;
                     match result {
-                        Ok(snapshot) => {
+                        Ok(StartupOutcome::Ready(snapshot)) => {
                             self.manifest = snapshot.manifest;
+                            self.mod_versions = snapshot.mod_versions;
                             self.legacy_ids = snapshot.legacy_ids;
                             self.installed_ids = snapshot.installed_ids;
                             self.selected = snapshot.selected_ids;
                             self.append_log(snapshot.message);
+                        }
+                        Ok(StartupOutcome::SelfUpdate(update)) => {
+                            let version = update.version().clone();
+                            match launch_self_update(&update, std::env::args_os().skip(1)) {
+                                Ok(()) => {
+                                    self.append_log(format!(
+                                        "Installer {version} downloaded; restarting to apply the update..."
+                                    ));
+                                    context.send_viewport_cmd(egui::ViewportCommand::Close);
+                                }
+                                Err(error) => self.append_log(format!(
+                                    "Error: could not launch installer update: {error:#}"
+                                )),
+                            }
                         }
                         Err(error) => self.append_log(format!(
                             "Error: update check failed; using the embedded catalog: {error}"
@@ -487,12 +521,8 @@ impl InstallerApp {
                             .manifest
                             .iter()
                             .map(|runtime_mod| {
-                                selectable_card_height(
-                                    ui,
-                                    &runtime_mod.label,
-                                    &runtime_mod.details,
-                                    card_width,
-                                )
+                                let title = runtime_mod_title(runtime_mod, &self.mod_versions);
+                                selectable_card_height(ui, &title, &runtime_mod.details, card_width)
                             })
                             .fold(0.0, f32::max);
                         for row in runtime_mods.chunks(columns) {
@@ -502,9 +532,10 @@ impl InstallerApp {
                                     let enabled = self.selected.contains(&runtime_mod.option_id);
                                     let legacy = self.legacy_ids.contains(&runtime_mod.option_id);
                                     let interactive = !self.busy;
+                                    let title = runtime_mod_title(runtime_mod, &self.mod_versions);
                                     let response = selectable_card(
                                         ui,
-                                        &runtime_mod.label,
+                                        &title,
                                         &runtime_mod.details,
                                         legacy,
                                         enabled,
@@ -600,7 +631,7 @@ impl InstallerApp {
                 ui,
                 "Use embedded payload",
                 if self.updates_disabled {
-                    "Forced by --no-update; no GitHub request will be made."
+                    "Forced by --no-update; installer and mod update checks are disabled."
                 } else {
                     "Use bundled mods for manual installation after the startup release check."
                 },
@@ -625,7 +656,7 @@ impl InstallerApp {
                     ui,
                     "Use embedded payload",
                     if self.updates_disabled {
-                        "Forced by --no-update; no GitHub request will be made."
+                        "Forced by --no-update; installer and mod update checks are disabled."
                     } else {
                         "Use bundled mods for manual installation after the startup release check."
                     },
@@ -1034,17 +1065,62 @@ fn merge_runtime_mod_catalog(
     (catalog, legacy_ids)
 }
 
+fn runtime_mod_versions(
+    catalog: &[RuntimeMod],
+    payload_root: &Path,
+    fallback_payload_root: &Path,
+    fallback_ids: &HashSet<String>,
+) -> Result<HashMap<String, String>> {
+    catalog
+        .iter()
+        .map(|runtime_mod| {
+            let root = if fallback_ids.contains(&runtime_mod.option_id) {
+                fallback_payload_root
+            } else {
+                payload_root
+            };
+            let artifact = root
+                .join("artifacts/runtime_mods")
+                .join(format!("{}.dll", runtime_mod.assembly_name));
+            let version = read_runtime_mod_version(artifact)?;
+            Ok((runtime_mod.option_id.clone(), version.to_string()))
+        })
+        .collect()
+}
+
+fn runtime_mod_title(runtime_mod: &RuntimeMod, versions: &HashMap<String, String>) -> String {
+    versions
+        .get(&runtime_mod.option_id)
+        .map(|version| format!("{} · {version}", runtime_mod.label))
+        .unwrap_or_else(|| runtime_mod.label.clone())
+}
+
 fn perform_startup_check(
     game_directory: Option<PathBuf>,
+    binary_kind: BinaryKind,
     sender: &Sender<WorkerMessage>,
-) -> Result<StartupSnapshot> {
+) -> Result<StartupOutcome> {
     let reporter = |event| {
         let _ = sender.send(WorkerMessage::Progress(event));
     };
+    match prepare_self_update(binary_kind, &reporter) {
+        Ok(Some(update)) => return Ok(StartupOutcome::SelfUpdate(update)),
+        Ok(None) => {}
+        Err(error) => reporter(ProgressEvent::Message(format!(
+            "Could not check for an installer update: {error:#}. Continuing."
+        ))),
+    }
     let payload = resolve_latest_payload(&reporter)?;
     let (latest_manifest, _) = load_payload_metadata(&payload.root)?;
     let embedded = embedded_manifest()?;
     let (manifest, legacy_ids) = merge_runtime_mod_catalog(&latest_manifest, &embedded);
+    let embedded_payload = resolve_embedded_payload()?;
+    let mod_versions = runtime_mod_versions(
+        &manifest,
+        &payload.root,
+        &embedded_payload.root,
+        &legacy_ids,
+    )?;
 
     let summary = if let Some(game_directory) = game_directory {
         let game_directory = resolve_game_directory(game_directory)?;
@@ -1089,13 +1165,14 @@ fn perform_startup_check(
         ));
     }
 
-    Ok(StartupSnapshot {
+    Ok(StartupOutcome::Ready(StartupSnapshot {
         manifest,
+        mod_versions,
         legacy_ids,
         installed_ids,
         selected_ids,
         message: format!("{}.", details.join("; ")),
-    })
+    }))
 }
 
 fn perform_install(job: InstallJob, sender: &Sender<WorkerMessage>) -> Result<String> {
@@ -1230,7 +1307,7 @@ impl eframe::App for InstallerApp {
     fn ui(&mut self, root_ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let context = root_ui.ctx().clone();
         let grouped_mods = grouped_runtime_mods(&self.manifest);
-        self.poll_worker();
+        self.poll_worker(&context);
         if self.busy {
             context.request_repaint_after(Duration::from_millis(100));
             if context.input(|input| input.viewport().close_requested()) {
@@ -1269,7 +1346,7 @@ impl eframe::App for InstallerApp {
     }
 }
 
-pub(crate) fn run(no_update: bool) -> eframe::Result {
+pub(crate) fn run(no_update: bool, binary_kind: BinaryKind) -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([980.0, 900.0])
@@ -1281,7 +1358,7 @@ pub(crate) fn run(no_update: bool) -> eframe::Result {
     eframe::run_native(
         "Sneak Out Patches",
         options,
-        Box::new(move |context| Ok(Box::new(InstallerApp::new(context, no_update)))),
+        Box::new(move |context| Ok(Box::new(InstallerApp::new(context, no_update, binary_kind)))),
     )
 }
 
@@ -1316,6 +1393,29 @@ mod tests {
         assert_eq!(catalog[0].label, "Current release");
         assert_eq!(catalog[1].option_id, "removed");
         assert_eq!(legacy_ids, HashSet::from(["removed".to_owned()]));
+    }
+
+    #[test]
+    fn runtime_mod_titles_include_catalog_artifact_versions() {
+        let manifest = embedded_manifest().expect("embedded manifest should load");
+        let repository_root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let versions =
+            runtime_mod_versions(&manifest, repository_root, repository_root, &HashSet::new())
+                .expect("packaged runtime mod versions should be readable");
+
+        assert_eq!(versions.len(), manifest.len());
+        for runtime_mod in grouped_runtime_mods(&manifest)
+            .into_iter()
+            .flat_map(|(_, runtime_mods)| runtime_mods)
+        {
+            let version = versions
+                .get(&runtime_mod.option_id)
+                .expect("visible runtime mod should have a version");
+            assert_eq!(
+                runtime_mod_title(&runtime_mod, &versions),
+                format!("{} · {version}", runtime_mod.label)
+            );
+        }
     }
 
     #[test]
@@ -1393,13 +1493,13 @@ mod tests {
             let long_description = "Reduces startup overhead and provides measured frame pacing, memory, and loading improvements.";
             let card_height = selectable_card_height(
                 ui,
-                "Performance Optimizer",
+                "Performance Optimizer · 0.1.6",
                 long_description,
                 240.0,
             )
             .max(selectable_card_height(
                 ui,
-                "Short card",
+                "Short card · 0.1.0",
                 "Short description.",
                 240.0,
             ));
@@ -1407,7 +1507,7 @@ mod tests {
                 card_rects.push(
                     selectable_card(
                         ui,
-                        "Performance Optimizer",
+                        "Performance Optimizer · 0.1.6",
                         long_description,
                         false,
                         true,
@@ -1420,7 +1520,7 @@ mod tests {
                 card_rects.push(
                     selectable_card(
                         ui,
-                        "Short card",
+                        "Short card · 0.1.0",
                         "Short description.",
                         false,
                         false,

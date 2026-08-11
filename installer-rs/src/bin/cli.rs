@@ -3,11 +3,12 @@ use clap::{Args, Parser, Subcommand};
 use sneakout_installer::model::ProgressEvent;
 use sneakout_installer::payload::embedded_manifest;
 use sneakout_installer::{
-    FORCED_HIDDEN_RUNTIME_MOD_ID, InstallRequest, RuntimeMod, compatibility_issues,
-    detect_game_directories, install, is_steam_client_running, load_payload_metadata,
-    proton_launch_configuration_required, read_runtime_mod_version,
-    reconcile_runtime_mod_selection, resolve_bepinex, resolve_embedded_payload,
-    resolve_game_directory, resolve_payload, uninstall, validate_installed,
+    BinaryKind, FORCED_HIDDEN_RUNTIME_MOD_ID, InstallRequest, RuntimeMod, compatibility_issues,
+    detect_game_directories, install, is_steam_client_running, launch_self_update_without_relaunch,
+    load_payload_metadata, prepare_self_update, proton_launch_configuration_required,
+    read_runtime_mod_version, reconcile_runtime_mod_selection, resolve_bepinex,
+    resolve_embedded_payload, resolve_game_directory, resolve_payload,
+    run_self_update_helper_if_requested, uninstall, validate_installed,
 };
 use std::collections::HashSet;
 use std::io::{self, IsTerminal, Write};
@@ -61,7 +62,7 @@ struct CommonArgs {
     #[arg(long, value_name = "PATH", global = true)]
     game_dir: Option<PathBuf>,
 
-    /// Use the embedded payload without checking GitHub for updates.
+    /// Use the embedded payload without checking GitHub for installer or mod updates.
     #[arg(long, alias = "offline", global = true)]
     no_update: bool,
 
@@ -401,9 +402,34 @@ fn should_launch_gui(cli: &Cli) -> bool {
         && !cli.allow_unsupported_build
 }
 
+fn start_self_update_if_available(no_update: bool) {
+    if no_update {
+        return;
+    }
+    match prepare_self_update(BinaryKind::Cli, &report) {
+        Ok(Some(update)) => {
+            let version = update.version().clone();
+            match launch_self_update_without_relaunch(&update) {
+                Ok(()) => println!("Installer {version} downloaded; applying the update..."),
+                Err(error) => {
+                    eprintln!(
+                        "Could not launch installer update: {error:#}. The completed mod operation is unaffected."
+                    );
+                }
+            }
+        }
+        Ok(None) => {}
+        Err(error) => {
+            eprintln!(
+                "Could not check for an installer update: {error:#}. The completed mod operation is unaffected."
+            );
+        }
+    }
+}
+
 #[cfg(feature = "gui")]
 fn run_gui(no_update: bool) -> Result<()> {
-    gui::run(no_update)
+    gui::run(no_update, BinaryKind::Cli)
         .map_err(|error| anyhow::anyhow!("failed to launch graphical installer: {error}"))
 }
 
@@ -413,12 +439,20 @@ fn run_gui(_no_update: bool) -> Result<()> {
 }
 
 fn main() {
+    if let Some(result) = run_self_update_helper_if_requested() {
+        if let Err(error) = result {
+            eprintln!("Could not apply installer update: {error:#}");
+            std::process::exit(1);
+        }
+        return;
+    }
     let cli = Cli::parse();
     if cli.common.interactive && !(io::stdin().is_terminal() && io::stdout().is_terminal()) {
         eprintln!("--interactive requires a terminal.");
         std::process::exit(1);
     }
-    let result = if should_launch_gui(&cli) {
+    let launches_gui = should_launch_gui(&cli);
+    let result = if launches_gui {
         run_gui(cli.common.no_update)
     } else {
         match (&cli.install_mods, cli.remove_mods, &cli.command) {
@@ -445,6 +479,9 @@ fn main() {
     if let Err(error) = result {
         eprintln!("{error:#}");
         std::process::exit(1);
+    }
+    if !launches_gui {
+        start_self_update_if_available(cli.common.no_update);
     }
 }
 

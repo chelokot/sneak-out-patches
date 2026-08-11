@@ -77,6 +77,7 @@ sneakout-patches --install-mods=default
 sneakout-patches --install-mods=default,mod1,mod2
 sneakout-patches --install-mods=all
 sneakout-patches --remove-mods
+sneakout-patches --no-update
 ```
 
 ## Development
@@ -85,4 +86,5 @@ sneakout-patches --remove-mods
 make mods-build
 make installer-test
 make installer-build
+make installer-build-dev
 ```

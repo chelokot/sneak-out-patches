@@ -496,6 +496,7 @@ mod tests {
             details: String::new(),
             category: "test".to_owned(),
             default_enabled,
+            stable: true,
             assembly_name: format!("SneakOut.{id}"),
             config_relative_path: None,
             default_config_template_path: None,

@@ -1,4 +1,5 @@
 using SneakOut.ChairWallThrowFix;
+using SneakOut.CommunityDiscord;
 using SneakOut.KeyboardLayoutFix;
 using SneakOut.LockerStunFix;
 using SneakOut.MagicWardrobeHookFix;
@@ -143,6 +144,36 @@ Require(
 Require(
     !ChairReleasePolicy.ShouldOverrideBlockedRelease(true, true, 7, 7, false, false),
     "unrelated stock None result was treated as a forward-detector block");
+
+var portalSideStatue = CommunityDiscordPolicy.MoveOnFloor(
+    new StatuePoint(225.6f, -1.936f, 251.79f),
+    -0.55f,
+    -1.05f);
+RequireClose(portalSideStatue.X, 225.05f, "community Discord statue did not move slightly right toward the portal");
+RequireClose(portalSideStatue.Y, -1.936f, "community Discord statue changed floor height");
+RequireClose(portalSideStatue.Z, 250.74f, "community Discord statue did not move behind/top of the stock statue");
+var unmovedStatue = CommunityDiscordPolicy.MoveOnFloor(
+    new StatuePoint(1f, 2f, 3f),
+    float.NaN,
+    -1.05f);
+RequireClose(unmovedStatue.X, 1f, "an invalid floor offset moved the Discord statue");
+RequireClose(unmovedStatue.Y, 2f, "an invalid floor offset changed the statue height");
+RequireClose(unmovedStatue.Z, 3f, "an invalid floor offset moved the Discord statue behind the original");
+Require(
+    CommunityDiscordPolicy.ShouldOfferInteraction(2.4f, 1.5f, 2.5f),
+    "community Discord interaction did not use its normal-distance discovery floor");
+Require(
+    !CommunityDiscordPolicy.ShouldOfferInteraction(2.6f, 1.5f, 2.5f),
+    "community Discord interaction exceeded its bounded discovery distance");
+Require(
+    CommunityDiscordPolicy.ShouldPreferPortal(1.8f, 1.5f, 2.5f, 2.5f, 0.35f),
+    "community Discord statue was not preferred near the boundary with the stock statue");
+Require(
+    !CommunityDiscordPolicy.ShouldPreferPortal(2.0f, 1.5f, 2.5f, 2.5f, 0.35f),
+    "community Discord statue stole interaction well inside the stock statue's side");
+Require(
+    CommunityDiscordPolicy.ShouldPreferPortal(2.0f, float.PositiveInfinity, 2.5f, 2.5f, 0.35f),
+    "community Discord statue was unavailable when it was the only nearby interaction");
 
 var lockerPolicy = new LockerBooPolicy<int>();
 Require(

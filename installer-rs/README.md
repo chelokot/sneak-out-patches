@@ -55,6 +55,13 @@ Build the CLI and GUI:
 cargo build --manifest-path installer-rs/Cargo.toml --release --features gui --bins
 ```
 
+Production GUI builds show only manifest entries with `stable: true`. To include
+unstable entries in a development build, enable the `dev-mode` feature as well:
+
+```bash
+cargo build --manifest-path installer-rs/Cargo.toml --features gui,dev-mode --bins
+```
+
 Run the GUI from the repository:
 
 ```bash

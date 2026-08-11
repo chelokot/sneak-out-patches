@@ -16,7 +16,10 @@ installer-test:
 	$(CARGO) test --manifest-path installer-rs/Cargo.toml --all-features
 
 installer-build:
-	$(CARGO) build --manifest-path installer-rs/Cargo.toml --release --all-features --bins
+	$(CARGO) build --manifest-path installer-rs/Cargo.toml --release --features gui --bins
+
+installer-build-dev:
+	$(CARGO) build --manifest-path installer-rs/Cargo.toml --release --features gui,dev-mode --bins
 
 installer-payload:
 	$(PYTHON) tools/package_installer_payload.py

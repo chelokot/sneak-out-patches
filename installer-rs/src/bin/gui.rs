@@ -69,7 +69,6 @@ struct InstallJob {
     game_directory: PathBuf,
     selected_ids: Vec<String>,
     catalog: Vec<RuntimeMod>,
-    allow_unsupported_build: bool,
     offline: bool,
 }
 
@@ -80,9 +79,7 @@ struct InstallerApp {
     installed_ids: HashSet<String>,
     selected: HashSet<String>,
     game_directory: String,
-    allow_unsupported_build: bool,
     offline: bool,
-    updates_disabled: bool,
     busy: bool,
     status: String,
     log: Vec<String>,
@@ -123,7 +120,7 @@ impl InstallerApp {
 
         visuals.widgets.inactive.bg_fill = ACCENT;
         visuals.widgets.inactive.weak_bg_fill = ACCENT;
-        visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.5, Color32::WHITE);
+        visuals.widgets.inactive.bg_stroke = egui::Stroke::new(2.0, Color32::WHITE);
         visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(11);
         visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, PRIMARY_TEXT);
 
@@ -202,7 +199,7 @@ impl InstallerApp {
         } else {
             installed_ids.clone()
         };
-        ensure_forced_selection(&mut selected);
+        retain_visible_selection(&mut selected, &manifest);
         let (busy, status, worker) = if no_update {
             (
                 false,
@@ -231,9 +228,7 @@ impl InstallerApp {
             installed_ids,
             selected,
             game_directory,
-            allow_unsupported_build: false,
             offline: no_update,
-            updates_disabled: no_update,
             busy,
             status,
             log: Vec::new(),
@@ -365,7 +360,6 @@ impl InstallerApp {
             game_directory: PathBuf::from(self.game_directory.trim()),
             selected_ids,
             catalog: self.manifest.clone(),
-            allow_unsupported_build: self.allow_unsupported_build,
             offline: self.offline,
         })
     }
@@ -432,19 +426,19 @@ impl InstallerApp {
                 ui.label(section_text("Mods"));
                 ui.label(large_text(format!(
                     " · {}",
-                    visible_selection_count(&self.selected)
+                    visible_selection_count(&self.selected, &self.manifest)
                 )));
             });
             let default_active =
                 self.selected == default_selection(&self.manifest, &self.legacy_ids);
             let debug_active = self.selected == debug_selection(&self.manifest, &self.legacy_ids);
-            let all_active = visible_selection_count(&self.selected)
+            let all_active = visible_selection_count(&self.selected, &self.manifest)
                 == self
                     .manifest
                     .iter()
-                    .filter(|runtime_mod| runtime_mod.option_id != FORCED_HIDDEN_RUNTIME_MOD_ID)
+                    .filter(|runtime_mod| runtime_mod_is_visible(runtime_mod))
                     .count();
-            let clear_active = visible_selection_count(&self.selected) == 0;
+            let clear_active = visible_selection_count(&self.selected, &self.manifest) == 0;
             ui.horizontal(|ui| {
                 if ui
                     .add_enabled(!self.busy, preset_button("Defaults", default_active))
@@ -465,6 +459,7 @@ impl InstallerApp {
                     let mut selected: HashSet<_> = self
                         .manifest
                         .iter()
+                        .filter(|runtime_mod| runtime_mod_is_visible(runtime_mod))
                         .map(|runtime_mod| runtime_mod.option_id.clone())
                         .collect();
                     ensure_forced_selection(&mut selected);
@@ -520,6 +515,7 @@ impl InstallerApp {
                         let card_height = self
                             .manifest
                             .iter()
+                            .filter(|runtime_mod| runtime_mod_is_visible(runtime_mod))
                             .map(|runtime_mod| {
                                 let title = runtime_mod_title(runtime_mod, &self.mod_versions);
                                 selectable_card_height(ui, &title, &runtime_mod.details, card_width)
@@ -619,62 +615,6 @@ impl InstallerApp {
         ui.add_space(12.0);
         card(CARD_BACKGROUND, 16, 16).show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.label(section_text("Advanced options"));
-            let option_width = (ui.available_width() - 10.0) / 2.0;
-            let option_height = selectable_card_height(
-                ui,
-                "Allow unsupported build",
-                "Skip the build and native-file compatibility checks.",
-                option_width,
-            )
-            .max(selectable_card_height(
-                ui,
-                "Use embedded payload",
-                if self.updates_disabled {
-                    "Forced by --no-update; installer and mod update checks are disabled."
-                } else {
-                    "Use bundled mods for manual installation after the startup release check."
-                },
-                option_width,
-            ));
-            ui.horizontal_top(|ui| {
-                let unsupported = selectable_card(
-                    ui,
-                    "Allow unsupported build",
-                    "Skip the build and native-file compatibility checks.",
-                    false,
-                    self.allow_unsupported_build,
-                    !self.busy,
-                    option_width,
-                    option_height,
-                );
-                if unsupported.clicked() {
-                    self.allow_unsupported_build = !self.allow_unsupported_build;
-                }
-
-                let embedded = selectable_card(
-                    ui,
-                    "Use embedded payload",
-                    if self.updates_disabled {
-                        "Forced by --no-update; installer and mod update checks are disabled."
-                    } else {
-                        "Use bundled mods for manual installation after the startup release check."
-                    },
-                    false,
-                    self.offline,
-                    !self.busy && !self.updates_disabled,
-                    option_width,
-                    option_height,
-                );
-                if embedded.clicked() {
-                    self.offline = !self.offline;
-                }
-            });
-        });
-
-        ui.add_space(12.0);
-        card(CARD_BACKGROUND, 16, 16).show(ui, |ui| {
-            ui.set_width(ui.available_width());
             let button_width = (ui.available_width() - 10.0) / 2.0;
             ui.horizontal(|ui| {
                 if ui
@@ -751,7 +691,7 @@ fn grouped_runtime_mods(manifest: &[RuntimeMod]) -> Vec<(String, Vec<RuntimeMod>
     let mut groups: Vec<(String, Vec<RuntimeMod>)> = Vec::new();
     for runtime_mod in manifest
         .iter()
-        .filter(|runtime_mod| runtime_mod.option_id != FORCED_HIDDEN_RUNTIME_MOD_ID)
+        .filter(|runtime_mod| runtime_mod_is_visible(runtime_mod))
     {
         if let Some((_, runtime_mods)) = groups
             .iter_mut()
@@ -765,6 +705,11 @@ fn grouped_runtime_mods(manifest: &[RuntimeMod]) -> Vec<(String, Vec<RuntimeMod>
     groups
 }
 
+fn runtime_mod_is_visible(runtime_mod: &RuntimeMod) -> bool {
+    runtime_mod.option_id != FORCED_HIDDEN_RUNTIME_MOD_ID
+        && (runtime_mod.stable || cfg!(feature = "dev-mode"))
+}
+
 fn ensure_forced_selection(selected: &mut HashSet<String>) {
     selected.insert(FORCED_HIDDEN_RUNTIME_MOD_ID.to_owned());
 }
@@ -775,10 +720,22 @@ fn ensure_forced_selection_vec(selected: &mut Vec<String>) {
     }
 }
 
-fn visible_selection_count(selected: &HashSet<String>) -> usize {
-    selected
+fn retain_visible_selection(selected: &mut HashSet<String>, manifest: &[RuntimeMod]) {
+    selected.retain(|id| {
+        id == FORCED_HIDDEN_RUNTIME_MOD_ID
+            || manifest.iter().any(|runtime_mod| {
+                runtime_mod.option_id == *id && runtime_mod_is_visible(runtime_mod)
+            })
+    });
+    ensure_forced_selection(selected);
+}
+
+fn visible_selection_count(selected: &HashSet<String>, manifest: &[RuntimeMod]) -> usize {
+    manifest
         .iter()
-        .filter(|id| id.as_str() != FORCED_HIDDEN_RUNTIME_MOD_ID)
+        .filter(|runtime_mod| {
+            runtime_mod_is_visible(runtime_mod) && selected.contains(&runtime_mod.option_id)
+        })
         .count()
 }
 
@@ -786,7 +743,9 @@ fn default_selection(manifest: &[RuntimeMod], legacy_ids: &HashSet<String>) -> H
     let mut selected: HashSet<_> = manifest
         .iter()
         .filter(|runtime_mod| {
-            runtime_mod.default_enabled && !legacy_ids.contains(&runtime_mod.option_id)
+            runtime_mod_is_visible(runtime_mod)
+                && runtime_mod.default_enabled
+                && !legacy_ids.contains(&runtime_mod.option_id)
         })
         .map(|runtime_mod| runtime_mod.option_id.clone())
         .collect();
@@ -798,9 +757,10 @@ fn debug_selection(manifest: &[RuntimeMod], legacy_ids: &HashSet<String>) -> Has
     let mut selected = manifest
         .iter()
         .filter(|runtime_mod| {
-            runtime_mod.default_enabled
-                || runtime_mod.option_id == LOBBY_TEST_BOT_ID
-                || legacy_ids.contains(&runtime_mod.option_id)
+            runtime_mod_is_visible(runtime_mod)
+                && (runtime_mod.default_enabled
+                    || runtime_mod.option_id == LOBBY_TEST_BOT_ID
+                    || legacy_ids.contains(&runtime_mod.option_id))
         })
         .map(|runtime_mod| runtime_mod.option_id.clone())
         .collect();
@@ -877,7 +837,6 @@ fn install_fonts(context: &egui::Context) {
 fn control_button(label: &str) -> egui::Button<'_> {
     egui::Button::new(button_text(label))
         .fill(ACCENT)
-        .stroke(egui::Stroke::new(1.5, Color32::WHITE))
         .corner_radius(11)
         .min_size(egui::vec2(0.0, BUTTON_HEIGHT))
 }
@@ -1140,7 +1099,7 @@ fn perform_startup_check(
     } else {
         installed_ids.clone()
     };
-    ensure_forced_selection(&mut selected_ids);
+    retain_visible_selection(&mut selected_ids, &manifest);
 
     let mut details = vec![format!("Catalog synchronized with {}", payload.source)];
     if !summary.updated_ids.is_empty() {
@@ -1247,17 +1206,8 @@ fn perform_install(job: InstallJob, sender: &Sender<WorkerMessage>) -> Result<St
         );
     }
     let issues = compatibility_issues(&game_directory, &supported_build)?;
-    if !issues.is_empty() && !job.allow_unsupported_build {
-        bail!(
-            "unsupported game installation:\n- {}\n\nEnable “Allow unsupported game build” to override this check.",
-            issues.join("\n- ")
-        );
-    }
     if !issues.is_empty() {
-        reporter(ProgressEvent::Message(format!(
-            "Continuing with unsupported installation: {}",
-            issues.join("; ")
-        )));
+        bail!("unsupported game installation:\n- {}", issues.join("\n- "));
     }
     reporter(ProgressEvent::Message(format!(
         "Using payload: {}",
@@ -1373,6 +1323,7 @@ mod tests {
             details: String::new(),
             category: "test".to_owned(),
             default_enabled: false,
+            stable: true,
             assembly_name: format!("SneakOut.{label}"),
             config_relative_path: None,
             default_config_template_path: None,
@@ -1393,6 +1344,62 @@ mod tests {
         assert_eq!(catalog[0].label, "Current release");
         assert_eq!(catalog[1].option_id, "removed");
         assert_eq!(legacy_ids, HashSet::from(["removed".to_owned()]));
+    }
+
+    #[test]
+    fn manifest_stable_mods_match_the_production_allowlist() {
+        let manifest = embedded_manifest().expect("embedded manifest should load");
+        let stable_ids: HashSet<_> = manifest
+            .iter()
+            .filter(|runtime_mod| runtime_mod.stable)
+            .map(|runtime_mod| runtime_mod.option_id.as_str())
+            .collect();
+
+        assert_eq!(
+            stable_ids,
+            HashSet::from([
+                "performance-optimizer",
+                "portal-mode-selector",
+                "mummy-unlock",
+                "prop-buff",
+                "locker-stun-fix",
+                "magic-wardrobe-hook-fix",
+                "chair-wall-throw-fix",
+                "proximity-voice-chat",
+                "lobby-skill-sandbox",
+                "minimap",
+                "start-delay-reducer",
+                "background-loading-guard",
+                "friend-invite-unlock",
+                "community-discord",
+                "unlock-everything",
+                "lobby-test-bot",
+                "runtime-profiler",
+            ])
+        );
+    }
+
+    #[test]
+    fn unstable_mod_visibility_follows_the_build_mode() {
+        let stable = runtime_mod("stable", "Stable");
+        let mut unstable = runtime_mod("unstable", "Unstable");
+        unstable.stable = false;
+
+        assert!(runtime_mod_is_visible(&stable));
+        assert_eq!(
+            runtime_mod_is_visible(&unstable),
+            cfg!(feature = "dev-mode")
+        );
+
+        let manifest = vec![stable, unstable];
+        let visible_count = grouped_runtime_mods(&manifest)
+            .into_iter()
+            .flat_map(|(_, runtime_mods)| runtime_mods)
+            .count();
+        assert_eq!(
+            visible_count,
+            if cfg!(feature = "dev-mode") { 2 } else { 1 }
+        );
     }
 
     #[test]
@@ -1447,7 +1454,7 @@ mod tests {
         let selected = default_selection(&manifest, &HashSet::new());
 
         assert!(selected.contains(FORCED_HIDDEN_RUNTIME_MOD_ID));
-        assert_eq!(visible_selection_count(&selected), 0);
+        assert_eq!(visible_selection_count(&selected, &manifest), 0);
         assert!(grouped_runtime_mods(&manifest).is_empty());
     }
 
@@ -1457,7 +1464,7 @@ mod tests {
         let groups = grouped_runtime_mods(&manifest);
         let unique_categories: HashSet<_> = manifest
             .iter()
-            .filter(|runtime_mod| runtime_mod.option_id != FORCED_HIDDEN_RUNTIME_MOD_ID)
+            .filter(|runtime_mod| runtime_mod_is_visible(runtime_mod))
             .map(|runtime_mod| runtime_mod.category.as_str())
             .collect();
 
@@ -1469,7 +1476,7 @@ mod tests {
                 .sum::<usize>(),
             manifest
                 .iter()
-                .filter(|runtime_mod| runtime_mod.option_id != FORCED_HIDDEN_RUNTIME_MOD_ID)
+                .filter(|runtime_mod| runtime_mod_is_visible(runtime_mod))
                 .count()
         );
         assert!(groups.iter().all(|(category, runtime_mods)| {
@@ -1542,6 +1549,66 @@ mod tests {
         assert!(
             (card_rects[0].height() - card_rects[1].height()).abs() < 0.1,
             "cards should stretch to the same height"
+        );
+    }
+
+    #[test]
+    fn preset_row_keeps_its_width_when_the_first_button_is_hovered() {
+        let context = egui::Context::default();
+        install_fonts(&context);
+        context.all_styles_mut(|style| {
+            style.spacing.button_padding = egui::vec2(12.0, 7.0);
+            style.visuals.widgets.inactive.bg_stroke = egui::Stroke::new(2.0, Color32::WHITE);
+            style.visuals.widgets.hovered.bg_stroke = egui::Stroke::new(2.0, Color32::WHITE);
+            style.visuals.widgets.hovered.expansion = 0.0;
+            style.visuals.widgets.active.bg_stroke = egui::Stroke::new(2.0, Color32::WHITE);
+            style.visuals.widgets.active.expansion = 0.0;
+        });
+
+        let draw = |pointer: egui::Pos2| {
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(500.0, 100.0),
+            ));
+            input.events.push(egui::Event::PointerMoved(pointer));
+            let mut first_button = egui::Rect::NOTHING;
+            let mut row = egui::Rect::NOTHING;
+            let _ = context.run_ui(input, |ui| {
+                row = ui
+                    .horizontal(|ui| {
+                        for (index, label) in ["Defaults", "Debug", "All", "Clear"]
+                            .into_iter()
+                            .enumerate()
+                        {
+                            let response = ui.add(preset_button(label, false));
+                            if index == 0 {
+                                first_button = response.rect;
+                            }
+                        }
+                    })
+                    .response
+                    .rect;
+            });
+            (first_button, row)
+        };
+
+        let (baseline_button, baseline_row) = draw(egui::pos2(490.0, 90.0));
+        let hover_at = baseline_button.center();
+        let _ = draw(hover_at);
+        let (hovered_button, hovered_row) = draw(hover_at);
+
+        assert!(
+            (baseline_button.width() - hovered_button.width()).abs() < 0.1,
+            "first button changed from {} to {}",
+            baseline_button.width(),
+            hovered_button.width()
+        );
+        assert!(
+            (baseline_row.width() - hovered_row.width()).abs() < 0.1,
+            "row changed from {} to {}",
+            baseline_row.width(),
+            hovered_row.width()
         );
     }
 }

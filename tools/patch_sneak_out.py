@@ -85,6 +85,7 @@ class RuntimeModOption:
     details: str
     category: str
     default_enabled: bool
+    stable: bool
     project_relative_path: str
     assembly_name: str
     config_relative_path: str | None = None

@@ -10,6 +10,7 @@ pub struct RuntimeMod {
     pub details: String,
     pub category: String,
     pub default_enabled: bool,
+    pub stable: bool,
     pub assembly_name: String,
     #[serde(default)]
     pub config_relative_path: Option<String>,

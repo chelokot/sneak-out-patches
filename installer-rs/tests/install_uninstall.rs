@@ -103,6 +103,7 @@ fn runtime_mod(option_id: &str, label: &str, assembly_name: &str) -> RuntimeMod 
         details: String::new(),
         category: "test".to_owned(),
         default_enabled: false,
+        stable: true,
         assembly_name: assembly_name.to_owned(),
         config_relative_path: None,
         default_config_template_path: None,

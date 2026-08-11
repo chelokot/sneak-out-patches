@@ -40,7 +40,10 @@ End users do not build mods and do not need Python, .NET, Git, or an interop cac
 
 ## Defaults and compatibility
 
-The GUI selects every stable `default_enabled` entry and exposes each mod as a checkbox.
+The production GUI exposes only manifest entries marked `stable` and selects the
+`default_enabled` entries among them. Development builds made with the `dev-mode`
+Cargo feature also expose unstable entries. The CLI catalog and explicit selection
+semantics are unchanged.
 The CLI is deliberately noninteractive by default. `default` and `all` expand inside
 `--install-mods`, explicit ids are unioned with those expansions, and the resulting
 selection is authoritative. The compatibility `install --mods`, `install --all`, and

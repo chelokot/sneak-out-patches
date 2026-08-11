@@ -1,5 +1,4 @@
 using SneakOut.ChairWallThrowFix;
-using SneakOut.GlobeLaunch;
 using SneakOut.KeyboardLayoutFix;
 using SneakOut.LockerStunFix;
 using SneakOut.MagicWardrobeHookFix;
@@ -144,35 +143,6 @@ Require(
 Require(
     !ChairReleasePolicy.ShouldOverrideBlockedRelease(true, true, 7, 7, false, false),
     "unrelated stock None result was treated as a forward-detector block");
-
-var globeLaunchPolicy = new GlobeLaunchPolicy<int>();
-var firstPlayerHit = globeLaunchPolicy.ObserveHit(100, 1, 2, 2);
-Require(
-    firstPlayerHit.Decision == GlobeHitDecision.WaitingForPlayers
-    && firstPlayerHit.DistinctPlayerCount == 1,
-    "globe armed before two distinct players");
-Require(
-    globeLaunchPolicy.ObserveHit(100, 1, 2, 2).Decision == GlobeHitDecision.WaitingForPlayers,
-    "repeat globe hit counted as a distinct player");
-var secondPlayerFirstHit = globeLaunchPolicy.ObserveHit(100, 2, 2, 2);
-Require(
-    secondPlayerFirstHit.Decision == GlobeHitDecision.FinalPlayerArmed
-    && secondPlayerFirstHit.FinalPlayerId == 2
-    && secondPlayerFirstHit.FinalPlayerHitCount == 1,
-    "second distinct globe player was not armed as the final player");
-Require(
-    globeLaunchPolicy.ObserveHit(100, 3, 2, 2).Decision == GlobeHitDecision.WaitingForFinalPlayer,
-    "a later distinct player's globe hit replaced the second player or triggered launch");
-Require(
-    globeLaunchPolicy.ObserveHit(100, 2, 2, 2).Decision == GlobeHitDecision.Launch,
-    "second distinct player's second globe hit did not trigger launch");
-Require(
-    globeLaunchPolicy.ObserveHit(100, 2, 2, 2).Decision == GlobeHitDecision.AlreadyLaunched,
-    "globe launch triggered more than once");
-globeLaunchPolicy.Reset(100);
-Require(
-    globeLaunchPolicy.ObserveHit(100, 10, 1, 1).Decision == GlobeHitDecision.Launch,
-    "reset globe policy retained stale launch state");
 
 var lockerPolicy = new LockerBooPolicy<int>();
 Require(

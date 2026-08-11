@@ -13,13 +13,13 @@ internal static class GlobeLaunchOnAwakePatch
     }
 }
 
-[HarmonyPatch(typeof(Globe), "StartInteraction")]
-internal static class GlobeLaunchStartInteractionPatch
+[HarmonyPatch(typeof(Globe), "Use")]
+internal static class GlobeLaunchUsePatch
 {
     [HarmonyPostfix]
-    private static void Postfix(Globe __instance, int internalId)
+    private static void Postfix(Globe __instance)
     {
-        GlobeLaunchRuntime.ObserveSuccessfulHit(__instance, internalId);
+        GlobeLaunchRuntime.ObserveVanillaInteractionState(__instance);
     }
 }
 

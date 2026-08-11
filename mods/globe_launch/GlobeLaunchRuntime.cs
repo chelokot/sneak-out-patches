@@ -7,8 +7,7 @@ namespace SneakOut.GlobeLaunch;
 
 internal static class GlobeLaunchRuntime
 {
-    private const int RequiredDistinctPlayers = 2;
-    private const int RequiredFinalPlayerHits = 2;
+    private const int RequiredConcurrentPlayers = 2;
     private const float StockHitDelaySeconds = 0.25f;
 
     private sealed class FlightState
@@ -21,7 +20,6 @@ internal static class GlobeLaunchRuntime
         public float Distance;
     }
 
-    private static readonly GlobeLaunchPolicy<IntPtr> Policy = new();
     private static readonly Dictionary<IntPtr, FlightState> Flights = new();
     private static readonly HashSet<string> LoggedFailures = new(StringComparer.Ordinal);
 
@@ -44,38 +42,36 @@ internal static class GlobeLaunchRuntime
             return;
         }
 
-        Policy.Reset(globe.Pointer);
         Flights.Remove(globe.Pointer);
     }
 
-    public static void ObserveSuccessfulHit(Globe globe, int internalId)
+    public static void ObserveVanillaInteractionState(Globe globe)
     {
         if (_configuration?.EnableMod.Value != true
-            || globe.Pointer == IntPtr.Zero
-            || internalId < 0)
+            || globe.Pointer == IntPtr.Zero)
         {
             return;
         }
 
         try
         {
-            var outcome = Policy.ObserveHit(
-                globe.Pointer,
-                internalId,
-                RequiredDistinctPlayers,
-                RequiredFinalPlayerHits);
+            var playersInInteraction = globe._playersInInteraction;
+            if (playersInInteraction is null || playersInInteraction.Pointer == IntPtr.Zero)
+            {
+                return;
+            }
+
+            var concurrentPlayerCount = playersInInteraction.Count;
 
             if (_configuration.EnableLogging.Value)
             {
                 _logger?.LogInfo(
-                    $"Globe hit: globe=0x{globe.Pointer:X}, player={internalId}, "
-                    + $"distinct={outcome.DistinctPlayerCount}/{RequiredDistinctPlayers}, "
-                    + $"finalPlayer={outcome.FinalPlayerId}, "
-                    + $"finalHits={outcome.FinalPlayerHitCount}/{RequiredFinalPlayerHits}, "
-                    + $"decision={outcome.Decision}.");
+                    $"Globe vanilla interaction state: globe=0x{globe.Pointer:X}, "
+                    + $"concurrentPlayers={concurrentPlayerCount}/{RequiredConcurrentPlayers}.");
             }
 
-            if (outcome.Decision != GlobeHitDecision.Launch)
+            if (concurrentPlayerCount < RequiredConcurrentPlayers
+                || Flights.ContainsKey(globe.Pointer))
             {
                 return;
             }
@@ -85,7 +81,8 @@ internal static class GlobeLaunchRuntime
                 BeginAt = Time.time + StockHitDelaySeconds,
             };
             _logger?.LogInfo(
-                $"Globe launch armed by player {internalId}; flight begins after the stock hit lands.");
+                "Globe launch armed by the vanilla two-player interaction; "
+                + "flight begins after the stock hit lands.");
         }
         catch (Exception exception)
         {

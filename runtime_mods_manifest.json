@@ -97,7 +97,7 @@
   {
     "option_id": "globe-launch",
     "label": "Globe Launch",
-    "details": "Launches the lobby globe into the air when the second distinct player lands their second hit.",
+    "details": "Launches the lobby globe when vanilla recognizes two concurrent players spinning it.",
     "category": "gameplay",
     "default_enabled": true,
     "project_relative_path": "mods/globe_launch/GlobeLaunch.csproj",

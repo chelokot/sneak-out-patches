@@ -31,7 +31,7 @@ internal sealed class GlobeLaunchConfig
                 "general",
                 "EnableMod",
                 true,
-                "Launch the lobby globe after the second distinct player completes their second hit."),
+                "Launch the lobby globe when vanilla recognizes two concurrent players spinning it."),
             configFile.Bind(
                 "launch",
                 "DistanceMeters",
@@ -46,6 +46,6 @@ internal sealed class GlobeLaunchConfig
                 "diagnostics",
                 "EnableLogging",
                 false,
-                "Log distinct-player and final-player hit progress for the globe launch."));
+                "Log the vanilla concurrent-player state used to arm the globe launch."));
     }
 }

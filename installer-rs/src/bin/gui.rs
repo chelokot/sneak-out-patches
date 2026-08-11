@@ -19,21 +19,23 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use std::time::Duration;
 
-const APP_BACKGROUND: Color32 = Color32::from_rgb(14, 17, 23);
-const CARD_BACKGROUND: Color32 = Color32::from_rgb(24, 29, 39);
-const CONTROL_BACKGROUND: Color32 = Color32::from_rgb(34, 41, 54);
-const CONTROL_HOVERED: Color32 = Color32::from_rgb(43, 52, 68);
-const ACCENT: Color32 = Color32::from_rgb(91, 146, 255);
-const ACCENT_HOVERED: Color32 = Color32::from_rgb(111, 160, 255);
-const PRIMARY_TEXT: Color32 = Color32::from_rgb(238, 242, 249);
-const SECONDARY_TEXT: Color32 = Color32::from_rgb(161, 171, 190);
-const SUCCESS: Color32 = Color32::from_rgb(102, 211, 156);
-const ERROR: Color32 = Color32::from_rgb(255, 116, 116);
-const LEGACY: Color32 = Color32::from_rgb(219, 166, 79);
+const APP_BACKGROUND: Color32 = Color32::from_rgb(6, 20, 29);
+const SHELL_BACKGROUND: Color32 = Color32::from_rgb(29, 41, 61);
+const CARD_BACKGROUND: Color32 = Color32::from_rgb(10, 22, 34);
+const CONTROL_BACKGROUND: Color32 = Color32::from_rgb(18, 43, 57);
+const ACCENT: Color32 = Color32::from_rgb(13, 145, 181);
+const ACCENT_HOVERED: Color32 = Color32::from_rgb(18, 166, 204);
+const ACTIVE_ACCENT: Color32 = Color32::from_rgb(229, 103, 31);
+const ACTIVE_ACCENT_HOVERED: Color32 = Color32::from_rgb(244, 121, 43);
+const PRIMARY_TEXT: Color32 = Color32::from_rgb(246, 248, 250);
+const SECONDARY_TEXT: Color32 = Color32::from_rgb(183, 199, 211);
+const SUCCESS: Color32 = Color32::from_rgb(119, 218, 55);
+const ERROR: Color32 = Color32::from_rgb(215, 48, 39);
+const LEGACY: Color32 = Color32::from_rgb(240, 172, 67);
 const BODY_TEXT_SIZE: f32 = 17.0;
 const UI_TEXT_SIZE: f32 = 20.0;
 const CARD_TEXT_GAP: f32 = 7.0;
-const BUTTON_HEIGHT: f32 = 40.0;
+const BUTTON_HEIGHT: f32 = 44.0;
 const SECTION_FONT_FAMILY: &str = "Open Sans Bold";
 const SECTION_FONT_DATA: &str = "open-sans-bold";
 const LOBBY_TEST_BOT_ID: &str = "lobby-test-bot";
@@ -101,9 +103,9 @@ impl InstallerApp {
 
         let mut visuals = egui::Visuals::dark();
         visuals.panel_fill = APP_BACKGROUND;
-        visuals.window_fill = CARD_BACKGROUND;
+        visuals.window_fill = SHELL_BACKGROUND;
         visuals.window_stroke = egui::Stroke::NONE;
-        visuals.window_corner_radius = egui::CornerRadius::same(16);
+        visuals.window_corner_radius = egui::CornerRadius::same(18);
         visuals.faint_bg_color = CONTROL_BACKGROUND;
         visuals.extreme_bg_color = APP_BACKGROUND;
         visuals.text_edit_bg_color = Some(CONTROL_BACKGROUND);
@@ -122,30 +124,30 @@ impl InstallerApp {
         visuals.widgets.noninteractive.corner_radius = egui::CornerRadius::same(10);
         visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, PRIMARY_TEXT);
 
-        visuals.widgets.inactive.bg_fill = CONTROL_BACKGROUND;
-        visuals.widgets.inactive.weak_bg_fill = CONTROL_BACKGROUND;
-        visuals.widgets.inactive.bg_stroke = egui::Stroke::NONE;
-        visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(10);
+        visuals.widgets.inactive.bg_fill = ACCENT;
+        visuals.widgets.inactive.weak_bg_fill = ACCENT;
+        visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.5, Color32::WHITE);
+        visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(11);
         visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, PRIMARY_TEXT);
 
-        visuals.widgets.hovered.bg_fill = CONTROL_HOVERED;
-        visuals.widgets.hovered.weak_bg_fill = CONTROL_HOVERED;
-        visuals.widgets.hovered.bg_stroke = egui::Stroke::NONE;
-        visuals.widgets.hovered.corner_radius = egui::CornerRadius::same(10);
+        visuals.widgets.hovered.bg_fill = ACCENT_HOVERED;
+        visuals.widgets.hovered.weak_bg_fill = ACCENT_HOVERED;
+        visuals.widgets.hovered.bg_stroke = egui::Stroke::new(2.0, Color32::WHITE);
+        visuals.widgets.hovered.corner_radius = egui::CornerRadius::same(11);
         visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, Color32::WHITE);
         visuals.widgets.hovered.expansion = 0.0;
 
-        visuals.widgets.active.bg_fill = ACCENT_HOVERED;
-        visuals.widgets.active.weak_bg_fill = ACCENT_HOVERED;
-        visuals.widgets.active.bg_stroke = egui::Stroke::NONE;
-        visuals.widgets.active.corner_radius = egui::CornerRadius::same(10);
+        visuals.widgets.active.bg_fill = ACTIVE_ACCENT_HOVERED;
+        visuals.widgets.active.weak_bg_fill = ACTIVE_ACCENT_HOVERED;
+        visuals.widgets.active.bg_stroke = egui::Stroke::new(2.0, Color32::WHITE);
+        visuals.widgets.active.corner_radius = egui::CornerRadius::same(11);
         visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0, Color32::WHITE);
         visuals.widgets.active.expansion = 0.0;
 
-        visuals.widgets.open.bg_fill = CONTROL_HOVERED;
-        visuals.widgets.open.weak_bg_fill = CONTROL_HOVERED;
-        visuals.widgets.open.bg_stroke = egui::Stroke::NONE;
-        visuals.widgets.open.corner_radius = egui::CornerRadius::same(10);
+        visuals.widgets.open.bg_fill = ACCENT_HOVERED;
+        visuals.widgets.open.weak_bg_fill = ACCENT_HOVERED;
+        visuals.widgets.open.bg_stroke = egui::Stroke::new(2.0, Color32::WHITE);
+        visuals.widgets.open.corner_radius = egui::CornerRadius::same(11);
 
         context.egui_ctx.all_styles_mut(|style| {
             use egui::{FontFamily, FontId, TextStyle};
@@ -176,6 +178,7 @@ impl InstallerApp {
             style.spacing.interact_size.y = 34.0;
             style.spacing.icon_width = 20.0;
             style.spacing.icon_width_inner = 12.0;
+            style.spacing.scroll = egui::style::ScrollStyle::solid();
         });
 
         let manifest = embedded_manifest().unwrap_or_default();
@@ -413,20 +416,33 @@ impl InstallerApp {
                     visible_selection_count(&self.selected)
                 )));
             });
+            let default_active =
+                self.selected == default_selection(&self.manifest, &self.legacy_ids);
+            let debug_active = self.selected == debug_selection(&self.manifest, &self.legacy_ids);
+            let all_active = visible_selection_count(&self.selected)
+                == self
+                    .manifest
+                    .iter()
+                    .filter(|runtime_mod| runtime_mod.option_id != FORCED_HIDDEN_RUNTIME_MOD_ID)
+                    .count();
+            let clear_active = visible_selection_count(&self.selected) == 0;
             ui.horizontal(|ui| {
                 if ui
-                    .add_enabled(!self.busy, control_button("Defaults"))
+                    .add_enabled(!self.busy, preset_button("Defaults", default_active))
                     .clicked()
                 {
                     self.select_defaults();
                 }
                 if ui
-                    .add_enabled(!self.busy, control_button("Debug"))
+                    .add_enabled(!self.busy, preset_button("Debug", debug_active))
                     .clicked()
                 {
                     self.select_debug();
                 }
-                if ui.add_enabled(!self.busy, control_button("All")).clicked() {
+                if ui
+                    .add_enabled(!self.busy, preset_button("All", all_active))
+                    .clicked()
+                {
                     let mut selected: HashSet<_> = self
                         .manifest
                         .iter()
@@ -436,7 +452,7 @@ impl InstallerApp {
                     self.selected = selected;
                 }
                 if ui
-                    .add_enabled(!self.busy, control_button("Clear"))
+                    .add_enabled(!self.busy, preset_button("Clear", clear_active))
                     .clicked()
                 {
                     self.selected = HashSet::from([FORCED_HIDDEN_RUNTIME_MOD_ID.to_owned()]);
@@ -658,7 +674,7 @@ impl InstallerApp {
                 if ui
                     .add_enabled(
                         !self.busy,
-                        control_button("Remove patches")
+                        danger_button("Remove patches")
                             .min_size(egui::vec2(button_width, BUTTON_HEIGHT)),
                     )
                     .clicked()
@@ -685,6 +701,7 @@ impl InstallerApp {
                 ui.add(egui::Label::new(normal_text(self.status.as_str())).wrap());
             });
             if let Some((label, fraction)) = &self.download {
+                ui.add_space(4.0);
                 ui.add(
                     egui::ProgressBar::new(*fraction)
                         .show_percentage()
@@ -801,6 +818,15 @@ fn large_text(text: impl Into<String>) -> RichText {
     RichText::new(text.into()).text_style(egui::TextStyle::Button)
 }
 
+fn button_text(text: impl Into<String>) -> RichText {
+    RichText::new(text.into())
+        .font(egui::FontId::new(
+            BODY_TEXT_SIZE,
+            egui::FontFamily::Name(SECTION_FONT_FAMILY.into()),
+        ))
+        .color(Color32::WHITE)
+}
+
 fn section_text(text: impl Into<String>) -> RichText {
     RichText::new(text.into()).font(egui::FontId::new(
         UI_TEXT_SIZE,
@@ -833,13 +859,25 @@ fn install_fonts(context: &egui::Context) {
 }
 
 fn control_button(label: &str) -> egui::Button<'_> {
-    egui::Button::new(label)
-        .corner_radius(10)
+    egui::Button::new(button_text(label))
+        .fill(ACCENT)
+        .stroke(egui::Stroke::new(1.5, Color32::WHITE))
+        .corner_radius(11)
         .min_size(egui::vec2(0.0, BUTTON_HEIGHT))
 }
 
 fn primary_button(label: &str) -> egui::Button<'_> {
-    control_button(label).fill(ACCENT)
+    control_button(label).fill(ACTIVE_ACCENT)
+}
+
+fn danger_button(label: &str) -> egui::Button<'_> {
+    control_button(label).fill(ERROR)
+}
+
+fn preset_button(label: &str, active: bool) -> egui::Button<'_> {
+    control_button(label)
+        .fill(if active { ACTIVE_ACCENT } else { ACCENT })
+        .min_size(egui::vec2(88.0, BUTTON_HEIGHT))
 }
 
 fn card(fill: Color32, radius: u8, margin: i8) -> egui::Frame {
@@ -851,7 +889,7 @@ fn card(fill: Color32, radius: u8, margin: i8) -> egui::Frame {
 }
 
 fn selectable_card_height(ui: &egui::Ui, title: &str, description: &str, width: f32) -> f32 {
-    let content_width = (width - 24.0).max(40.0);
+    let content_width = (width - 74.0).max(40.0);
     let title_font = egui::TextStyle::Button.resolve(ui.style());
     let description_font = egui::TextStyle::Body.resolve(ui.style());
     let text_height = ui.fonts_mut(|fonts| {
@@ -870,7 +908,7 @@ fn selectable_card_height(ui: &egui::Ui, title: &str, description: &str, width: 
             .y;
         title_height + CARD_TEXT_GAP + description_height
     });
-    20.0 + text_height
+    (28.0 + text_height).max(96.0)
 }
 
 fn selectable_card(
@@ -883,54 +921,64 @@ fn selectable_card(
     width: f32,
     height: f32,
 ) -> egui::Response {
-    let fill = if selected { ACCENT } else { CONTROL_BACKGROUND };
-    let title_color = if selected {
-        Color32::WHITE
-    } else if interactive {
-        PRIMARY_TEXT
-    } else {
-        PRIMARY_TEXT.gamma_multiply(0.55)
-    };
-    let detail_color = if selected {
+    let fill = if selected { ACTIVE_ACCENT } else { ACCENT };
+    let title_color = if interactive {
         Color32::WHITE
     } else {
-        SECONDARY_TEXT.gamma_multiply(if interactive { 1.0 } else { 0.55 })
+        Color32::WHITE.gamma_multiply(0.55)
     };
+    let detail_color = Color32::WHITE.gamma_multiply(if interactive { 0.82 } else { 0.45 });
     let mut frame = egui::Frame::new()
         .fill(if interactive {
             fill
         } else {
             fill.gamma_multiply(0.55)
         })
-        .stroke(egui::Stroke::NONE)
-        .corner_radius(12)
-        .inner_margin(egui::Margin::symmetric(12, 10))
+        .stroke(egui::Stroke::new(
+            2.0,
+            if selected { Color32::WHITE } else { ACCENT },
+        ))
+        .corner_radius(16)
+        .inner_margin(egui::Margin::symmetric(14, 12))
         .begin(ui);
-    let content_width = (width - frame.frame.inner_margin.sum().x).max(40.0);
-    let content_height = (height - frame.frame.inner_margin.sum().y).max(0.0);
+    let frame_content_width =
+        (width - frame.frame.inner_margin.sum().x - frame.frame.stroke.width * 2.0).max(40.0);
+    let text_width = (frame_content_width - 42.0).max(40.0);
+    let content_height =
+        (height - frame.frame.inner_margin.sum().y - frame.frame.stroke.width * 2.0).max(0.0);
     frame
         .content_ui
         .with_layout(egui::Layout::top_down(egui::Align::LEFT), |ui| {
-            ui.set_width(content_width);
-            ui.set_min_height(content_height);
-            ui.spacing_mut().item_spacing.y = CARD_TEXT_GAP;
-            if legacy {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 7.0;
-                    ui.add(egui::Label::new(large_text(title).color(title_color)).wrap());
-                    egui::Frame::new()
-                        .fill(LEGACY.gamma_multiply(0.18))
-                        .stroke(egui::Stroke::new(1.0, LEGACY))
-                        .corner_radius(5)
-                        .inner_margin(egui::Margin::symmetric(6, 2))
-                        .show(ui, |ui| {
-                            ui.label(RichText::new("LEGACY").size(11.0).strong().color(LEGACY));
+            ui.set_min_size(egui::vec2(frame_content_width, content_height));
+            ui.allocate_ui_with_layout(
+                egui::vec2(text_width, content_height),
+                egui::Layout::top_down(egui::Align::LEFT),
+                |ui| {
+                    ui.set_width(text_width);
+                    ui.spacing_mut().item_spacing.y = CARD_TEXT_GAP;
+                    if legacy {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 7.0;
+                            ui.add(egui::Label::new(large_text(title).color(title_color)).wrap());
+                            egui::Frame::new()
+                                .fill(LEGACY.gamma_multiply(0.18))
+                                .stroke(egui::Stroke::new(1.0, LEGACY))
+                                .corner_radius(5)
+                                .inner_margin(egui::Margin::symmetric(6, 2))
+                                .show(ui, |ui| {
+                                    ui.label(
+                                        RichText::new("LEGACY").size(11.0).strong().color(LEGACY),
+                                    );
+                                });
                         });
-                });
-            } else {
-                ui.add(egui::Label::new(large_text(title).color(title_color)).wrap());
-            }
-            ui.add(egui::Label::new(description_text(description).color(detail_color)).wrap());
+                    } else {
+                        ui.add(egui::Label::new(large_text(title).color(title_color)).wrap());
+                    }
+                    ui.add(
+                        egui::Label::new(description_text(description).color(detail_color)).wrap(),
+                    );
+                },
+            );
         });
 
     let sense = if interactive {
@@ -940,9 +988,39 @@ fn selectable_card(
     };
     let response = frame.allocate_space(ui).interact(sense);
     if response.hovered() && interactive && !selected {
-        frame.frame.fill = CONTROL_HOVERED;
+        frame.frame.fill = ACCENT_HOVERED;
+        frame.frame.stroke = egui::Stroke::new(2.0, Color32::WHITE);
     }
     frame.paint(ui);
+
+    let indicator_rect = egui::Rect::from_center_size(
+        egui::pos2(response.rect.right() - 30.0, response.rect.center().y),
+        egui::vec2(28.0, 28.0),
+    );
+    let indicator_color = if selected { SUCCESS } else { ERROR };
+    ui.painter().rect(
+        indicator_rect,
+        7,
+        indicator_color.gamma_multiply(if interactive { 1.0 } else { 0.55 }),
+        egui::Stroke::NONE,
+        egui::StrokeKind::Inside,
+    );
+    if selected {
+        ui.painter().line_segment(
+            [
+                indicator_rect.left_center() + egui::vec2(5.0, 0.0),
+                indicator_rect.center() + egui::vec2(-1.0, 6.0),
+            ],
+            egui::Stroke::new(3.0, Color32::WHITE),
+        );
+        ui.painter().line_segment(
+            [
+                indicator_rect.center() + egui::vec2(-1.0, 6.0),
+                indicator_rect.right_top() + egui::vec2(-4.0, 6.0),
+            ],
+            egui::Stroke::new(3.0, Color32::WHITE),
+        );
+    }
 
     if interactive {
         response.on_hover_cursor(egui::CursorIcon::PointingHand)
@@ -1177,42 +1255,31 @@ impl eframe::App for InstallerApp {
         }
 
         let panel_frame = egui::Frame::new()
-            .fill(APP_BACKGROUND)
+            .fill(SHELL_BACKGROUND)
             .stroke(egui::Stroke::NONE)
-            .inner_margin(egui::Margin::ZERO);
+            .inner_margin(egui::Margin::same(16));
         egui::CentralPanel::default()
             .frame(panel_frame)
             .show(root_ui, |ui| {
-                egui::Frame::new()
-                    .fill(APP_BACKGROUND)
-                    .stroke(egui::Stroke::NONE)
-                    .inner_margin(egui::Margin {
-                        left: 24,
-                        right: 24,
-                        top: 16,
-                        bottom: 24,
-                    })
-                    .show(ui, |ui| {
-                        ui.set_width(ui.available_width());
-                        let available = ui.available_size();
-                        let pane_spacing = 16.0;
-                        let right_width = (available.x * 0.38).clamp(360.0, 480.0);
-                        let left_width = available.x - right_width - pane_spacing;
+                ui.set_width(ui.available_width());
+                let available = ui.available_size();
+                let pane_spacing = 16.0;
+                let right_width = (available.x * 0.38).clamp(360.0, 480.0);
+                let left_width = available.x - right_width - pane_spacing;
 
-                        ui.spacing_mut().item_spacing.x = pane_spacing;
-                        ui.horizontal(|ui| {
-                            ui.allocate_ui_with_layout(
-                                egui::vec2(left_width, available.y),
-                                egui::Layout::top_down(egui::Align::LEFT),
-                                |ui| self.show_mods_pane(ui, &grouped_mods),
-                            );
-                            ui.allocate_ui_with_layout(
-                                egui::vec2(right_width, available.y),
-                                egui::Layout::top_down(egui::Align::LEFT),
-                                |ui| self.show_controls_pane(ui),
-                            );
-                        });
-                    });
+                ui.spacing_mut().item_spacing.x = pane_spacing;
+                ui.horizontal(|ui| {
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(left_width, available.y),
+                        egui::Layout::top_down(egui::Align::LEFT),
+                        |ui| self.show_mods_pane(ui, &grouped_mods),
+                    );
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(right_width, available.y),
+                        egui::Layout::top_down(egui::Align::LEFT),
+                        |ui| self.show_controls_pane(ui),
+                    );
+                });
             });
     }
 }

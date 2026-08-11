@@ -138,6 +138,28 @@ internal static class PropBuffRuntime
         }
     }
 
+    public static bool ShouldSuppressPropFootprint(StepsComponent steps)
+    {
+        if (_configuration?.EnableMod.Value != true)
+        {
+            return false;
+        }
+
+        try
+        {
+            var player = steps._spookedNetworkPlayer;
+            var registry = player?.EntitySkillsComponent?._playerPropRegistry;
+            return player is not null
+                && registry is not null
+                && registry.IsPlayerProp(player.InternalId);
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogError($"Prop footprint suppression failed: {exception}");
+            return false;
+        }
+    }
+
     public static void TryCycleModel(PlayerInputController inputController)
     {
         if (_configuration?.EnableMod.Value != true
@@ -354,6 +376,15 @@ internal static class EntityLocomotionComponentCalculateLocomotionPatch
     {
         PropBuffRuntime.EndPropLocomotion(__state);
         return __exception;
+    }
+}
+
+[HarmonyPatch(typeof(StepsComponent), "SpawnFootprint")]
+internal static class StepsComponentSpawnFootprintPatch
+{
+    private static bool Prefix(StepsComponent __instance)
+    {
+        return !PropBuffRuntime.ShouldSuppressPropFootprint(__instance);
     }
 }
 

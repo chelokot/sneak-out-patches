@@ -35,6 +35,11 @@ internal static partial class UnlockEverythingSelections
         _currentNetworkPlayer = networkPlayer;
     }
 
+    internal static void ForgetNetworkPlayer()
+    {
+        _currentNetworkPlayer = null;
+    }
+
     internal static bool ApplyPersistedSkinToLocalNetworkPlayer(SpookedNetworkPlayerRuntime networkPlayer)
     {
         if (!UnlockEverythingRuntime.UsePersistentSelections
@@ -154,40 +159,26 @@ internal static partial class UnlockEverythingSelections
 
     private static SpookedNetworkPlayerRuntime? GetCurrentNetworkPlayer()
     {
-        if (_currentNetworkPlayer is not null)
+        var networkPlayer = _currentNetworkPlayer;
+        if (networkPlayer is null)
         {
-            if (_currentNetworkPlayer == null)
-            {
-                _currentNetworkPlayer = null;
-            }
-            else if (_currentNetworkPlayer.Pointer != IntPtr.Zero
-                && _currentNetworkPlayer.HasInputAuthority
-                && !_currentNetworkPlayer.IsBot)
-            {
-                return _currentNetworkPlayer;
-            }
-            else
-            {
-                _currentNetworkPlayer = null;
-            }
+            return null;
         }
 
-        foreach (var candidate in UnityEngine.Resources.FindObjectsOfTypeAll<SpookedNetworkPlayerRuntime>())
+        if (networkPlayer == null
+            || networkPlayer.Pointer == IntPtr.Zero
+            || !networkPlayer.HasInputAuthority
+            || networkPlayer.IsBot)
         {
-            if (candidate is null
-                || candidate.Pointer == IntPtr.Zero
-                || candidate.GetType() != typeof(SpookedNetworkPlayerRuntime)
-                || !candidate.HasInputAuthority
-                || candidate.IsBot)
-            {
-                continue;
-            }
-
-            RememberNetworkPlayer(candidate);
-            return candidate;
+            _currentNetworkPlayer = null;
+            return null;
         }
 
-        return null;
+        // Never fall back to Resources.FindObjectsOfTypeAll here. RefreshPlayer completion can
+        // overlap a lobby teardown/rebuild, and asking IL2CPP to enumerate every Unity object in
+        // that window can access freed native objects. Init/Spawned/RPC_SpawnedReady capture the
+        // local player and apply persisted skin once the replacement object has a valid lifetime.
+        return networkPlayer;
     }
 
     internal static void ApplyPersistedSkinToCurrentNetworkPlayer()

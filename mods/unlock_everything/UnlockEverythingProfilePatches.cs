@@ -111,9 +111,9 @@ internal static class ClientCacheRefreshPlayerPatch
     private static void ApplyProfileOverlayAndLiveSelections(ClientCache clientCache)
     {
         UnlockEverythingStub.ApplyProfileOverlay(clientCache);
-        // RefreshPlayer can run while a joining client is still carrying the previous lobby's
-        // Game.InternalId. Never publish outfit events by that mutable global id: resolve the
-        // actual local Fusion object by input authority and mutate only that object.
+        // RefreshPlayer can finish while the previous lobby player is being destroyed and before
+        // its replacement is initialized. Only a player captured by the Fusion lifecycle hooks is
+        // eligible here; if none exists yet, those hooks apply the persisted skin when it is safe.
         UnlockEverythingSelections.ApplyPersistedSkinToCurrentNetworkPlayer();
     }
 }

@@ -263,6 +263,7 @@ internal static class ScopeCleanerCleanPatch
 {
     private static void Postfix()
     {
+        UnlockEverythingSelections.ForgetNetworkPlayer();
         UnlockEverythingSelections.ClearLoadedCharactersSkills();
     }
 }
@@ -272,6 +273,7 @@ internal static class ScopeCleanerGameplayCleanPatch
 {
     private static void Postfix()
     {
+        UnlockEverythingSelections.ForgetNetworkPlayer();
         UnlockEverythingSelections.ClearLoadedCharactersSkills();
     }
 }

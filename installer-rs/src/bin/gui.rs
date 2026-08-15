@@ -417,7 +417,60 @@ impl InstallerApp {
         self.selected = debug_selection(&self.manifest, &self.legacy_ids);
     }
 
-    fn show_mods_pane(&mut self, ui: &mut egui::Ui, grouped_mods: &[(String, Vec<RuntimeMod>)]) {
+    fn show_runtime_mod_cards(&mut self, ui: &mut egui::Ui, runtime_mods: &[RuntimeMod]) {
+        let available_width = ui.available_width();
+        let columns = if available_width >= 980.0 {
+            3
+        } else if available_width >= 620.0 {
+            2
+        } else {
+            1
+        };
+        let gap = 10.0;
+        let card_width = (available_width - gap * (columns - 1) as f32) / columns as f32;
+        let card_height = runtime_mods
+            .iter()
+            .map(|runtime_mod| {
+                let title = runtime_mod_title(runtime_mod, &self.mod_versions);
+                selectable_card_height(ui, &title, &runtime_mod.details, card_width)
+            })
+            .fold(0.0, f32::max);
+        for row in runtime_mods.chunks(columns) {
+            ui.horizontal_top(|ui| {
+                ui.spacing_mut().item_spacing.x = gap;
+                for runtime_mod in row {
+                    let enabled = self.selected.contains(&runtime_mod.option_id);
+                    let legacy = self.legacy_ids.contains(&runtime_mod.option_id);
+                    let interactive = !self.busy;
+                    let title = runtime_mod_title(runtime_mod, &self.mod_versions);
+                    let response = selectable_card(
+                        ui,
+                        &title,
+                        &runtime_mod.details,
+                        legacy,
+                        enabled,
+                        interactive,
+                        card_width,
+                        card_height,
+                    );
+                    if response.clicked() {
+                        if enabled {
+                            self.selected.remove(&runtime_mod.option_id);
+                        } else {
+                            self.selected.insert(runtime_mod.option_id.clone());
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    fn show_mods_pane(
+        &mut self,
+        ui: &mut egui::Ui,
+        grouped_mods: &[(String, Vec<RuntimeMod>)],
+        unstable_mods: &[RuntimeMod],
+    ) {
         ui.set_width(ui.available_width());
         card(CARD_BACKGROUND, 16, 16).show(ui, |ui| {
             ui.set_width(ui.available_width());
@@ -501,56 +554,40 @@ impl InstallerApp {
                             );
                         });
 
-                        let available_width = ui.available_width();
-                        let columns = if available_width >= 980.0 {
-                            3
-                        } else if available_width >= 620.0 {
-                            2
-                        } else {
-                            1
-                        };
-                        let gap = 10.0;
-                        let card_width =
-                            (available_width - gap * (columns - 1) as f32) / columns as f32;
-                        let card_height = self
-                            .manifest
-                            .iter()
-                            .filter(|runtime_mod| runtime_mod_is_visible(runtime_mod))
-                            .map(|runtime_mod| {
-                                let title = runtime_mod_title(runtime_mod, &self.mod_versions);
-                                selectable_card_height(ui, &title, &runtime_mod.details, card_width)
-                            })
-                            .fold(0.0, f32::max);
-                        for row in runtime_mods.chunks(columns) {
-                            ui.horizontal_top(|ui| {
-                                ui.spacing_mut().item_spacing.x = gap;
-                                for runtime_mod in row {
-                                    let enabled = self.selected.contains(&runtime_mod.option_id);
-                                    let legacy = self.legacy_ids.contains(&runtime_mod.option_id);
-                                    let interactive = !self.busy;
-                                    let title = runtime_mod_title(runtime_mod, &self.mod_versions);
-                                    let response = selectable_card(
-                                        ui,
-                                        &title,
-                                        &runtime_mod.details,
-                                        legacy,
-                                        enabled,
-                                        interactive,
-                                        card_width,
-                                        card_height,
-                                    );
-                                    if response.clicked() {
-                                        if enabled {
-                                            self.selected.remove(&runtime_mod.option_id);
-                                        } else {
-                                            self.selected.insert(runtime_mod.option_id.clone());
-                                        }
-                                    }
-                                }
-                            });
-                        }
+                        self.show_runtime_mod_cards(ui, runtime_mods);
                     });
                     ui.add_space(10.0);
+                }
+
+                if !unstable_mods.is_empty() {
+                    egui::CollapsingHeader::new(section_text("Unstable"))
+                        .default_open(false)
+                        .show(ui, |ui| {
+                            card(CARD_BACKGROUND, 16, 14).show(ui, |ui| {
+                                ui.set_width(ui.available_width());
+                                let selected = unstable_mods
+                                    .iter()
+                                    .filter(|runtime_mod| {
+                                        self.selected.contains(&runtime_mod.option_id)
+                                    })
+                                    .count();
+                                ui.horizontal(|ui| {
+                                    ui.label(description_text(
+                                        "These optional mods may be incomplete or unreliable.",
+                                    ));
+                                    ui.with_layout(
+                                        egui::Layout::right_to_left(egui::Align::Center),
+                                        |ui| {
+                                            ui.label(description_text(format!(
+                                                "{selected}/{} enabled",
+                                                unstable_mods.len()
+                                            )));
+                                        },
+                                    );
+                                });
+                                self.show_runtime_mod_cards(ui, unstable_mods);
+                            });
+                        });
                 }
             });
     }
@@ -691,7 +728,7 @@ fn grouped_runtime_mods(manifest: &[RuntimeMod]) -> Vec<(String, Vec<RuntimeMod>
     let mut groups: Vec<(String, Vec<RuntimeMod>)> = Vec::new();
     for runtime_mod in manifest
         .iter()
-        .filter(|runtime_mod| runtime_mod_is_visible(runtime_mod))
+        .filter(|runtime_mod| runtime_mod_is_visible(runtime_mod) && runtime_mod.stable)
     {
         if let Some((_, runtime_mods)) = groups
             .iter_mut()
@@ -705,9 +742,16 @@ fn grouped_runtime_mods(manifest: &[RuntimeMod]) -> Vec<(String, Vec<RuntimeMod>
     groups
 }
 
+fn unstable_runtime_mods(manifest: &[RuntimeMod]) -> Vec<RuntimeMod> {
+    manifest
+        .iter()
+        .filter(|runtime_mod| runtime_mod_is_visible(runtime_mod) && !runtime_mod.stable)
+        .cloned()
+        .collect()
+}
+
 fn runtime_mod_is_visible(runtime_mod: &RuntimeMod) -> bool {
     runtime_mod.option_id != FORCED_HIDDEN_RUNTIME_MOD_ID
-        && (runtime_mod.stable || cfg!(feature = "dev-mode"))
 }
 
 fn ensure_forced_selection(selected: &mut HashSet<String>) {
@@ -744,6 +788,7 @@ fn default_selection(manifest: &[RuntimeMod], legacy_ids: &HashSet<String>) -> H
         .iter()
         .filter(|runtime_mod| {
             runtime_mod_is_visible(runtime_mod)
+                && runtime_mod.stable
                 && runtime_mod.default_enabled
                 && !legacy_ids.contains(&runtime_mod.option_id)
         })
@@ -1251,6 +1296,7 @@ impl eframe::App for InstallerApp {
     fn ui(&mut self, root_ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let context = root_ui.ctx().clone();
         let grouped_mods = grouped_runtime_mods(&self.manifest);
+        let unstable_mods = unstable_runtime_mods(&self.manifest);
         self.poll_worker(&context);
         if self.busy {
             context.request_repaint_after(Duration::from_millis(100));
@@ -1278,7 +1324,7 @@ impl eframe::App for InstallerApp {
                     ui.allocate_ui_with_layout(
                         egui::vec2(left_width, available.y),
                         egui::Layout::top_down(egui::Align::LEFT),
-                        |ui| self.show_mods_pane(ui, &grouped_mods),
+                        |ui| self.show_mods_pane(ui, &grouped_mods, &unstable_mods),
                     );
                     ui.allocate_ui_with_layout(
                         egui::vec2(right_width, available.y),
@@ -1341,30 +1387,24 @@ mod tests {
     }
 
     #[test]
-    fn manifest_stable_mods_match_the_production_allowlist() {
+    fn manifest_visible_stable_mods_match_the_production_allowlist() {
         let manifest = embedded_manifest().expect("embedded manifest should load");
         let stable_ids: HashSet<_> = manifest
             .iter()
-            .filter(|runtime_mod| runtime_mod.stable)
+            .filter(|runtime_mod| runtime_mod.stable && runtime_mod_is_visible(runtime_mod))
             .map(|runtime_mod| runtime_mod.option_id.as_str())
             .collect();
 
         assert_eq!(
             stable_ids,
             HashSet::from([
-                "performance-optimizer",
                 "portal-mode-selector",
-                "mummy-unlock",
                 "prop-buff",
                 "locker-stun-fix",
                 "magic-wardrobe-hook-fix",
-                "chair-wall-throw-fix",
-                "proximity-voice-chat",
-                "lobby-skill-sandbox",
                 "minimap",
                 "start-delay-reducer",
                 "background-loading-guard",
-                "friend-invite-unlock",
                 "community-discord",
                 "unlock-everything",
                 "lobby-test-bot",
@@ -1374,25 +1414,44 @@ mod tests {
     }
 
     #[test]
-    fn unstable_mod_visibility_follows_the_build_mode() {
-        let stable = runtime_mod("stable", "Stable");
+    fn unstable_mods_are_visible_separately_and_excluded_from_defaults() {
+        let mut stable = runtime_mod("stable", "Stable");
+        stable.default_enabled = true;
         let mut unstable = runtime_mod("unstable", "Unstable");
         unstable.stable = false;
+        unstable.default_enabled = true;
 
         assert!(runtime_mod_is_visible(&stable));
-        assert_eq!(
-            runtime_mod_is_visible(&unstable),
-            cfg!(feature = "dev-mode")
-        );
+        assert!(runtime_mod_is_visible(&unstable));
 
         let manifest = vec![stable, unstable];
-        let visible_count = grouped_runtime_mods(&manifest)
+        let stable_ids: Vec<_> = grouped_runtime_mods(&manifest)
             .into_iter()
             .flat_map(|(_, runtime_mods)| runtime_mods)
-            .count();
+            .map(|runtime_mod| runtime_mod.option_id)
+            .collect();
+        let unstable_ids: Vec<_> = unstable_runtime_mods(&manifest)
+            .into_iter()
+            .map(|runtime_mod| runtime_mod.option_id)
+            .collect();
+
+        assert_eq!(stable_ids, ["stable"]);
+        assert_eq!(unstable_ids, ["unstable"]);
         assert_eq!(
-            visible_count,
-            if cfg!(feature = "dev-mode") { 2 } else { 1 }
+            default_selection(&manifest, &HashSet::new()),
+            HashSet::from(["stable".to_owned(), FORCED_HIDDEN_RUNTIME_MOD_ID.to_owned(),])
+        );
+    }
+
+    #[test]
+    fn manifest_unstable_mods_are_default_off() {
+        let manifest = embedded_manifest().expect("embedded manifest should load");
+
+        assert!(
+            manifest
+                .iter()
+                .filter(|runtime_mod| runtime_mod_is_visible(runtime_mod) && !runtime_mod.stable)
+                .all(|runtime_mod| !runtime_mod.default_enabled)
         );
     }
 
@@ -1405,10 +1464,19 @@ mod tests {
                 .expect("packaged runtime mod versions should be readable");
 
         assert_eq!(versions.len(), manifest.len());
-        for runtime_mod in grouped_runtime_mods(&manifest)
+        let mut rendered_mods: Vec<_> = grouped_runtime_mods(&manifest)
             .into_iter()
             .flat_map(|(_, runtime_mods)| runtime_mods)
-        {
+            .collect();
+        rendered_mods.extend(unstable_runtime_mods(&manifest));
+        assert_eq!(
+            rendered_mods.len(),
+            manifest
+                .iter()
+                .filter(|runtime_mod| runtime_mod_is_visible(runtime_mod))
+                .count()
+        );
+        for runtime_mod in rendered_mods {
             let version = versions
                 .get(&runtime_mod.option_id)
                 .expect("visible runtime mod should have a version");
@@ -1450,6 +1518,7 @@ mod tests {
         assert!(selected.contains(FORCED_HIDDEN_RUNTIME_MOD_ID));
         assert_eq!(visible_selection_count(&selected, &manifest), 0);
         assert!(grouped_runtime_mods(&manifest).is_empty());
+        assert!(unstable_runtime_mods(&manifest).is_empty());
     }
 
     #[test]
@@ -1458,7 +1527,7 @@ mod tests {
         let groups = grouped_runtime_mods(&manifest);
         let unique_categories: HashSet<_> = manifest
             .iter()
-            .filter(|runtime_mod| runtime_mod_is_visible(runtime_mod))
+            .filter(|runtime_mod| runtime_mod_is_visible(runtime_mod) && runtime_mod.stable)
             .map(|runtime_mod| runtime_mod.category.as_str())
             .collect();
 
@@ -1470,7 +1539,7 @@ mod tests {
                 .sum::<usize>(),
             manifest
                 .iter()
-                .filter(|runtime_mod| runtime_mod_is_visible(runtime_mod))
+                .filter(|runtime_mod| runtime_mod_is_visible(runtime_mod) && runtime_mod.stable)
                 .count()
         );
         assert!(groups.iter().all(|(category, runtime_mods)| {

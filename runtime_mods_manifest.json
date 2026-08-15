@@ -46,6 +46,16 @@
     "default_config_template_path": "config_templates/runtime_mods/network-host-selector.cfg"
   },
   {
+    "option_id": "quick-reconnect",
+    "label": "Quick Reconnect",
+    "details": "Enables the game's dormant reconnect-and-rejoin flow after a Photon timeout. Experimental; relayed non-host clients are not supported.",
+    "category": "quality-of-life",
+    "default_enabled": false,
+    "stable": false,
+    "project_relative_path": "mods/quick_reconnect/QuickReconnect.csproj",
+    "assembly_name": "SneakOut.QuickReconnect"
+  },
+  {
     "option_id": "minimap",
     "label": "Minimap",
     "details": "Adds a configurable minimap showing rooms, objectives, hiding spots, item dispensers, and your position.",

@@ -132,7 +132,7 @@ jobs:
       - name: Verify the universal macOS launcher
         shell: bash
         run: |
-          lipo -verify_arch arm64 x86_64 dist-macos/SneakOutPatches
+          lipo dist-macos/SneakOutPatches -verify_arch arm64 x86_64
 
       - uses: actions/upload-artifact@v4
         with:
@@ -165,7 +165,7 @@ jobs:
           mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
           cp dist-macos/SneakOutPatches "$app/Contents/MacOS/SneakOutPatches"
           chmod 755 "$app/Contents/MacOS/SneakOutPatches"
-          lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/SneakOutPatches"
+          lipo "$app/Contents/MacOS/SneakOutPatches" -verify_arch arm64 x86_64
           cp installer-rs/macos/Info.plist "$app/Contents/Info.plist"
           version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' installer-rs/Cargo.toml | head -n 1)"
           /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $version" "$app/Contents/Info.plist"

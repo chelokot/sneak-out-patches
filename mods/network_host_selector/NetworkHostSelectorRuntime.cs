@@ -10,7 +10,6 @@ using UI;
 using UI.Buttons;
 using UI.Views.Lobby;
 using UnityEngine;
-using UnityEngine.Events;
 using UnityEngine.UI;
 
 namespace SneakOut.NetworkHostSelector;
@@ -19,7 +18,6 @@ internal static class NetworkHostSelectorRuntime
 {
     private const string PropertyState = "sohs_s";
     private const string PropertyPeers = "sohs_e";
-    private const string PropertyRequest = "sohs_q";
     private const float NetworkTickInterval = 0.25f;
     private const float UiRefreshInterval = 0.25f;
     private const float HelloInterval = 1f;
@@ -59,9 +57,6 @@ internal static class NetworkHostSelectorRuntime
     private static bool _observedReady;
     private static bool _observedValid;
     private static int _lastAckedRevision = -1;
-    private static int _pendingRequestedRaw = int.MinValue;
-    private static int _requestSequence;
-    private static string _lastHandledRequest = string.Empty;
     private static bool _localOnlySession;
     private static IReadOnlyList<Participant> _cachedParticipants = Array.Empty<Participant>();
 
@@ -181,19 +176,25 @@ internal static class NetworkHostSelectorRuntime
         var membership = ComputeMembership(participants);
         if (_localOnlySession)
         {
+            if (!TryResolvePartyCreator(
+                    participants.Select(participant => (participant.Raw, participant.UserId)),
+                    localRaw,
+                    out var leader))
+            {
+                return;
+            }
             _coordinatorMembership = membership;
             _coordinatorCompatible = true;
-            _coordinatorTargetRaw = 0;
-            _coordinatorTargetUserId = string.Empty;
+            _coordinatorTargetRaw = leader.PlayerRaw;
+            _coordinatorTargetUserId = leader.UserId;
             SetObservedState(
                 _coordinatorRevision,
-                0,
-                string.Empty,
+                leader.PlayerRaw,
+                leader.UserId,
                 membership,
                 compatible: true,
                 ready: true,
                 valid: true);
-            _pendingRequestedRaw = int.MinValue;
             return;
         }
 
@@ -206,7 +207,6 @@ internal static class NetworkHostSelectorRuntime
         ReadObservedState(runner, participants);
         if (IsCoordinator(runner))
         {
-            ReadSelectionRequest(runner, participants, membership);
             TickCoordinator(runner, participants);
         }
 
@@ -229,12 +229,23 @@ internal static class NetworkHostSelectorRuntime
         if (!string.Equals(membership, _coordinatorMembership, StringComparison.Ordinal))
         {
             _coordinatorMembership = membership;
-            _coordinatorTargetRaw = 0;
-            _coordinatorTargetUserId = string.Empty;
             _coordinatorRevision++;
-            _pendingRequestedRaw = int.MinValue;
-            _lastHandledRequest = string.Empty;
-            LogInfo("Lobby membership changed; network host selection returned to Automatic");
+            _lastAckedRevision = -1;
+            LogInfo("Lobby membership changed; Leader Host compatibility will be reconfirmed");
+        }
+
+        if (TryResolvePartyCreator(
+                participants.Select(participant => (participant.Raw, participant.UserId)),
+                runner.LocalPlayer.RawEncoded,
+                out var leader)
+            && (_coordinatorTargetRaw != leader.PlayerRaw
+                || !string.Equals(_coordinatorTargetUserId, leader.UserId, StringComparison.Ordinal)))
+        {
+            _coordinatorTargetRaw = leader.PlayerRaw;
+            _coordinatorTargetUserId = leader.UserId;
+            _coordinatorRevision++;
+            _lastAckedRevision = -1;
+            LogInfo($"Party creator fixed as match host ({leader.UserId})");
         }
 
         var properties = runner.SessionInfo.Properties;
@@ -254,25 +265,20 @@ internal static class NetworkHostSelectorRuntime
             _coordinatorRevision++;
             _lastAckedRevision = -1;
             LogInfo(compatible
-                ? "Every real lobby participant confirmed Network Host Selector compatibility"
-                : "Network host selection disarmed because a participant has not confirmed compatibility");
+                ? "Every real lobby participant confirmed Leader Host compatibility"
+                : "Leader Host disarmed because a participant has not confirmed compatibility");
         }
 
-        if (_coordinatorTargetRaw != 0
-            && participants.All(participant => participant.Raw != _coordinatorTargetRaw))
-        {
-            _coordinatorTargetRaw = 0;
-            _coordinatorTargetUserId = string.Empty;
-            _coordinatorRevision++;
-        }
-
-        var ready = compatible && (_coordinatorTargetRaw == 0
-            || properties is not null && participants.All(participant =>
+        var ready = compatible
+            && _coordinatorTargetRaw != 0
+            && !string.IsNullOrWhiteSpace(_coordinatorTargetUserId)
+            && properties is not null
+            && participants.All(participant =>
                 participant.Raw == runner.LocalPlayer.RawEncoded
                 || TryReadPeer(properties, participant.Raw, out var peer)
                 && string.Equals(peer.UserId, participant.UserId, StringComparison.Ordinal)
                 && string.Equals(peer.Membership, _coordinatorMembership, StringComparison.Ordinal)
-                && peer.AcknowledgedRevision == _coordinatorRevision));
+                && peer.AcknowledgedRevision == _coordinatorRevision);
         PublishState(runner, ready);
     }
 
@@ -304,7 +310,6 @@ internal static class NetworkHostSelectorRuntime
                 compatible: true,
                 ready: true,
                 valid: true);
-            _pendingRequestedRaw = int.MinValue;
             return;
         }
 
@@ -335,10 +340,6 @@ internal static class NetworkHostSelectorRuntime
             _coordinatorCompatible,
             ready,
             valid: true);
-        if (ready)
-        {
-            _pendingRequestedRaw = int.MinValue;
-        }
     }
 
     private static void ReadObservedState(NetworkRunner runner, IReadOnlyList<Participant> participants)
@@ -355,9 +356,11 @@ internal static class NetworkHostSelectorRuntime
             }
 
             var localMembership = ComputeMembership(participants);
-            var targetValid = state.TargetPlayerRaw == 0 || participants.Any(participant =>
-                participant.Raw == state.TargetPlayerRaw
-                && string.Equals(participant.UserId, state.TargetUserId, StringComparison.Ordinal));
+            var expectedLeaderId = PgosLobby.Instance?.TeamLeaderId ?? string.Empty;
+            var targetValid = state.TargetPlayerRaw != 0
+                && !string.IsNullOrWhiteSpace(expectedLeaderId)
+                && string.Equals(state.TargetUserId, expectedLeaderId, StringComparison.Ordinal)
+                && participants.Any(participant => participant.Raw == state.TargetPlayerRaw);
             SetObservedState(
                 state.Revision,
                 state.TargetPlayerRaw,
@@ -442,12 +445,11 @@ internal static class NetworkHostSelectorRuntime
         }
 
         // Fusion allows only ten custom properties total and the game already consumes five.
-        // Keep the entire protocol in three fixed strings: coordinator state, a compact peer
-        // registry, and the latest party-leader request. Reserving per-player keys both exceeded
-        // the room limit and caused live updates to be rejected by Photon.
+        // Keep the entire protocol in two fixed strings: coordinator state and a compact peer
+        // registry. Reserving per-player keys both exceeded the room limit and caused live
+        // updates to be rejected by Photon.
         EnsureSessionProperty(args, PropertyState, string.Empty);
         EnsureSessionProperty(args, PropertyPeers, string.Empty);
-        EnsureSessionProperty(args, PropertyRequest, string.Empty);
     }
 
     private static void EnsureSessionProperty(StartGameArgs args, string key, SessionProperty value)
@@ -467,49 +469,6 @@ internal static class NetworkHostSelectorRuntime
             _observedRevision);
     }
 
-    private static void PublishSelectionRequest(
-        NetworkRunner runner,
-        string membership,
-        int targetRaw,
-        string targetUserId)
-    {
-        _requestSequence++;
-        UpdateProperty(
-            runner,
-            PropertyRequest,
-            HostSelectionProtocol.CreateRequest(
-                membership,
-                _requestSequence,
-                targetRaw,
-                targetUserId));
-    }
-
-    private static void ReadSelectionRequest(
-        NetworkRunner runner,
-        IReadOnlyList<Participant> participants,
-        string membership)
-    {
-        var properties = runner.SessionInfo.Properties;
-        if (properties is null
-            || !TryReadString(properties, PropertyRequest, out var encoded)
-            || string.Equals(encoded, _lastHandledRequest, StringComparison.Ordinal)
-            || !HostSelectionProtocol.TryParseRequest(encoded, out var request)
-            || !string.Equals(request.Membership, membership, StringComparison.Ordinal))
-        {
-            return;
-        }
-        _lastHandledRequest = encoded;
-
-        var requested = participants.FirstOrDefault(participant =>
-            participant.Raw == request.TargetPlayerRaw
-            && string.Equals(participant.UserId, request.TargetUserId, StringComparison.Ordinal));
-        if (request.TargetPlayerRaw != 0 && requested is null)
-        {
-            return;
-        }
-        AcceptSelectionRequest(runner, participants, request.TargetPlayerRaw);
-    }
-
     private static bool UpdateProperty(NetworkRunner runner, string key, string value)
     {
         try
@@ -523,44 +482,6 @@ internal static class NetworkHostSelectorRuntime
             LogError($"Publishing session property {key} failed", exception);
             return false;
         }
-    }
-
-    private static void AcceptSelectionRequest(
-        NetworkRunner runner,
-        IReadOnlyList<Participant> participants,
-        int targetRaw)
-    {
-        if (!_coordinatorCompatible)
-        {
-            return;
-        }
-
-        var target = participants.FirstOrDefault(participant => participant.Raw == targetRaw);
-        if (targetRaw != 0 && target is null)
-        {
-            return;
-        }
-
-        var targetUserId = target?.UserId ?? string.Empty;
-        if (targetRaw != 0 && string.IsNullOrWhiteSpace(targetUserId))
-        {
-            return;
-        }
-        if (_coordinatorTargetRaw == targetRaw
-            && string.Equals(_coordinatorTargetUserId, targetUserId, StringComparison.Ordinal))
-        {
-            return;
-        }
-
-        _coordinatorTargetRaw = targetRaw;
-        _coordinatorTargetUserId = targetUserId;
-        _coordinatorRevision++;
-        _lastAckedRevision = -1;
-        _pendingRequestedRaw = targetRaw;
-        LogInfo(target is null
-            ? "Party leader selected Automatic network host"
-            : $"Party leader proposed network host {target.Name} ({target.UserId})");
-        PublishState(runner, ready: targetRaw == 0);
     }
 
     private static List<Participant> GetParticipants(NetworkRunner runner)
@@ -620,16 +541,7 @@ internal static class NetworkHostSelectorRuntime
                 && !string.IsNullOrWhiteSpace(playerObject.Nickname)
                     ? playerObject.Nickname
                     : $"PLAYER {playerRef.PlayerId}";
-            var rttMs = 0;
-            try
-            {
-                rttMs = Mathf.Max(0, Mathf.RoundToInt((float)runner.GetPlayerRtt(playerRef) * 1000f));
-            }
-            catch
-            {
-                // RTT is presentation-only and must never affect eligibility.
-            }
-            participants.Add(new Participant(playerRef, playerRef.RawEncoded, userId, name, rttMs));
+            participants.Add(new Participant(playerRef, playerRef.RawEncoded, userId, name));
         }
         return participants.OrderBy(participant => participant.Raw).ToList();
     }
@@ -650,6 +562,25 @@ internal static class NetworkHostSelectorRuntime
     {
         return HostSelectionProtocol.ComputeMembershipSignature(
             participants.Select(participant => (participant.Raw, participant.UserId)));
+    }
+
+    private static bool TryResolvePartyCreator(
+        IEnumerable<(int PlayerRaw, string UserId)> participants,
+        int creatorPlayerRaw,
+        out LeaderHostTarget target)
+    {
+        var party = PgosLobby.Instance;
+        if (party is null || !party.AmITeamLeader)
+        {
+            target = default;
+            return false;
+        }
+
+        return LeaderHostPolicy.TryResolve(
+            participants,
+            creatorPlayerRaw,
+            party.TeamLeaderId ?? string.Empty,
+            out target);
     }
 
     private static bool IsCoordinator(NetworkRunner runner)
@@ -692,9 +623,6 @@ internal static class NetworkHostSelectorRuntime
         _observedReady = false;
         _observedValid = false;
         _lastAckedRevision = -1;
-        _pendingRequestedRaw = int.MinValue;
-        _requestSequence = 0;
-        _lastHandledRequest = string.Empty;
         _localOnlySession = false;
     }
 
@@ -705,16 +633,16 @@ internal static class NetworkHostSelectorRuntime
             return true;
         }
         RefreshObservedFromCurrentRunner();
-        if (_observedTargetRaw == 0)
-        {
-            return true;
-        }
-        if (_observedValid && _observedCompatible && _observedReady)
+        if (_observedValid
+            && _observedCompatible
+            && _observedReady
+            && _observedTargetRaw != 0
+            && !string.IsNullOrWhiteSpace(_observedTargetUserId))
         {
             return true;
         }
 
-        _logger?.LogWarning("PLAY held until the selected network host is acknowledged by every real participant");
+        _logger?.LogWarning("PLAY held until every real participant acknowledges the party creator as match host");
         return false;
     }
 
@@ -750,11 +678,21 @@ internal static class NetworkHostSelectorRuntime
         var participants = GetParticipants(runner);
         if (participants.Count == 1 && participants[0].Raw == runner.LocalPlayer.RawEncoded)
         {
+            if (!TryResolvePartyCreator(
+                    participants.Select(participant => (participant.Raw, participant.UserId)),
+                    runner.LocalPlayer.RawEncoded,
+                    out var leader))
+            {
+                _observedValid = false;
+                return;
+            }
             _localOnlySession = true;
+            _coordinatorTargetRaw = leader.PlayerRaw;
+            _coordinatorTargetUserId = leader.UserId;
             SetObservedState(
                 _coordinatorRevision,
-                _coordinatorTargetRaw,
-                _coordinatorTargetUserId,
+                leader.PlayerRaw,
+                leader.UserId,
                 ComputeMembership(participants),
                 compatible: true,
                 ready: true,
@@ -783,7 +721,7 @@ internal static class NetworkHostSelectorRuntime
         try
         {
             var root = UnityEngine.Object.Instantiate(view._playButton.gameObject, parent, false);
-            root.name = "NetworkHostSelectorButton";
+            root.name = "LeaderHostStatus";
             var button = root.GetComponent<SpookedOutlineButton>();
             var label = root.GetComponentInChildren<TMP_Text>(true);
             var rect = root.GetComponent<RectTransform>();
@@ -794,8 +732,7 @@ internal static class NetworkHostSelectorRuntime
             }
 
             button.onClick = new Button.ButtonClickedEvent();
-            var clickAction = (UnityAction)CycleHost;
-            button.onClick.AddListener(clickAction);
+            button.interactable = false;
             label.fontSize = 14f;
             label.fontSizeMin = 9f;
             label.fontSizeMax = 14f;
@@ -806,13 +743,13 @@ internal static class NetworkHostSelectorRuntime
             label.alignment = TextAlignmentOptions.Center;
             label.raycastTarget = false;
             FitStockButtonLayers(rect, button, label);
-            var state = new NetworkHostSelectorUiState(view, root, button, label, clickAction);
+            var state = new NetworkHostSelectorUiState(view, root, button, label);
             UiStateByView[view.Pointer] = state;
             return state;
         }
         catch (Exception exception)
         {
-            LogError("Network host button creation failed", exception);
+            LogError("Leader Host status creation failed", exception);
             return null;
         }
     }
@@ -881,7 +818,7 @@ internal static class NetworkHostSelectorRuntime
         if (!IsUsableLobbyRunner(runner))
         {
             SetInteractable(state.Button, false);
-            SetButtonPresentation(state, "HOST: AUTOMATIC", new Color(0.16f, 0.18f, 0.22f, 0.95f));
+            SetButtonPresentation(state, "LEADER HOST: WAITING", new Color(0.16f, 0.18f, 0.22f, 0.95f));
             return;
         }
 
@@ -897,80 +834,29 @@ internal static class NetworkHostSelectorRuntime
                 && TryReadPeer(properties, participant.Raw, out var peer)
                 && string.Equals(peer.UserId, participant.UserId, StringComparison.Ordinal)
                 && string.Equals(peer.Membership, membership, StringComparison.Ordinal));
-        var leader = PgosLobby.Instance is { } pgosLobby && pgosLobby.AmITeamLeader;
-        var canSelect = leader && participants.Count > 0 && _observedValid && _observedCompatible;
-        SetInteractable(state.Button, canSelect);
+        SetInteractable(state.Button, false);
 
         if (!_observedValid || !_observedCompatible)
         {
-            SetButtonPresentation(state, $"HOST: MODS {confirmed}/{participants.Count}", new Color(0.55f, 0.34f, 0.08f, 1f));
+            SetButtonPresentation(state, $"LEADER HOST: MODS {confirmed}/{participants.Count}", new Color(0.55f, 0.34f, 0.08f, 1f));
             return;
         }
-        if (!_observedReady || _pendingRequestedRaw != int.MinValue)
+        if (!_observedReady)
         {
-            SetButtonPresentation(state, "HOST: SYNCING...", new Color(0.55f, 0.34f, 0.08f, 1f));
+            SetButtonPresentation(state, "LEADER HOST: SYNCING...", new Color(0.55f, 0.34f, 0.08f, 1f));
             return;
         }
         if (_observedTargetRaw == 0)
         {
-            SetButtonPresentation(state, "HOST: AUTOMATIC", new Color(0.16f, 0.18f, 0.22f, 0.95f));
+            SetButtonPresentation(state, "LEADER HOST: WAITING", new Color(0.16f, 0.18f, 0.22f, 0.95f));
             return;
         }
 
         var selected = participants.FirstOrDefault(participant => participant.Raw == _observedTargetRaw);
         var label = selected is null
-            ? "HOST: AUTOMATIC"
-            : $"HOST: {selected.Name.ToUpperInvariant()}  {selected.RttMs}ms";
+            ? "LEADER HOST: WAITING"
+            : $"LEADER HOST: {selected.Name.ToUpperInvariant()}";
         SetButtonPresentation(state, label, new Color(0.08627451f, 0.5372549f, 0.654902f, 1f));
-    }
-
-    private static void CycleHost()
-    {
-        var runner = PhotonLobby.Runner;
-        if (!IsUsableLobbyRunner(runner)
-            || PgosLobby.Instance is not { AmITeamLeader: true }
-            || !_observedValid
-            || !_observedCompatible)
-        {
-            return;
-        }
-
-        var participants = GetParticipants(runner)
-            .Where(participant => !string.IsNullOrWhiteSpace(participant.UserId))
-            .OrderBy(participant => participant.RttMs)
-            .ThenBy(participant => participant.Name, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-        var choices = new List<int> { 0 };
-        choices.AddRange(participants.Select(participant => participant.Raw));
-        var current = _pendingRequestedRaw != int.MinValue ? _pendingRequestedRaw : _observedTargetRaw;
-        var index = choices.IndexOf(current);
-        var targetRaw = choices[(index + 1 + choices.Count) % choices.Count];
-        _pendingRequestedRaw = targetRaw;
-        if (IsCoordinator(runner))
-        {
-            AcceptSelectionRequest(runner, participants, targetRaw);
-        }
-        else
-        {
-            var selected = participants.FirstOrDefault(participant => participant.Raw == targetRaw);
-            PublishSelectionRequest(
-                runner,
-                ComputeMembership(participants),
-                targetRaw,
-                selected?.UserId ?? string.Empty);
-        }
-        RefreshAllButtons();
-    }
-
-    private static void RefreshAllButtons()
-    {
-        foreach (var state in UiStateByView.Values.ToArray())
-        {
-            if (state.IsAlive)
-            {
-                RefreshButton(state);
-            }
-        }
     }
 
     private static void SetButtonColor(SpookedOutlineButton button, Color color)
@@ -1027,25 +913,10 @@ internal static class NetworkHostSelectorRuntime
         {
             if (state.IsAlive)
             {
-                state.Button.onClick.RemoveListener(state.ClickAction);
                 UnityEngine.Object.Destroy(state.RootObject);
             }
         }
         UiStateByView.Clear();
-    }
-
-    private static bool TryReadInt(
-        Il2CppSystem.Collections.ObjectModel.ReadOnlyDictionary<string, SessionProperty> properties,
-        string key,
-        out int value)
-    {
-        value = 0;
-        if (!properties.TryGetValue(key, out var property) || property is null || !property.IsInt)
-        {
-            return false;
-        }
-        value = property;
-        return true;
     }
 
     private static bool TryReadString(
@@ -1072,20 +943,6 @@ internal static class NetworkHostSelectorRuntime
             && HostSelectionProtocol.TryGetPeer(registry, playerRaw, out peer);
     }
 
-    private static bool TryReadBool(
-        Il2CppSystem.Collections.ObjectModel.ReadOnlyDictionary<string, SessionProperty> properties,
-        string key,
-        out bool value)
-    {
-        value = false;
-        if (!properties.TryGetValue(key, out var property) || property is null || !property.Isbool)
-        {
-            return false;
-        }
-        value = property;
-        return true;
-    }
-
     private static void LogInfo(string message)
     {
         if (LoggingEnabled)
@@ -1099,7 +956,7 @@ internal static class NetworkHostSelectorRuntime
         _logger?.LogError($"{message}: {exception}");
     }
 
-    private sealed record Participant(PlayerRef PlayerRef, int Raw, string UserId, string Name, int RttMs);
+    private sealed record Participant(PlayerRef PlayerRef, int Raw, string UserId, string Name);
 
     private sealed class NetworkHostSelectorWatcher : MonoBehaviour
     {
@@ -1120,7 +977,7 @@ internal static class NetworkHostSelectorRuntime
             }
             catch (Exception exception)
             {
-                LogError("Network host selector watcher failed", exception);
+                LogError("Leader Host watcher failed", exception);
             }
         }
     }

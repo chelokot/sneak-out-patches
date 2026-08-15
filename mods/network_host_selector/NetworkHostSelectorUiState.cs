@@ -2,7 +2,6 @@ using TMPro;
 using UI.Buttons;
 using UI.Views.Lobby;
 using UnityEngine;
-using UnityEngine.Events;
 
 namespace SneakOut.NetworkHostSelector;
 
@@ -10,8 +9,7 @@ internal sealed record NetworkHostSelectorUiState(
     PortalPlayView View,
     GameObject RootObject,
     SpookedOutlineButton Button,
-    TMP_Text Label,
-    UnityAction ClickAction)
+    TMP_Text Label)
 {
     public bool IsAlive => View is not null
         && View.Pointer != IntPtr.Zero

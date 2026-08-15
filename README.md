@@ -60,7 +60,7 @@ not Developer ID signed or notarized; if necessary, Control-click it and choose
 
 | Id | Name | Default | Description |
 | --- | --- | :---: | --- |
-| `network-host-selector` | Network Host Selector | No | Lets the party leader choose who hosts the match when every player has the compatible mod. |
+| `network-host-selector` | Leader Host | No | Always makes the party creator host the match when every player has the compatible mod. |
 | `minimap` | Minimap | Yes | Adds a configurable minimap showing rooms, objectives, hiding spots, item dispensers, and your position. |
 | `start-delay-reducer` | Start Now | Yes | Lets the host start the match immediately after the normal connection wait. |
 | `background-loading-guard` | Background Loading Guard | Yes | Allows loading to continue while the game is in the background and restores your previous setting afterward. |

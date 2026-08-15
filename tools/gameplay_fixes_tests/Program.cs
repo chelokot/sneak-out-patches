@@ -300,32 +300,26 @@ Require(
     !SharedCornerPolicy.ShouldBypass(true, 5f, intersectionLayer, Array.Empty<PathBlocker>()),
     "a clear path incorrectly took the custom RPC path");
 
-var expectedRequest = new HostSelectionRequest("AABBCCDD", 17, 4, "steam-d");
-var encodedRequest = HostSelectionProtocol.CreateRequest(
-    expectedRequest.Membership,
-    expectedRequest.Sequence,
-    expectedRequest.TargetPlayerRaw,
-    expectedRequest.TargetUserId);
 Require(
-    HostSelectionProtocol.TryParseRequest(encodedRequest, out var decodedRequest),
-    "valid host selection request was rejected");
-Require(decodedRequest == expectedRequest, "host selection request did not round-trip");
+    LeaderHostPolicy.TryResolve(
+        new[] { (2, "steam-b"), (4, "steam-d") },
+        4,
+        "pgos-leader-d",
+        out var leaderTarget),
+    "party creator was not resolved as the automatic match host");
 Require(
-    !HostSelectionProtocol.TryParseRequest("999|AABBCCDD|17|4|steam-d", out _),
-    "mismatched host selector protocol version was accepted");
+    leaderTarget == new LeaderHostTarget(4, "pgos-leader-d"),
+    "automatic Leader Host target did not use the exact party-leader identity");
 Require(
-    !HostSelectionProtocol.TryParseRequest("2|AABBCCDD|17|4", out _),
-    "truncated host selector request was accepted");
+    !LeaderHostPolicy.TryResolve(new[] { (4, "steam-d") }, 4, string.Empty, out _),
+    "Leader Host accepted an empty party-leader identity");
 Require(
-    !HostSelectionProtocol.TryParseRequest("2|AABBCCDD|17|0|steam-d", out _),
-    "automatic host request accepted a non-empty user id");
-Require(
-    HostSelectionProtocol.CreateHello("AABBCCDD", "steam-a") == "2|AABBCCDD|steam-a",
-    "host selector hello token changed unexpectedly");
+    HostSelectionProtocol.CreateHello("AABBCCDD", "steam-a") == "3|AABBCCDD|steam-a",
+    "Leader Host hello token changed unexpectedly");
 Require(
     HostSelectionProtocol.CreateAck(7, "AABBCCDD", 4, "steam-d")
-        == "2|7|AABBCCDD|4|steam-d",
-    "host selector acknowledgement token changed unexpectedly");
+        == "3|7|AABBCCDD|4|steam-d",
+    "Leader Host acknowledgement token changed unexpectedly");
 var expectedState = new HostSelectionState(7, 4, "steam-d", "AABBCCDD", true, false);
 var encodedState = HostSelectionProtocol.CreateState(
     expectedState.Revision,
@@ -339,7 +333,7 @@ Require(
     "valid compact host-selection state was rejected");
 Require(decodedState == expectedState, "compact host-selection state did not round-trip");
 Require(
-    !HostSelectionProtocol.TryParseState("2|7|4||AABBCCDD|1|0", out _),
+    !HostSelectionProtocol.TryParseState("3|7|4||AABBCCDD|1|0", out _),
     "selected host state accepted an empty user id");
 var peerRegistry = HostSelectionProtocol.UpsertPeer(string.Empty, 2, "steam-b", "AABBCCDD", -1);
 peerRegistry = HostSelectionProtocol.UpsertPeer(peerRegistry, 4, "steam-d", "AABBCCDD", 7);
@@ -351,6 +345,9 @@ Require(
     HostSelectionProtocol.TryGetPeer(peerRegistry, 4, out var peerFour)
     && peerFour == new HostSelectionPeer(4, "steam-d", "AABBCCDD", 7),
     "compact peer registry did not preserve acknowledgement state");
+Require(
+    !HostSelectionProtocol.TryGetPeer("2,4,c3RlYW0tZA==,AABBCCDD,7", 4, out _),
+    "Leader Host accepted a peer running the manual-selector protocol");
 var signatureA = HostSelectionProtocol.ComputeMembershipSignature(new[]
 {
     (3, "steam-c"),
@@ -369,10 +366,10 @@ var signatureDifferent = HostSelectionProtocol.ComputeMembershipSignature(new[]
     (2, "steam-b"),
     (3, "steam-other"),
 });
-Require(signatureA == signatureB, "host selector membership signature depends on enumeration order");
-Require(signatureA != signatureDifferent, "host selector membership signature ignored a changed identity");
+Require(signatureA == signatureB, "Leader Host membership signature depends on enumeration order");
+Require(signatureA != signatureDifferent, "Leader Host membership signature ignored a changed identity");
 
-Console.WriteLine("Gameplay fixes and synchronized host-selection protocol tests passed.");
+Console.WriteLine("Gameplay fixes and synchronized Leader Host protocol tests passed.");
 
 internal enum TestSkinPart
 {

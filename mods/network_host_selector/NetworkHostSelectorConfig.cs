@@ -20,12 +20,12 @@ internal sealed class NetworkHostSelectorConfig
             "general",
             "EnableMod",
             true,
-            "Allow the party leader to select the actual Fusion match host when every real participant has this mod.");
+            "Always use the party creator as the Fusion match host when every real participant has this mod.");
         var enableLogging = configFile.Bind(
             "diagnostics",
             "EnableLogging",
             false,
-            "Log compatibility handshakes, synchronized selections, and match host overrides.");
+            "Log compatibility handshakes, synchronized leader identity, and match host overrides.");
         return new NetworkHostSelectorConfig(enableMod, enableLogging);
     }
 }

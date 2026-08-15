@@ -1,11 +1,5 @@
 namespace SneakOut.NetworkHostSelector;
 
-internal readonly record struct HostSelectionRequest(
-    string Membership,
-    int Sequence,
-    int TargetPlayerRaw,
-    string TargetUserId);
-
 internal readonly record struct HostSelectionState(
     int Revision,
     int TargetPlayerRaw,
@@ -22,7 +16,7 @@ internal readonly record struct HostSelectionPeer(
 
 internal static class HostSelectionProtocol
 {
-    public const int Version = 2;
+    public const int Version = 3;
 
     public static string CreateHello(string membership, string userId)
     {
@@ -103,6 +97,7 @@ internal static class HostSelectionProtocol
                 .OrderBy(peer => peer.PlayerRaw)
                 .Select(peer => string.Join(
                     ",",
+                    Version,
                     peer.PlayerRaw,
                     EncodeToken(peer.UserId),
                     peer.Membership,
@@ -112,37 +107,6 @@ internal static class HostSelectionProtocol
     public static bool TryGetPeer(string registry, int playerRaw, out HostSelectionPeer peer)
     {
         return ParsePeers(registry).TryGetValue(playerRaw, out peer);
-    }
-
-    public static string CreateRequest(
-        string membership,
-        int sequence,
-        int targetPlayerRaw,
-        string targetUserId)
-    {
-        return $"{Version}|{membership}|{sequence}|{targetPlayerRaw}|{targetUserId}";
-    }
-
-    public static bool TryParseRequest(string value, out HostSelectionRequest request)
-    {
-        request = default;
-        var fields = value.Split('|');
-        if (fields.Length != 5
-            || !int.TryParse(fields[0], out var version)
-            || version != Version
-            || string.IsNullOrWhiteSpace(fields[1])
-            || !int.TryParse(fields[2], out var sequence)
-            || sequence < 0
-            || !int.TryParse(fields[3], out var targetPlayerRaw)
-            || targetPlayerRaw < 0
-            || (targetPlayerRaw == 0 && fields[4].Length != 0)
-            || (targetPlayerRaw != 0 && string.IsNullOrWhiteSpace(fields[4])))
-        {
-            return false;
-        }
-
-        request = new HostSelectionRequest(fields[1], sequence, targetPlayerRaw, fields[4]);
-        return true;
     }
 
     public static string ComputeMembershipSignature(IEnumerable<(int PlayerRaw, string UserId)> participants)
@@ -173,13 +137,15 @@ internal static class HostSelectionProtocol
         foreach (var encodedPeer in registry.Split(';', StringSplitOptions.RemoveEmptyEntries))
         {
             var fields = encodedPeer.Split(',');
-            if (fields.Length != 4
-                || !int.TryParse(fields[0], out var playerRaw)
+            if (fields.Length != 5
+                || !int.TryParse(fields[0], out var version)
+                || version != Version
+                || !int.TryParse(fields[1], out var playerRaw)
                 || playerRaw <= 0
-                || !TryDecodeToken(fields[1], out var userId)
+                || !TryDecodeToken(fields[2], out var userId)
                 || string.IsNullOrWhiteSpace(userId)
-                || string.IsNullOrWhiteSpace(fields[2])
-                || !int.TryParse(fields[3], out var acknowledgedRevision)
+                || string.IsNullOrWhiteSpace(fields[3])
+                || !int.TryParse(fields[4], out var acknowledgedRevision)
                 || acknowledgedRevision < -1)
             {
                 continue;
@@ -187,7 +153,7 @@ internal static class HostSelectionProtocol
             result[playerRaw] = new HostSelectionPeer(
                 playerRaw,
                 userId,
-                fields[2],
+                fields[3],
                 acknowledgedRevision);
         }
         return result;

@@ -16,6 +16,7 @@
     <Compile Include="../../mods/locker_stun_fix/LockerBooPolicy.cs" Link="LockerBooPolicy.cs" />
     <Compile Include="../../mods/magic_wardrobe_hook_fix/MagicWardrobeHookPolicy.cs" Link="MagicWardrobeHookPolicy.cs" />
     <Compile Include="../../mods/network_host_selector/HostSelectionProtocol.cs" Link="HostSelectionProtocol.cs" />
+    <Compile Include="../../mods/network_host_selector/LeaderHostPolicy.cs" Link="LeaderHostPolicy.cs" />
     <Compile Include="../../mods/pumpkin_radius_indicator_fix/PumpkinIndicatorScalePolicy.cs" Link="PumpkinIndicatorScalePolicy.cs" />
     <Compile Include="../../mods/ripper_corner_blink_fix/SharedCornerPolicy.cs" Link="SharedCornerPolicy.cs" />
   </ItemGroup>

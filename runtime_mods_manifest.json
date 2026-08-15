@@ -35,8 +35,8 @@
   },
   {
     "option_id": "network-host-selector",
-    "label": "Network Host Selector",
-    "details": "Lets the party leader choose who hosts the match when every player has the compatible mod.",
+    "label": "Leader Host",
+    "details": "Always makes the party creator host the match when every player has the compatible mod.",
     "category": "quality-of-life",
     "default_enabled": false,
     "stable": false,

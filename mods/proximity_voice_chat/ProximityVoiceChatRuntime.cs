@@ -38,7 +38,7 @@ internal static class ProximityVoiceChatRuntime
     private static ManualLogSource? _logger;
     private static ProximityVoiceChatConfig? _configuration;
     private static Harmony? _harmony;
-    private static SteamVoiceCapture? _capture;
+    private static OpusVoiceCapture? _capture;
     private static SteamVoiceTransport? _transport;
     private static VoicePeerDirectory? _peers;
     private static SpookedNetworkPlayer? _localPlayer;
@@ -243,12 +243,14 @@ internal static class ProximityVoiceChatRuntime
         }
 
         _peers = new VoicePeerDirectory(_logger!, _configuration!);
-        _capture = new SteamVoiceCapture(_logger!, _configuration!.EnableLogging.Value);
+        _capture = new OpusVoiceCapture(_logger!, _configuration!.EnableLogging.Value);
         _transport = new SteamVoiceTransport(
             _logger!,
             _configuration!.EnableLogging.Value,
             steamId => _peers?.IsAllowed(steamId) == true);
-        _logger!.LogInfo($"Proximity voice Steam services ready: localSteamId={_localSteamId}, sampleRate={_capture.SampleRate}");
+        _logger!.LogInfo(
+            $"Proximity voice services ready: localSteamId={_localSteamId}, "
+            + $"sampleRate={OpusVoiceCapture.SampleRate}, codec=Opus");
         return true;
     }
 
@@ -347,9 +349,8 @@ internal static class ProximityVoiceChatRuntime
         var pushToTalkPressed = mode == VoiceTransmissionMode.PushToTalk && IsPushToTalkPressed();
         var capturePermitted = !_configuration.StopWhenGameIsUnfocused.Value || Application.isFocused;
         var hasConfirmedPeers = _peers!.ConfirmedPeers.Count > 0;
-        // Keep Steam's microphone session warm while a peer is connected. Starting capture only
-        // when PTT is pressed repeatedly puts Steam back into its initial NoData period and loses
-        // the beginning of an utterance. Frames are drained locally while transmission is closed.
+        // Keep the microphone session warm while a peer is connected. Starting capture only when
+        // PTT is pressed loses the beginning of an utterance to device initialization latency.
         var shouldCapture = hasConfirmedPeers && capturePermitted;
         var shouldTransmit = shouldCapture
             && (mode switch
@@ -601,7 +602,6 @@ internal static class ProximityVoiceChatRuntime
         {
             playback = new RemoteVoicePlayback(
                 player.transform,
-                _capture!.SampleRate,
                 _configuration!,
                 _logger!,
                 packet.SenderSteamId.ToString());

@@ -73,6 +73,36 @@ var reservedBytePacket = encoded.ToArray();
 reservedBytePacket[7] = 1;
 Require(!VoiceProtocol.TryDecode(reservedBytePacket, out _), "reserved protocol byte was accepted");
 
+var incompatibleCodecPacket = encoded.ToArray();
+incompatibleCodecPacket[6] = 0;
+Require(!VoiceProtocol.TryDecode(incompatibleCodecPacket, out _), "incompatible voice codec was accepted");
+
+Require(
+    Math.Abs(VoiceGainPolicy.CalculatePeakLimitedGain(0.1f, 1f) - 3.5f) < 0.001f,
+    "clean speech did not receive the nominal voice gain");
+Require(
+    Math.Abs(VoiceGainPolicy.CalculatePeakLimitedGain(0.5f, 5f) - 1.9f) < 0.001f,
+    "loud speech gain was not limited below clipping");
+Require(
+    VoiceGainPolicy.CalculatePeakLimitedGain(0.5f, 0f) == 0f,
+    "muted voice received non-zero gain");
+Require(
+    VoicePacketLossPolicy.CountMissingFrames(42, 42) == 0,
+    "in-order voice packet reported a loss");
+Require(
+    VoicePacketLossPolicy.CountMissingFrames(42, 44) == 2,
+    "short voice packet gap was not measured");
+Require(
+    VoicePacketLossPolicy.CountMissingFrames(uint.MaxValue, 0) == 1,
+    "wrapped voice packet sequence was not measured");
+Require(
+    VoicePacketLossPolicy.CountMissingFrames(44, 42) == 0,
+    "older voice packet reported a forward loss");
+Require(
+    VoicePacketLossPolicy.CountMissingFrames(42, 4200)
+        == VoicePacketLossPolicy.MaximumConcealedFramesPerPacket,
+    "large voice packet gap was not bounded");
+
 var assembler = new VoiceFragmentAssembler();
 Require(!assembler.TryAdd(Packet(7, 2, 3, 7, 8), 1f, out _), "partial fragment assembly completed early");
 Require(!assembler.TryAdd(Packet(7, 0, 3, 1, 2, 3), 1.01f, out _), "partial fragment assembly completed early");
@@ -141,4 +171,4 @@ Require(
     && !VoiceOcclusionPolicy.IsStructuralName("OpenableGlobe_a_prefab"),
     "ordinary environment items were classified as walls");
 
-Console.WriteLine("Proximity voice protocol, jitter, fragmentation, audibility, distance, and occlusion tests passed.");
+Console.WriteLine("Proximity voice protocol, gain, jitter, fragmentation, audibility, distance, and occlusion tests passed.");

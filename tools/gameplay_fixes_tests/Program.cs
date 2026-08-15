@@ -368,6 +368,43 @@ var signatureDifferent = HostSelectionProtocol.ComputeMembershipSignature(new[]
 });
 Require(signatureA == signatureB, "Leader Host membership signature depends on enumeration order");
 Require(signatureA != signatureDifferent, "Leader Host membership signature ignored a changed identity");
+var observedParticipantSnapshot = LeaderHostParticipantPolicy.CreateSnapshot(new[]
+{
+    new LeaderHostParticipant(4, "steam-d", "D", true, false),
+    new LeaderHostParticipant(2, "steam-b", "B", true, false),
+    new LeaderHostParticipant(4, "duplicate-d", "Duplicate D", true, false),
+    new LeaderHostParticipant(6, "bot", "Test Bot", true, true),
+    new LeaderHostParticipant(0, "none", "None", false, false),
+});
+Require(
+    observedParticipantSnapshot.Select(participant => participant.Raw).SequenceEqual(new[] { 2, 4 }),
+    "Leader Host participant snapshot did not deterministically filter bots, invalid refs, or duplicates");
+Require(
+    LeaderHostParticipantPolicy.IsComplete(2, observedParticipantSnapshot.Count),
+    "Leader Host rejected a complete spawned-player snapshot");
+Require(
+    !LeaderHostParticipantPolicy.IsComplete(3, observedParticipantSnapshot.Count),
+    "Leader Host accepted an incomplete snapshot while a peer was still joining");
+Require(
+    !LeaderHostParticipantPolicy.IsComplete(0, 0),
+    "Leader Host treated an uninitialized Fusion session as a complete lobby");
+
+var repositoryRoot = new DirectoryInfo(AppContext.BaseDirectory);
+while (repositoryRoot is not null
+       && !File.Exists(Path.Combine(repositoryRoot.FullName, "runtime_mods_manifest.json")))
+{
+    repositoryRoot = repositoryRoot.Parent;
+}
+Require(repositoryRoot is not null, "gameplay tests could not locate the repository root");
+var leaderHostRuntimeSource = File.ReadAllText(Path.Combine(
+    repositoryRoot!.FullName,
+    "mods",
+    "network_host_selector",
+    "NetworkHostSelectorRuntime.cs"));
+Require(
+    !leaderHostRuntimeSource.Contains("ActivePlayers", StringComparison.Ordinal)
+    && !leaderHostRuntimeSource.Contains("Il2CppSystem.Collections.IEnumerator", StringComparison.Ordinal),
+    "Leader Host reintroduced unsafe polling of Fusion's mutable IL2CPP player iterator");
 
 Console.WriteLine("Gameplay fixes and synchronized Leader Host protocol tests passed.");
 

@@ -58,7 +58,7 @@ internal static class NetworkHostSelectorRuntime
     private static bool _observedValid;
     private static int _lastAckedRevision = -1;
     private static bool _localOnlySession;
-    private static IReadOnlyList<Participant> _cachedParticipants = Array.Empty<Participant>();
+    private static IReadOnlyList<LeaderHostParticipant> _cachedParticipants = Array.Empty<LeaderHostParticipant>();
 
     public static void Initialize(ManualLogSource logger, NetworkHostSelectorConfig configuration)
     {
@@ -166,8 +166,13 @@ internal static class NetworkHostSelectorRuntime
 
         var participants = GetParticipants(runner);
         _cachedParticipants = participants;
-        if (participants.Count == 0)
+        if (!LeaderHostParticipantPolicy.IsComplete(
+                runner.SessionInfo.PlayerCount,
+                participants.Count))
         {
+            _cachedParticipants = Array.Empty<LeaderHostParticipant>();
+            _localOnlySession = false;
+            _observedValid = false;
             return;
         }
 
@@ -223,7 +228,7 @@ internal static class NetworkHostSelectorRuntime
         }
     }
 
-    private static void TickCoordinator(NetworkRunner runner, IReadOnlyList<Participant> participants)
+    private static void TickCoordinator(NetworkRunner runner, IReadOnlyList<LeaderHostParticipant> participants)
     {
         var membership = ComputeMembership(participants);
         if (!string.Equals(membership, _coordinatorMembership, StringComparison.Ordinal))
@@ -342,7 +347,7 @@ internal static class NetworkHostSelectorRuntime
             valid: true);
     }
 
-    private static void ReadObservedState(NetworkRunner runner, IReadOnlyList<Participant> participants)
+    private static void ReadObservedState(NetworkRunner runner, IReadOnlyList<LeaderHostParticipant> participants)
     {
         try
         {
@@ -401,7 +406,7 @@ internal static class NetworkHostSelectorRuntime
 
     private static void PublishPeerStatus(
         NetworkRunner runner,
-        IReadOnlyList<Participant> participants,
+        IReadOnlyList<LeaderHostParticipant> participants,
         string membership,
         int acknowledgedRevision)
     {
@@ -484,10 +489,10 @@ internal static class NetworkHostSelectorRuntime
         }
     }
 
-    private static List<Participant> GetParticipants(NetworkRunner runner)
+    private static IReadOnlyList<LeaderHostParticipant> GetParticipants(NetworkRunner runner)
     {
         var stalePointers = new List<IntPtr>();
-        var livePlayers = new List<SpookedNetworkPlayer>();
+        var observedParticipants = new List<LeaderHostParticipant>();
         foreach (var pair in ObservedPlayers)
         {
             var player = pair.Value;
@@ -498,10 +503,22 @@ internal static class NetworkHostSelectorRuntime
                     stalePointers.Add(pair.Key);
                     continue;
                 }
-                if (player.Runner is not null && player.Runner.Pointer == runner.Pointer)
+                if (player.Runner is null || player.Runner.Pointer != runner.Pointer)
                 {
-                    livePlayers.Add(player);
+                    continue;
                 }
+
+                var playerRef = player.PlayerRef;
+                var userId = GetPlayerUserId(runner, playerRef);
+                var name = string.IsNullOrWhiteSpace(player.Nickname)
+                    ? $"PLAYER {playerRef.PlayerId}"
+                    : player.Nickname;
+                observedParticipants.Add(new LeaderHostParticipant(
+                    playerRef.RawEncoded,
+                    userId,
+                    name,
+                    playerRef.IsRealPlayer,
+                    player.IsBot));
             }
             catch
             {
@@ -513,52 +530,22 @@ internal static class NetworkHostSelectorRuntime
             ObservedPlayers.Remove(pointer);
         }
 
-        var playerObjects = livePlayers
-            .GroupBy(player => player.PlayerRef.RawEncoded)
-            .ToDictionary(group => group.Key, group => group.First());
-        var botRaws = playerObjects.Values
-            .Where(player => player.IsBot)
-            .Select(player => player.PlayerRef.RawEncoded)
-            .ToHashSet();
-        var participants = new List<Participant>();
-        foreach (var playerRef in GetActivePlayers(runner))
-        {
-            if (!playerRef.IsRealPlayer || botRaws.Contains(playerRef.RawEncoded))
-            {
-                continue;
-            }
-
-            string userId;
-            try
-            {
-                userId = runner.GetPlayerUserId(playerRef) ?? string.Empty;
-            }
-            catch
-            {
-                userId = string.Empty;
-            }
-            var name = playerObjects.TryGetValue(playerRef.RawEncoded, out var playerObject)
-                && !string.IsNullOrWhiteSpace(playerObject.Nickname)
-                    ? playerObject.Nickname
-                    : $"PLAYER {playerRef.PlayerId}";
-            participants.Add(new Participant(playerRef, playerRef.RawEncoded, userId, name));
-        }
-        return participants.OrderBy(participant => participant.Raw).ToList();
+        return LeaderHostParticipantPolicy.CreateSnapshot(observedParticipants);
     }
 
-    private static List<PlayerRef> GetActivePlayers(NetworkRunner runner)
+    private static string GetPlayerUserId(NetworkRunner runner, PlayerRef playerRef)
     {
-        var result = new List<PlayerRef>();
-        var genericEnumerator = runner.ActivePlayers.GetEnumerator();
-        var enumerator = new Il2CppSystem.Collections.IEnumerator(genericEnumerator.Pointer);
-        while (enumerator.MoveNext())
+        try
         {
-            result.Add(genericEnumerator.Current);
+            return runner.GetPlayerUserId(playerRef) ?? string.Empty;
         }
-        return result;
+        catch
+        {
+            return string.Empty;
+        }
     }
 
-    private static string ComputeMembership(IEnumerable<Participant> participants)
+    private static string ComputeMembership(IEnumerable<LeaderHostParticipant> participants)
     {
         return HostSelectionProtocol.ComputeMembershipSignature(
             participants.Select(participant => (participant.Raw, participant.UserId)));
@@ -601,7 +588,7 @@ internal static class NetworkHostSelectorRuntime
     private static void ResetForRunner(IntPtr runnerPointer)
     {
         _runnerPointer = runnerPointer;
-        _cachedParticipants = Array.Empty<Participant>();
+        _cachedParticipants = Array.Empty<LeaderHostParticipant>();
         _nextHelloAt = 0f;
         _nextAckAt = 0f;
         _coordinatorMembership = string.Empty;
@@ -676,6 +663,13 @@ internal static class NetworkHostSelectorRuntime
             return;
         }
         var participants = GetParticipants(runner);
+        if (!LeaderHostParticipantPolicy.IsComplete(
+                runner.SessionInfo.PlayerCount,
+                participants.Count))
+        {
+            _observedValid = false;
+            return;
+        }
         if (participants.Count == 1 && participants[0].Raw == runner.LocalPlayer.RawEncoded)
         {
             if (!TryResolvePartyCreator(
@@ -824,7 +818,7 @@ internal static class NetworkHostSelectorRuntime
 
         var participants = runner.Pointer == _runnerPointer
             ? _cachedParticipants
-            : Array.Empty<Participant>();
+            : Array.Empty<LeaderHostParticipant>();
         var membership = ComputeMembership(participants);
         var properties = runner.SessionInfo.Properties;
         var localRaw = runner.LocalPlayer.RawEncoded;
@@ -955,8 +949,6 @@ internal static class NetworkHostSelectorRuntime
     {
         _logger?.LogError($"{message}: {exception}");
     }
-
-    private sealed record Participant(PlayerRef PlayerRef, int Raw, string UserId, string Name);
 
     private sealed class NetworkHostSelectorWatcher : MonoBehaviour
     {

@@ -236,7 +236,7 @@
   {
     "option_id": "proximity-voice-chat",
     "label": "Proximity Voice Chat",
-    "details": "Adds low-latency Opus proximity voice with push-to-talk, voice activation, routed wall and door occlusion, volume controls, and separate living and ghost channels.",
+    "details": "Adds low-latency Opus proximity voice with push-to-talk, voice activation, optional directional audio, routed wall and door occlusion, per-player volume controls, and separate living and ghost channels.",
     "category": "gameplay",
     "default_enabled": false,
     "stable": false,

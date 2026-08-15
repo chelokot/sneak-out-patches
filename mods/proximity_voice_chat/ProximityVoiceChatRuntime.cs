@@ -12,6 +12,8 @@ using UnityEngine.InputSystem;
 
 namespace SneakOut.ProximityVoiceChat;
 
+internal readonly record struct VoicePartyMember(ulong SteamId, string DisplayName);
+
 internal static class ProximityVoiceChatRuntime
 {
     private const float HelloIntervalSeconds = 1.75f;
@@ -143,6 +145,44 @@ internal static class ProximityVoiceChatRuntime
         }
     }
 
+    public static IReadOnlyList<VoicePartyMember> GetRemotePartyMembers()
+    {
+        RefreshObservedPlayers();
+        var members = new Dictionary<ulong, VoicePartyMember>();
+        foreach (var player in ObservedPlayers.Values)
+        {
+            try
+            {
+                if (player is null
+                    || player.Pointer == IntPtr.Zero
+                    || player.HasInputAuthority
+                    || player.IsBot
+                    || !VoiceIdentityResolver.TryResolveSteamId(player, out var steamId)
+                    || steamId == 0
+                    || steamId == _localSteamId)
+                {
+                    continue;
+                }
+
+                var displayName = player.Nickname?.Trim();
+                if (string.IsNullOrWhiteSpace(displayName))
+                {
+                    displayName = $"Player {player.InternalId}";
+                }
+                members[steamId] = new VoicePartyMember(steamId, displayName);
+            }
+            catch
+            {
+                // A replicated player can disappear during the settings-frame snapshot.
+            }
+        }
+
+        return members.Values
+            .OrderBy(member => member.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(member => member.SteamId)
+            .ToArray();
+    }
+
     private static int LogSettingsHierarchy(Transform root, int depth, int remaining)
     {
         if (remaining <= 0 || root is null || root.Pointer == IntPtr.Zero)
@@ -167,11 +207,15 @@ internal static class ProximityVoiceChatRuntime
 
     private static void Tick()
     {
-        if (_shutdown || _configuration is null)
+        if (_configuration is null)
         {
             return;
         }
         ProximityVoiceSettingsUi.Tick();
+        if (_shutdown)
+        {
+            return;
+        }
         if (!_configuration.EnableMod.Value)
         {
             EndSession(sendGoodbye: true);
@@ -604,6 +648,7 @@ internal static class ProximityVoiceChatRuntime
                 player.transform,
                 _configuration!,
                 _logger!,
+                packet.SenderSteamId,
                 packet.SenderSteamId.ToString());
             Playbacks.Add(packet.SenderSteamId, playback);
             _logger?.LogInfo(

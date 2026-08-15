@@ -5,13 +5,13 @@
 `Proximity Voice Chat` is a separate BepInEx IL2CPP plugin. It does not modify the game's
 backend, Fusion simulation, player count, matchmaking, or native binaries.
 
-The first version uses the Steam client already required by the game for:
+The plugin uses the Steam client already required by the game for:
 
-- microphone capture and Steam's voice codec
 - authenticated peer identity
 - relayed P2P datagrams when a direct route is unavailable
 
-No external voice server, account, native codec, or microphone recording file is created.
+Microphone PCM is encoded with the Photon Voice Opus codec already shipped by the game. No
+external voice server, account, native codec, or microphone recording file is created.
 
 ## User behavior
 
@@ -21,12 +21,15 @@ No external voice server, account, native codec, or microphone recording file is
   and ends are not clipped.
 - `AlwaysOn` exists but is not the privacy-preserving default.
 - `Stop when game is unfocused` is enabled by default and can be changed in Audio settings.
-- Voice volume can be boosted to 500% for quiet microphones.
+- Audio settings shows a separate 0–500% volume slider for every remote, non-bot party member.
+  The local player is never listed, and overrides persist by SteamID64 across reconnects.
+- `Directional voice` is enabled by default. Turning it off centers every remote voice equally in
+  the left and right channels while retaining normal route-distance volume and wall/door muffling.
 - `MutedSteamIds` is a persistent local deny-list.
 - Enabled state and focus behavior use stock toggle rows, voice mode uses a stock dropdown,
-  push-to-talk uses the stock key-binding row, and volume/sensitivity use stock sliders inside the
-  game's Audio settings scroll. The normal rounded panels, hover outline, mouse, and controller
-  navigation are kept. Audible distance is fixed at 20 metres.
+  push-to-talk uses the stock key-binding row, and per-player volume/sensitivity use stock sliders
+  inside the game's Audio settings scroll. The normal rounded panels, hover outline, mouse, and
+  controller navigation are kept. Audible distance is fixed at 20 metres.
 
 ## Living and ghost channels
 
@@ -79,6 +82,8 @@ instead of accumulating latency. Teardown remains reliable.
 
 Each remote speaker owns:
 
+- a peak-safe gain stage driven by that speaker's SteamID64 volume override, falling back to the
+  configured default when no override has been saved
 - an adaptive packet-jitter buffer based on arrival/capture delta variation
 - late/duplicate packet rejection and bounded loss recovery
 - Steam voice decompression into a three-second circular PCM clip
@@ -119,8 +124,9 @@ the BepInEx chainloader into a real online lobby. Deterministic tests cover pack
 out-of-order fragmentation, jitter delay, packet-loss recovery, route-distance attenuation, and
 the complete living/ghost audibility matrix.
 
-The current unattended client later developed a Unity graphics-startup stall before plugin
-discovery, with the same behavior both with and without this plugin and under both DXVK and
-WineD3D. Consequently the newest stock-settings UI revision still needs its captured visual smoke
-run after the external startup issue clears. Actual microphone-to-speaker validation also requires
-two different Steam accounts; one local client cannot authenticate a P2P voice peer to itself.
+The 0.4.0 stock-settings UI passed a captured visual smoke run on the live client: the audio panel
+showed the voice, transmission-mode, and directional-audio controls with their intended labels and
+did not create the removed global volume row. A remote account is required to populate and
+visually test the dynamic party-member rows.
+Actual microphone-to-speaker validation still requires two different Steam accounts; one local
+client cannot authenticate a P2P voice peer to itself.

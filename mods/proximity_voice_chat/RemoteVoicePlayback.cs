@@ -35,6 +35,7 @@ internal sealed class RemoteVoicePlayback : IDisposable
 
     private readonly ProximityVoiceChatConfig _configuration;
     private readonly ManualLogSource _logger;
+    private readonly ulong _peerSteamId;
     private readonly string _peerLabel;
     private readonly AdaptiveJitterBuffer _jitterBuffer;
     private readonly OpusVoiceDecoder _decoder;
@@ -72,10 +73,12 @@ internal sealed class RemoteVoicePlayback : IDisposable
         Transform anchor,
         ProximityVoiceChatConfig configuration,
         ManualLogSource logger,
+        ulong peerSteamId,
         string peerLabel)
     {
         _configuration = configuration;
         _logger = logger;
+        _peerSteamId = peerSteamId;
         _peerLabel = peerLabel;
         _anchor = anchor;
         _jitterBuffer = new AdaptiveJitterBuffer(
@@ -90,7 +93,7 @@ internal sealed class RemoteVoicePlayback : IDisposable
         _lowPassFilter = _host.AddComponent<AudioLowPassFilter>();
         _audioSource.loop = true;
         _audioSource.playOnAwake = false;
-        _audioSource.spatialBlend = 1f;
+        _audioSource.spatialBlend = configuration.DirectionalVoice.Value ? 1f : 0f;
         _audioSource.dopplerLevel = 0f;
         _audioSource.spread = 0f;
         _audioSource.rolloffMode = AudioRolloffMode.Custom;
@@ -246,7 +249,7 @@ internal sealed class RemoteVoicePlayback : IDisposable
         {
             return;
         }
-        _gainProcessor.Process(samples, _configuration.MasterVolume.Value);
+        _gainProcessor.Process(samples, _configuration.GetPlayerVolume(_peerSteamId));
         _audioOutput.Push(samples);
         _decodedFrames++;
     }
@@ -516,6 +519,7 @@ internal sealed class RemoteVoicePlayback : IDisposable
     {
         var profile = VoiceOcclusionPolicy.GetProfile(_occlusionKind);
         var blend = 1f - Mathf.Exp(-PlaybackEffectBlendSpeed * Time.unscaledDeltaTime);
+        _audioSource.spatialBlend = _configuration.DirectionalVoice.Value ? 1f : 0f;
         var distanceVolume = listener is null
             ? 1f
             : VoiceDistancePolicy.EvaluateVolume(_routeDistance);

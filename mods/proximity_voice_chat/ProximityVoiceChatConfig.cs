@@ -23,6 +23,8 @@ internal sealed class ProximityVoiceChatConfig
         ConfigEntry<float> voiceActivationHangoverSeconds,
         ConfigEntry<float> voiceActivationPreRollSeconds,
         ConfigEntry<float> masterVolume,
+        ConfigEntry<string> playerVolumes,
+        ConfigEntry<bool> directionalVoice,
         ConfigEntry<float> jitterBufferMilliseconds,
         ConfigEntry<float> maximumJitterMilliseconds,
         ConfigEntry<string> mutedSteamIds,
@@ -38,6 +40,8 @@ internal sealed class ProximityVoiceChatConfig
         VoiceActivationHangoverSeconds = voiceActivationHangoverSeconds;
         VoiceActivationPreRollSeconds = voiceActivationPreRollSeconds;
         MasterVolume = masterVolume;
+        PlayerVolumes = playerVolumes;
+        DirectionalVoice = directionalVoice;
         JitterBufferMilliseconds = jitterBufferMilliseconds;
         MaximumJitterMilliseconds = maximumJitterMilliseconds;
         MutedSteamIds = mutedSteamIds;
@@ -54,12 +58,68 @@ internal sealed class ProximityVoiceChatConfig
     public ConfigEntry<float> VoiceActivationHangoverSeconds { get; }
     public ConfigEntry<float> VoiceActivationPreRollSeconds { get; }
     public ConfigEntry<float> MasterVolume { get; }
+    public ConfigEntry<string> PlayerVolumes { get; }
+    public ConfigEntry<bool> DirectionalVoice { get; }
     public ConfigEntry<float> JitterBufferMilliseconds { get; }
     public ConfigEntry<float> MaximumJitterMilliseconds { get; }
     public ConfigEntry<string> MutedSteamIds { get; }
     public ConfigEntry<string> AdditionalPeerSteamIds { get; }
     public ConfigEntry<bool> CaptureSettingsScreenshot { get; }
     public ConfigEntry<bool> EnableLogging { get; }
+
+    private readonly Dictionary<ulong, float> _playerVolumeCache = new();
+    private string _cachedPlayerVolumesText = string.Empty;
+
+    public float GetPlayerVolume(ulong steamId)
+    {
+        RefreshPlayerVolumeCache();
+        return steamId != 0 && _playerVolumeCache.TryGetValue(steamId, out var volume)
+            ? volume
+            : Math.Clamp(
+                MasterVolume.Value,
+                VoicePlayerVolumePolicy.MinimumVolume,
+                VoicePlayerVolumePolicy.MaximumVolume);
+    }
+
+    public void SetPlayerVolume(ulong steamId, float volume)
+    {
+        if (steamId == 0 || !float.IsFinite(volume))
+        {
+            return;
+        }
+
+        RefreshPlayerVolumeCache();
+        var clamped = Math.Clamp(
+            volume,
+            VoicePlayerVolumePolicy.MinimumVolume,
+            VoicePlayerVolumePolicy.MaximumVolume);
+        if (_playerVolumeCache.TryGetValue(steamId, out var existing)
+            && Mathf.Approximately(existing, clamped))
+        {
+            return;
+        }
+
+        _playerVolumeCache[steamId] = clamped;
+        var serialized = VoicePlayerVolumePolicy.Serialize(_playerVolumeCache);
+        _cachedPlayerVolumesText = serialized;
+        PlayerVolumes.Value = serialized;
+    }
+
+    private void RefreshPlayerVolumeCache()
+    {
+        var current = PlayerVolumes.Value ?? string.Empty;
+        if (string.Equals(current, _cachedPlayerVolumesText, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _playerVolumeCache.Clear();
+        foreach (var pair in VoicePlayerVolumePolicy.Parse(current))
+        {
+            _playerVolumeCache[pair.Key] = pair.Value;
+        }
+        _cachedPlayerVolumesText = current;
+    }
 
     public static ProximityVoiceChatConfig Bind(ConfigFile config)
     {
@@ -179,7 +239,17 @@ internal sealed class ProximityVoiceChatConfig
             "Playback",
             "MasterVolume",
             1f,
-            new ConfigDescription("Voice volume multiplier with peak-safe gain above 100%.", new AcceptableValueRange<float>(0f, 5f)));
+            new ConfigDescription("Default voice volume for players without a saved per-player override.", new AcceptableValueRange<float>(0f, 5f)));
+        var playerVolumes = config.Bind(
+            "Playback",
+            "PlayerVolumes",
+            string.Empty,
+            "Saved per-player voice volumes as SteamID64=multiplier pairs.");
+        var directionalVoice = config.Bind(
+            "Playback",
+            "DirectionalVoice",
+            true,
+            "Pan remote voices toward their world-space direction. Distance and occlusion volume remain active when disabled.");
         var jitterBufferMilliseconds = config.Bind(
             "Playback",
             "JitterBufferMilliseconds",
@@ -240,6 +310,8 @@ internal sealed class ProximityVoiceChatConfig
             voiceActivationHangoverSeconds,
             voiceActivationPreRollSeconds,
             masterVolume,
+            playerVolumes,
+            directionalVoice,
             jitterBufferMilliseconds,
             maximumJitterMilliseconds,
             mutedSteamIds,

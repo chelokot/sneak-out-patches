@@ -15,21 +15,25 @@ internal static class ProximityVoiceSettingsUi
 {
     private const float LeastSensitiveThreshold = 0.08f;
     private const float MostSensitiveThreshold = 0.002f;
+    private const float PartyRowRefreshIntervalSeconds = 0.5f;
 
+    private static readonly Dictionary<ulong, PlayerVolumeSettingsRow> PlayerVolumeRows = new();
     private static ProximityVoiceChatConfig? _configuration;
     private static ManualLogSource? _logger;
     private static GameMenuView? _view;
+    private static GameObject? _sliderTemplate;
     private static ToggleSettingsRow? _enabledRow;
     private static DropdownSettingsRow? _modeRow;
     private static BindingSettingsRow? _bindingRow;
     private static ToggleSettingsRow? _stopWhenUnfocusedRow;
-    private static SliderSettingsRow? _volumeRow;
+    private static ToggleSettingsRow? _directionalVoiceRow;
     private static SliderSettingsRow? _sensitivityRow;
     private static UnityAction? _bindingClickAction;
     private static UnityAction? _bindingResetAction;
     private static bool _updating;
     private static bool _recordingBinding;
     private static float _recordingReadyAt;
+    private static float _nextPartyRowRefreshAt;
     private static float _diagnosticOpenAt = -1f;
     private static float _diagnosticCaptureAt = -1f;
 
@@ -62,6 +66,7 @@ internal static class ProximityVoiceSettingsUi
                 ?? throw new InvalidOperationException("Stock settings dropdown row is unavailable");
             var sliderTemplate = view._musicSlider.transform.parent?.gameObject
                 ?? throw new InvalidOperationException("Stock settings slider row is unavailable");
+            _sliderTemplate = sliderTemplate;
             var stockBinding = view._controlsPanel?.GetComponentsInChildren<BindingUI>(true).FirstOrDefault()
                 ?? throw new InvalidOperationException("Stock key-binding row is unavailable");
             var bindingTemplate = stockBinding.transform.parent?.gameObject
@@ -74,14 +79,17 @@ internal static class ProximityVoiceSettingsUi
                 toggleTemplate,
                 view._audioPanel.transform,
                 "ProximityVoiceStopWhenUnfocusedPanel");
-            _volumeRow = CreateSliderRow(sliderTemplate, view._audioPanel.transform, "ProximityVoiceVolumePanel");
+            _directionalVoiceRow = CreateToggleRow(
+                toggleTemplate,
+                view._audioPanel.transform,
+                "ProximityVoiceDirectionalPanel");
             _sensitivityRow = CreateSliderRow(
                 sliderTemplate,
                 view._audioPanel.transform,
                 "ProximityVoiceSensitivityPanel");
 
-            ConfigureSlider(_volumeRow.Slider, 0f, 5f, wholeNumbers: false);
             ConfigureSlider(_sensitivityRow.Slider, 0f, 100f, wholeNumbers: true);
+            SyncPlayerVolumeRows(force: true);
             Refresh(forceSliderValues: true);
             if (_configuration.CaptureSettingsScreenshot.Value)
             {
@@ -105,6 +113,7 @@ internal static class ProximityVoiceSettingsUi
 
         try
         {
+            SyncPlayerVolumeRows(force: false);
             TickVisualDiagnostic();
             if (_modeRow?.Root.activeInHierarchy != true)
             {
@@ -162,7 +171,7 @@ internal static class ProximityVoiceSettingsUi
         var enabled = _enabledRow!.Toggle.isOn;
         var mode = (VoiceTransmissionMode)Mathf.Clamp(_modeRow!.Dropdown.value, 0, 2);
         var stopWhenUnfocused = _stopWhenUnfocusedRow!.Toggle.isOn;
-        var volume = Mathf.Clamp(_volumeRow!.Slider.value, 0f, 5f);
+        var directionalVoice = _directionalVoiceRow!.Toggle.isOn;
         var sensitivity = Mathf.Clamp01(_sensitivityRow!.Slider.value / 100f);
         var threshold = Mathf.Lerp(LeastSensitiveThreshold, MostSensitiveThreshold, sensitivity);
 
@@ -178,9 +187,20 @@ internal static class ProximityVoiceSettingsUi
         {
             configuration.StopWhenGameIsUnfocused.Value = stopWhenUnfocused;
         }
-        if (!Mathf.Approximately(configuration.MasterVolume.Value, volume))
+        if (configuration.DirectionalVoice.Value != directionalVoice)
         {
-            configuration.MasterVolume.Value = volume;
+            configuration.DirectionalVoice.Value = directionalVoice;
+        }
+        foreach (var playerRow in PlayerVolumeRows.Values)
+        {
+            var volume = Mathf.Clamp(
+                playerRow.Settings.Slider.value,
+                VoicePlayerVolumePolicy.MinimumVolume,
+                VoicePlayerVolumePolicy.MaximumVolume);
+            if (!Mathf.Approximately(configuration.GetPlayerVolume(playerRow.SteamId), volume))
+            {
+                configuration.SetPlayerVolume(playerRow.SteamId, volume);
+            }
         }
         if (!Mathf.Approximately(configuration.VoiceActivationThreshold.Value, threshold))
         {
@@ -207,8 +227,15 @@ internal static class ProximityVoiceSettingsUi
             RefreshToggle(_enabledRow!, _configuration.EnableMod.Value);
             RefreshDropdown(_modeRow!, (int)mode);
             RefreshToggle(_stopWhenUnfocusedRow!, _configuration.StopWhenGameIsUnfocused.Value);
-            RefreshSlider(_volumeRow!, _configuration.MasterVolume.Value, forceSliderValues);
+            RefreshToggle(_directionalVoiceRow!, _configuration.DirectionalVoice.Value);
             RefreshSlider(_sensitivityRow!, sensitivity, forceSliderValues);
+            foreach (var playerRow in PlayerVolumeRows.Values)
+            {
+                var volume = _configuration.GetPlayerVolume(playerRow.SteamId);
+                RefreshSlider(playerRow.Settings, volume, forceSliderValues);
+                SetTextIfChanged(playerRow.Settings.Title, playerRow.DisplayName);
+                SetTextIfChanged(playerRow.Settings.Value, $"{Mathf.RoundToInt(volume * 100f)}%");
+            }
 
             SetTextIfChanged(_enabledRow!.Title, "Proximity voice chat");
             SetTextIfChanged(_modeRow!.Title, "Voice mode");
@@ -220,8 +247,7 @@ internal static class ProximityVoiceSettingsUi
                     : GetBindingDisplayName(_configuration.PushToTalkBinding.Value));
             SetTextIfChanged(_bindingRow.ResetLabel, "Reset");
             SetTextIfChanged(_stopWhenUnfocusedRow!.Title, "Stop when game is unfocused");
-            SetTextIfChanged(_volumeRow!.Title, "Voice volume");
-            SetTextIfChanged(_volumeRow.Value, $"{Mathf.RoundToInt(_configuration.MasterVolume.Value * 100f)}%");
+            SetTextIfChanged(_directionalVoiceRow!.Title, "Directional voice");
             SetTextIfChanged(_sensitivityRow!.Title, "Microphone sensitivity");
             SetTextIfChanged(_sensitivityRow.Value, $"{Mathf.RoundToInt(sensitivity)}%");
 
@@ -336,6 +362,68 @@ internal static class ProximityVoiceSettingsUi
         var value = labels.FirstOrDefault(label => label.Pointer != title.Pointer)
             ?? throw new InvalidOperationException($"{name} has no value label");
         return new SliderSettingsRow(root, slider, title, value);
+    }
+
+    private static void SyncPlayerVolumeRows(bool force)
+    {
+        if (_sliderTemplate is null
+            || _sliderTemplate.Pointer == IntPtr.Zero
+            || _view?._audioPanel is null
+            || !SliderRowIsAvailable(_sensitivityRow))
+        {
+            return;
+        }
+
+        var now = Time.unscaledTime;
+        if (!force && now < _nextPartyRowRefreshAt)
+        {
+            return;
+        }
+        _nextPartyRowRefreshAt = now + PartyRowRefreshIntervalSeconds;
+
+        var members = ProximityVoiceChatRuntime.GetRemotePartyMembers();
+        var memberIds = members.Select(member => member.SteamId).ToHashSet();
+        foreach (var steamId in PlayerVolumeRows.Keys.Where(steamId => !memberIds.Contains(steamId)).ToArray())
+        {
+            var staleRow = PlayerVolumeRows[steamId];
+            if (staleRow.Settings.Root is not null && staleRow.Settings.Root.Pointer != IntPtr.Zero)
+            {
+                UnityEngine.Object.Destroy(staleRow.Settings.Root);
+            }
+            PlayerVolumeRows.Remove(steamId);
+        }
+
+        var parent = _view._audioPanel.transform;
+        foreach (var member in members)
+        {
+            if (!PlayerVolumeRows.TryGetValue(member.SteamId, out var playerRow)
+                || !SliderRowIsAvailable(playerRow.Settings))
+            {
+                var settings = CreateSliderRow(
+                    _sliderTemplate,
+                    parent,
+                    $"ProximityVoicePlayerVolumePanel_{member.SteamId}");
+                ConfigureSlider(
+                    settings.Slider,
+                    VoicePlayerVolumePolicy.MinimumVolume,
+                    VoicePlayerVolumePolicy.MaximumVolume,
+                    wholeNumbers: false);
+                var initialVolume = _configuration!.GetPlayerVolume(member.SteamId);
+                RefreshSlider(settings, initialVolume, force: true);
+                SetTextIfChanged(settings.Title, member.DisplayName);
+                SetTextIfChanged(settings.Value, $"{Mathf.RoundToInt(initialVolume * 100f)}%");
+                playerRow = new PlayerVolumeSettingsRow(member.SteamId, member.DisplayName, settings);
+                PlayerVolumeRows[member.SteamId] = playerRow;
+            }
+            else if (!string.Equals(playerRow.DisplayName, member.DisplayName, StringComparison.Ordinal))
+            {
+                playerRow = playerRow with { DisplayName = member.DisplayName };
+                PlayerVolumeRows[member.SteamId] = playerRow;
+            }
+
+            playerRow.Settings.Root.transform.SetSiblingIndex(
+                _sensitivityRow!.Root.transform.GetSiblingIndex());
+        }
     }
 
     private static void ConfigureSlider(Slider slider, float minimum, float maximum, bool wholeNumbers)
@@ -546,7 +634,7 @@ internal static class ProximityVoiceSettingsUi
             && DropdownRowIsAvailable(_modeRow)
             && BindingRowIsAvailable(_bindingRow)
             && ToggleRowIsAvailable(_stopWhenUnfocusedRow)
-            && SliderRowIsAvailable(_volumeRow)
+            && ToggleRowIsAvailable(_directionalVoiceRow)
             && SliderRowIsAvailable(_sensitivityRow);
     }
 
@@ -596,16 +684,19 @@ internal static class ProximityVoiceSettingsUi
             }
         }
         CancelBindingRecording();
+        PlayerVolumeRows.Clear();
         _view = null;
+        _sliderTemplate = null;
         _enabledRow = null;
         _modeRow = null;
         _bindingRow = null;
         _stopWhenUnfocusedRow = null;
-        _volumeRow = null;
+        _directionalVoiceRow = null;
         _sensitivityRow = null;
         _bindingClickAction = null;
         _bindingResetAction = null;
         _updating = false;
+        _nextPartyRowRefreshAt = 0f;
         _diagnosticOpenAt = -1f;
         _diagnosticCaptureAt = -1f;
     }
@@ -634,4 +725,9 @@ internal static class ProximityVoiceSettingsUi
     }
 
     private sealed record SliderSettingsRow(GameObject Root, Slider Slider, TMP_Text Title, TMP_Text Value);
+
+    private sealed record PlayerVolumeSettingsRow(
+        ulong SteamId,
+        string DisplayName,
+        SliderSettingsRow Settings);
 }

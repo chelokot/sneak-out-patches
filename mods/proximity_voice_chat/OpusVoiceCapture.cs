@@ -23,7 +23,6 @@ internal sealed class OpusVoiceCapture : IDisposable
     private Il2CppStructArray<float>? _microphoneFrame;
     private AudioClip? _microphoneClip;
     private string _microphoneDevice = string.Empty;
-    private byte[]? _encodedFrame;
     private int _readPosition;
     private int _microphoneChannels;
     private int _framesReadThisPoll;
@@ -128,7 +127,7 @@ internal sealed class OpusVoiceCapture : IDisposable
 
         var rootMeanSquare = (float)Math.Sqrt(sumSquares / FrameSamples);
         _pcmFrames++;
-        if (!_encoder.TryEncode(_monoFrame, FrameSamples, out _encodedFrame))
+        if (!_encoder.TryEncode(_monoFrame, FrameSamples, out var encodedFrame))
         {
             _encoderFailures++;
             if (!_warnedEncoderStall
@@ -143,19 +142,19 @@ internal sealed class OpusVoiceCapture : IDisposable
         }
 
         _capturedFrames++;
-        _capturedBytes += _encodedFrame.Length;
+        _capturedBytes += encodedFrame.Length;
         _rootMeanSquareTotal += rootMeanSquare;
         _peakSample = Math.Max(_peakSample, peak);
         ReportDiagnostics();
 
         frame = new CapturedVoiceFrame(
-            _encodedFrame,
+            encodedFrame,
             analyzeLevel ? rootMeanSquare : 1f);
         if (!_loggedFirstFrame)
         {
             _loggedFirstFrame = true;
             _logger.LogInfo(
-                $"Proximity voice captured first Opus frame: bytes={_encodedFrame.Length}, "
+                $"Proximity voice captured first Opus frame: bytes={encodedFrame.Length}, "
                 + $"rms={rootMeanSquare:F4}, peak={peak:F4}");
         }
         return true;

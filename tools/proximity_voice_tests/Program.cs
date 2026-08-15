@@ -1,5 +1,18 @@
 using SneakOut.ProximityVoiceChat;
 
+var playerVolumes = VoicePlayerVolumePolicy.Parse(
+    "76561198000000002=0.5;invalid;76561198000000001:1.75;76561198000000003=99");
+Require(
+    playerVolumes.Count == 3
+    && Math.Abs(playerVolumes[76561198000000001] - 1.75f) < 0.001f
+    && Math.Abs(playerVolumes[76561198000000002] - 0.5f) < 0.001f
+    && playerVolumes[76561198000000003] == VoicePlayerVolumePolicy.MaximumVolume,
+    "per-player voice volumes were not parsed and clamped");
+Require(
+    VoicePlayerVolumePolicy.Serialize(playerVolumes)
+        == "76561198000000001=1.75,76561198000000002=0.5,76561198000000003=5",
+    "per-player voice volumes were not serialized deterministically");
+
 static void Require(bool condition, string message)
 {
     if (!condition)

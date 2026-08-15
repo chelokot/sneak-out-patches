@@ -179,7 +179,7 @@ internal sealed class ProximityVoiceChatConfig
             "Playback",
             "MasterVolume",
             1f,
-            new ConfigDescription("Voice volume multiplier with PCM gain above 100%.", new AcceptableValueRange<float>(0f, 5f)));
+            new ConfigDescription("Voice volume multiplier with peak-safe gain above 100%.", new AcceptableValueRange<float>(0f, 5f)));
         var jitterBufferMilliseconds = config.Bind(
             "Playback",
             "JitterBufferMilliseconds",

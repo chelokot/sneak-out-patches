@@ -7,8 +7,8 @@ internal readonly record struct EncodedVoiceFrame(
     byte[] Payload);
 
 /// <summary>
-/// Small adaptive packet buffer. It absorbs Steam relay jitter without turning every short
-/// network wobble into an audible gap, while keeping the configured delay as a hard baseline.
+/// Small adaptive packet reorder buffer. It absorbs Steam relay jitter before Photon owns the
+/// longer adaptive PCM playout delay.
 /// </summary>
 internal sealed class AdaptiveJitterBuffer
 {
@@ -39,6 +39,8 @@ internal sealed class AdaptiveJitterBuffer
         _baseDelaySeconds + 4f * _estimatedJitterSeconds,
         _baseDelaySeconds,
         _maximumDelaySeconds);
+
+    public int BufferedFrameCount => _frames.Count;
 
     public void Enqueue(in EncodedVoiceFrame frame)
     {

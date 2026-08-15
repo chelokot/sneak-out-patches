@@ -24,7 +24,8 @@ internal readonly record struct VoicePacket(
 internal static class VoiceProtocol
 {
     private const uint Magic = 0x43565053; // SPVC in little-endian packet order.
-    private const byte Version = 1;
+    private const byte Version = 2;
+    private const byte OpusCodecProfile = 1;
     public const int HeaderLength = 48;
     public const int MaximumDatagramLength = 1200;
     public const int MaximumFragmentPayloadLength = MaximumDatagramLength - HeaderLength;
@@ -44,7 +45,7 @@ internal static class VoiceProtocol
         BinaryPrimitives.WriteUInt32LittleEndian(span, Magic);
         span[4] = Version;
         span[5] = (byte)packet.Kind;
-        span[6] = 0;
+        span[6] = OpusCodecProfile;
         span[7] = 0;
         BinaryPrimitives.WriteUInt64LittleEndian(span[8..], packet.SessionHash);
         BinaryPrimitives.WriteUInt64LittleEndian(span[16..], packet.SenderSteamId);
@@ -74,7 +75,7 @@ internal static class VoiceProtocol
             return false;
         }
 
-        if (data[6] != 0 || data[7] != 0)
+        if (data[6] != OpusCodecProfile || data[7] != 0)
         {
             return false;
         }

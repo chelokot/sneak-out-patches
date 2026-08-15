@@ -8,6 +8,9 @@
     <Reference Include="Fusion.Runtime">
       <HintPath>$(InteropDir)/Fusion.Runtime.dll</HintPath>
     </Reference>
+    <Reference Include="PhotonVoice.API">
+      <HintPath>$(InteropDir)/PhotonVoice.API.dll</HintPath>
+    </Reference>
     <Reference Include="com.rlabrecque.steamworks.net">
       <HintPath>$(InteropDir)/com.rlabrecque.steamworks.net.dll</HintPath>
     </Reference>

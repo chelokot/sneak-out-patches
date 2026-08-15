@@ -1,6 +1,8 @@
 using BepInEx.Logging;
 using Gameplay.Interactions;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
+using Photon.Voice;
+using Photon.Voice.Unity;
 using UnityEngine;
 using UnityEngine.AI;
 
@@ -35,33 +37,32 @@ internal sealed class RemoteVoicePlayback : IDisposable
     private readonly ManualLogSource _logger;
     private readonly string _peerLabel;
     private readonly AdaptiveJitterBuffer _jitterBuffer;
-    private readonly SteamVoiceDecoder _decoder;
+    private readonly OpusVoiceDecoder _decoder;
+    private readonly VoiceGainProcessor _gainProcessor = new();
+    private readonly Photon.Voice.Unity.Logger _photonLogger;
+    private readonly UnityAudioOut _audioOutput;
     private readonly GameObject _host;
     private readonly AudioSource _audioSource;
     private readonly AudioLowPassFilter _lowPassFilter;
-    private readonly AudioClip _clip;
-    private readonly int _clipSamples;
-    private readonly int _sampleRate;
-    private readonly int _startThresholdSamples;
-    private readonly Il2CppStructArray<float> _silence;
     private readonly Il2CppStructArray<RaycastHit> _occlusionHits = new(OcclusionHitCapacity);
-    private readonly Dictionary<int, Il2CppStructArray<float>> _uploadBuffers = new();
     private Transform _anchor;
     private NavMeshPath? _navMeshPath;
     private Vector3 _targetSourcePosition;
     private float _routeDistance;
-    private int _writePosition;
-    private int _lastPlaybackPosition;
-    private int _queuedSamples;
     private float _nextPropagationProbe;
+    private float _nextAudioDiagnostic;
+    private float _nextDecodeWarning;
     private float _currentDistanceVolumeMultiplier = 1f;
     private float _currentOcclusionVolumeMultiplier = 1f;
     private float _currentLowPassFrequency = VoiceOcclusionPolicy.UnoccludedLowPassFrequency;
     private VoiceOcclusionKind _occlusionKind;
     private VoicePropagationKind _propagationKind;
     private float _lastPacketTime;
-    private float _lastTickTime;
-    private bool _started;
+    private long _decodedFrames;
+    private long _decodeFailures;
+    private long _concealedFrames;
+    private uint _nextDecodeSequence;
+    private bool _hasDecodeSequence;
     private bool _outOfRange;
     private bool _suppressedByPlayerState;
     private bool _pathingUnavailable;
@@ -69,7 +70,6 @@ internal sealed class RemoteVoicePlayback : IDisposable
 
     public RemoteVoicePlayback(
         Transform anchor,
-        uint sampleRate,
         ProximityVoiceChatConfig configuration,
         ManualLogSource logger,
         string peerLabel)
@@ -79,9 +79,8 @@ internal sealed class RemoteVoicePlayback : IDisposable
         _peerLabel = peerLabel;
         _anchor = anchor;
         _jitterBuffer = new AdaptiveJitterBuffer(
-            configuration.JitterBufferMilliseconds.Value,
-            configuration.MaximumJitterMilliseconds.Value);
-        _decoder = new SteamVoiceDecoder(sampleRate);
+            20f,
+            120f);
 
         _host = new GameObject($"ProximityVoice-{peerLabel}");
         _host.hideFlags = HideFlags.HideAndDontSave;
@@ -89,16 +88,6 @@ internal sealed class RemoteVoicePlayback : IDisposable
         _host.transform.position = _targetSourcePosition;
         _audioSource = _host.AddComponent<AudioSource>();
         _lowPassFilter = _host.AddComponent<AudioLowPassFilter>();
-        _sampleRate = checked((int)sampleRate);
-        _clipSamples = _sampleRate * 3;
-        // The packet jitter buffer already owns network delay. The PCM ring only needs one normal
-        // Steam voice frame before starting, otherwise the same latency would be paid twice.
-        _startThresholdSamples = Math.Max(1, (int)(sampleRate * 0.02f));
-        _clip = AudioClip.Create($"ProximityVoice-{peerLabel}", _clipSamples, 1, _sampleRate, false);
-        _silence = new Il2CppStructArray<float>(_clipSamples);
-        _clip.SetData(_silence, 0);
-
-        _audioSource.clip = _clip;
         _audioSource.loop = true;
         _audioSource.playOnAwake = false;
         _audioSource.spatialBlend = 1f;
@@ -106,8 +95,35 @@ internal sealed class RemoteVoicePlayback : IDisposable
         _audioSource.spread = 0f;
         _audioSource.rolloffMode = AudioRolloffMode.Custom;
         ConfigureFlatDistanceCurve();
-        _audioSource.volume = Mathf.Clamp01(configuration.MasterVolume.Value);
+        _audioSource.volume = 1f;
         _lowPassFilter.cutoffFrequency = VoiceOcclusionPolicy.UnoccludedLowPassFrequency;
+
+        var maximumDelayMilliseconds = Mathf.RoundToInt(Math.Max(
+            configuration.JitterBufferMilliseconds.Value,
+            configuration.MaximumJitterMilliseconds.Value));
+        var targetDelayMilliseconds = Mathf.RoundToInt(Math.Clamp(
+            configuration.JitterBufferMilliseconds.Value,
+            40,
+            maximumDelayMilliseconds));
+        var playDelay = new AudioOutDelayControl.PlayDelayConfig
+        {
+            Low = targetDelayMilliseconds,
+            High = Math.Min(maximumDelayMilliseconds, targetDelayMilliseconds + 40),
+            Max = maximumDelayMilliseconds,
+            SpeedUpPerc = 5,
+        };
+        _photonLogger = new Photon.Voice.Unity.Logger(
+            configuration.EnableLogging.Value
+                ? Photon.Voice.LogLevel.Info
+                : Photon.Voice.LogLevel.Warning);
+        _audioOutput = new UnityAudioOut(
+            _audioSource,
+            playDelay,
+            new Photon.Voice.ILogger(_photonLogger.Pointer),
+            $"[ProximityVoice:{peerLabel}]",
+            configuration.EnableLogging.Value);
+        _audioOutput.Start(OpusVoiceCapture.SampleRate, 1, OpusVoiceCapture.FrameSamples);
+        _decoder = new OpusVoiceDecoder(OnDecodedFrame);
     }
 
     public Transform Anchor => _anchor;
@@ -142,14 +158,7 @@ internal sealed class RemoteVoicePlayback : IDisposable
             return;
         }
 
-        if (_started
-            && _lastTickTime > 0f
-            && nowSeconds - _lastTickTime > Math.Max(0.25f, _queuedSamples / (float)_sampleRate + 0.05f))
-        {
-            ResetPlayback();
-        }
-        _lastTickTime = nowSeconds;
-        UpdateConsumedSamples();
+        _audioOutput.Service();
         if (!audibleForPlayerState)
         {
             _jitterBuffer.Reset();
@@ -179,25 +188,35 @@ internal sealed class RemoteVoicePlayback : IDisposable
         var decodeBudget = 8;
         while (decodeBudget-- > 0 && _jitterBuffer.TryDequeue(nowSeconds, out var frame))
         {
-            if (_decoder.TryDecode(frame.Payload, out var samples, out var sampleCount))
+            try
             {
-                WriteSamples(samples, sampleCount);
+                var missingFrames = _hasDecodeSequence
+                    ? VoicePacketLossPolicy.CountMissingFrames(_nextDecodeSequence, frame.Sequence)
+                    : 0;
+                _nextDecodeSequence = frame.Sequence + 1;
+                _hasDecodeSequence = true;
+                _concealedFrames += missingFrames;
+                if (!_decoder.TryDecode(frame.Payload, missingFrames))
+                {
+                    _decodeFailures++;
+                }
+            }
+            catch (Exception exception)
+            {
+                _decodeFailures++;
+                if (nowSeconds >= _nextDecodeWarning)
+                {
+                    _nextDecodeWarning = nowSeconds + 10f;
+                    _logger.LogWarning(
+                        $"Proximity voice Opus decode failed for peer {_peerLabel}: "
+                        + $"{exception.GetType().Name}: {exception.Message}; "
+                        + $"totalFailures={_decodeFailures}");
+                }
             }
         }
 
-        if (!_started && _queuedSamples >= _startThresholdSamples)
-        {
-            _audioSource.timeSamples = 0;
-            _lastPlaybackPosition = 0;
-            _audioSource.Play();
-            _started = true;
-        }
-        else if (_started && _queuedSamples <= 0)
-        {
-            ResetPlayback();
-        }
-
         ApplyPlaybackEffects(listener);
+        ReportAudioDiagnostics(nowSeconds);
     }
 
     private void ConfigureFlatDistanceCurve()
@@ -221,64 +240,15 @@ internal sealed class RemoteVoicePlayback : IDisposable
         }
     }
 
-    private void WriteSamples(float[] samples, int sampleCount)
+    private void OnDecodedFrame(Il2CppArrayBase<float> samples)
     {
-        if (sampleCount <= 0 || sampleCount > samples.Length || sampleCount >= _clipSamples)
+        if (_disposed || samples.Length == 0)
         {
             return;
         }
-
-        // If decode gets more than one circular clip ahead of playback, stale speech is worse than
-        // a clean resynchronization. Drop the old queue and restart with the newest utterance.
-        if (_queuedSamples + sampleCount >= _clipSamples - _startThresholdSamples)
-        {
-            ResetPlayback();
-        }
-
-        var firstLength = Math.Min(sampleCount, _clipSamples - _writePosition);
-        SetClipData(samples, 0, firstLength, _writePosition);
-        var secondLength = sampleCount - firstLength;
-        if (secondLength > 0)
-        {
-            SetClipData(samples, firstLength, secondLength, 0);
-        }
-        _writePosition = (_writePosition + sampleCount) % _clipSamples;
-        _queuedSamples += sampleCount;
-    }
-
-    private void SetClipData(float[] source, int sourceOffset, int length, int clipOffset)
-    {
-        if (!_uploadBuffers.TryGetValue(length, out var data))
-        {
-            data = new Il2CppStructArray<float>(length);
-            if (_uploadBuffers.Count < 32)
-            {
-                _uploadBuffers.Add(length, data);
-            }
-        }
-        // Unity clamps AudioSource.volume to 0..1. Apply only the portion above 100% to PCM so the
-        // 500% setting is an actual gain control rather than a cosmetic slider extension.
-        var boost = Math.Max(1f, _configuration.MasterVolume.Value);
-        for (var index = 0; index < length; index++)
-        {
-            data[index] = Mathf.Clamp(source[sourceOffset + index] * boost, -1f, 1f);
-        }
-        _clip.SetData(data, clipOffset);
-    }
-
-    private void UpdateConsumedSamples()
-    {
-        if (!_started || !_audioSource.isPlaying)
-        {
-            return;
-        }
-
-        var current = _audioSource.timeSamples;
-        var consumed = current >= _lastPlaybackPosition
-            ? current - _lastPlaybackPosition
-            : _clipSamples - _lastPlaybackPosition + current;
-        _lastPlaybackPosition = current;
-        _queuedSamples = Math.Max(0, _queuedSamples - consumed);
+        _gainProcessor.Process(samples, _configuration.MasterVolume.Value);
+        _audioOutput.Push(samples);
+        _decodedFrames++;
     }
 
     private void UpdatePropagation(float nowSeconds, Transform? listener)
@@ -561,11 +531,25 @@ internal sealed class RemoteVoicePlayback : IDisposable
             _currentLowPassFrequency,
             profile.LowPassFrequency,
             blend);
-        var unoccludedVolume = Mathf.Clamp01(_configuration.MasterVolume.Value);
-        _audioSource.volume = unoccludedVolume
-            * _currentDistanceVolumeMultiplier
+        _audioSource.volume = _currentDistanceVolumeMultiplier
             * _currentOcclusionVolumeMultiplier;
         _lowPassFilter.cutoffFrequency = _currentLowPassFrequency;
+    }
+
+    private void ReportAudioDiagnostics(float nowSeconds)
+    {
+        if (!_configuration.EnableLogging.Value || nowSeconds < _nextAudioDiagnostic)
+        {
+            return;
+        }
+        _nextAudioDiagnostic = nowSeconds + 10f;
+        _logger.LogInfo(
+            $"Proximity voice playback metrics: peer={_peerLabel}, decodedFrames={_decodedFrames}, "
+            + $"decodeFailures={_decodeFailures}, concealedFrames={_concealedFrames}, "
+            + $"packetFrames={_jitterBuffer.BufferedFrameCount}, "
+            + $"packetDelayMs={_jitterBuffer.TargetDelaySeconds * 1000f:F1}, "
+            + $"playoutLagMs={_audioOutput.Lag}, inputPeak={_gainProcessor.LastInputPeak:F4}, "
+            + $"gain={_gainProcessor.CurrentGain:F2}, playing={_audioOutput.IsPlaying}");
     }
 
     private static Vector3 GetVoiceOrigin(Transform anchor)
@@ -649,12 +633,9 @@ internal sealed class RemoteVoicePlayback : IDisposable
 
     private void ResetPlayback()
     {
-        _audioSource.Stop();
-        _clip.SetData(_silence, 0);
-        _writePosition = 0;
-        _lastPlaybackPosition = 0;
-        _queuedSamples = 0;
-        _started = false;
+        _hasDecodeSequence = false;
+        _audioOutput.Flush();
+        _audioOutput.Service();
     }
 
     public void Dispose()
@@ -664,8 +645,13 @@ internal sealed class RemoteVoicePlayback : IDisposable
             return;
         }
         _disposed = true;
-        _audioSource.Stop();
-        UnityEngine.Object.Destroy(_clip);
+        var playbackClip = _audioOutput.clip;
+        _audioOutput.Stop();
+        _decoder.Dispose();
+        if (playbackClip is not null && playbackClip.Pointer != IntPtr.Zero)
+        {
+            UnityEngine.Object.Destroy(playbackClip);
+        }
         UnityEngine.Object.Destroy(_host);
         _jitterBuffer.Reset();
     }

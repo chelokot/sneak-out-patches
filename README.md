@@ -53,7 +53,7 @@ not Developer ID signed or notarized; if necessary, Control-click it and choose
 | `chair-wall-throw-fix` | Chair Wall Throw Fix | Yes | Lets you throw held chairs, barrels, and ingredients even when they overlap a wall or exceed the usual distance. |
 | `pumpkin-radius-indicator-fix` | Pumpkin Radius Indicator Fix | Yes | Shows accurate kill and stun radius rings when the pumpkin activates. |
 | `ripper-corner-blink-fix` | Ripper Corner Blink Fix | Yes | Fixes the Ripper's through-wall blink at room corners without changing the normal blink. |
-| `proximity-voice-chat` | Proximity Voice Chat | Yes | Adds spatial proximity voice chat with push-to-talk, voice activation, wall and door occlusion, volume controls, and separate living and ghost channels. |
+| `proximity-voice-chat` | Proximity Voice Chat | Yes | Adds low-latency Opus proximity voice with push-to-talk, voice activation, routed wall and door occlusion, volume controls, and separate living and ghost channels. |
 | `lobby-skill-sandbox` | Lobby Skill Sandbox | Yes | Lets you open the skill panel and safely practice sliding in the lobby. |
 
 ### Quality of life

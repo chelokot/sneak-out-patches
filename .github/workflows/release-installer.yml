@@ -112,7 +112,15 @@ jobs:
           cargo +1.94.1 build --locked --manifest-path installer-rs/Cargo.toml --release --target aarch64-apple-darwin --features macos-launcher --bin sneakout-patches-macos
           cargo +1.94.1 build --locked --manifest-path installer-rs/Cargo.toml --release --target x86_64-apple-darwin --features macos-launcher --bin sneakout-patches-macos
 
-      - name: Stage the universal macOS launcher
+      - name: Verify the thin macOS launchers
+        shell: bash
+        run: |
+          test -s installer-rs/target/aarch64-apple-darwin/release/sneakout-patches-macos
+          test -s installer-rs/target/x86_64-apple-darwin/release/sneakout-patches-macos
+          lipo -info installer-rs/target/aarch64-apple-darwin/release/sneakout-patches-macos
+          lipo -info installer-rs/target/x86_64-apple-darwin/release/sneakout-patches-macos
+
+      - name: Create the universal macOS launcher
         shell: bash
         run: |
           mkdir -p dist-macos
@@ -120,6 +128,10 @@ jobs:
             installer-rs/target/aarch64-apple-darwin/release/sneakout-patches-macos \
             installer-rs/target/x86_64-apple-darwin/release/sneakout-patches-macos \
             -output dist-macos/SneakOutPatches
+
+      - name: Verify the universal macOS launcher
+        shell: bash
+        run: |
           lipo -verify_arch arm64 x86_64 dist-macos/SneakOutPatches
 
       - uses: actions/upload-artifact@v4

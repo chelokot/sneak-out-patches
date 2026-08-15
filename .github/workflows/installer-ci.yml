@@ -22,3 +22,11 @@ jobs:
 
       - name: Test the native installer
         run: cargo +1.94.1 test --locked --manifest-path installer-rs/Cargo.toml --all-features
+
+      - name: Check the macOS launcher UI
+        run: >-
+          cargo +1.94.1 check
+          --locked
+          --manifest-path installer-rs/Cargo.toml
+          --features macos-launcher
+          --bin sneakout-patches-macos

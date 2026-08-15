@@ -2,15 +2,19 @@ name: Release installer
 
 on:
   push:
+    branches:
+      - main
     tags:
       - "v*"
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: write
 
 jobs:
   test:
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v6
@@ -22,12 +26,13 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: "./installer-rs -> target"
+          cache-workspace-crates: "true"
 
       - name: Test the native installer
         run: cargo +1.94.1 test --locked --manifest-path installer-rs/Cargo.toml --all-features
 
   native:
-    needs: test
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
     strategy:
       fail-fast: false
       matrix:
@@ -45,6 +50,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: "./installer-rs -> target"
+          cache-workspace-crates: "true"
 
       - name: Build the graphical installer
         run: >-
@@ -84,7 +90,7 @@ jobs:
           if-no-files-found: error
 
   macos:
-    needs: native
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v6
@@ -98,28 +104,56 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: "./installer-rs -> target"
+          cache-workspace-crates: "true"
+          cache-on-failure: "true"
 
       - name: Build the universal macOS launcher
         run: |
           cargo +1.94.1 build --locked --manifest-path installer-rs/Cargo.toml --release --target aarch64-apple-darwin --features macos-launcher --bin sneakout-patches-macos
           cargo +1.94.1 build --locked --manifest-path installer-rs/Cargo.toml --release --target x86_64-apple-darwin --features macos-launcher --bin sneakout-patches-macos
 
+      - name: Stage the universal macOS launcher
+        shell: bash
+        run: |
+          mkdir -p dist-macos
+          lipo -create \
+            installer-rs/target/aarch64-apple-darwin/release/sneakout-patches-macos \
+            installer-rs/target/x86_64-apple-darwin/release/sneakout-patches-macos \
+            -output dist-macos/SneakOutPatches
+          lipo -verify_arch arm64 x86_64 dist-macos/SneakOutPatches
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-launcher
+          path: dist-macos/SneakOutPatches
+          if-no-files-found: error
+
+  package-macos:
+    needs:
+      - native
+      - macos
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+
       - uses: actions/download-artifact@v4
         with:
           name: native-Windows
           path: dist-native/windows
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-launcher
+          path: dist-macos
 
       - name: Package the macOS application
         shell: bash
         run: |
           app="dist-native/package/SneakOutPatches.app"
           mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-          lipo -create \
-            installer-rs/target/aarch64-apple-darwin/release/sneakout-patches-macos \
-            installer-rs/target/x86_64-apple-darwin/release/sneakout-patches-macos \
-            -output "$app/Contents/MacOS/SneakOutPatches"
-          lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/SneakOutPatches"
+          cp dist-macos/SneakOutPatches "$app/Contents/MacOS/SneakOutPatches"
           chmod 755 "$app/Contents/MacOS/SneakOutPatches"
+          lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/SneakOutPatches"
           cp installer-rs/macos/Info.plist "$app/Contents/Info.plist"
           version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' installer-rs/Cargo.toml | head -n 1)"
           /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $version" "$app/Contents/Info.plist"
@@ -141,23 +175,51 @@ jobs:
           if-no-files-found: error
 
   release:
-    needs:
-      - native
-      - macos
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - name: Verify installer version matches the release tag
-        if: startsWith(github.ref, 'refs/tags/')
         shell: bash
         run: |
           installer_version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' installer-rs/Cargo.toml | head -n 1)"
           test "v${installer_version}" = "${GITHUB_REF_NAME}"
 
+      - name: Find the successful main build for this commit
+        id: build
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const { data } = await github.rest.actions.listWorkflowRuns({
+              owner,
+              repo,
+              workflow_id: "release-installer.yml",
+              branch: "main",
+              event: "push",
+              status: "success",
+              head_sha: context.sha,
+              per_page: 10,
+            });
+            const run = data.workflow_runs.find(candidate =>
+              candidate.head_sha === context.sha && candidate.event === "push"
+            );
+            if (!run) {
+              core.setFailed(
+                `No successful main build found for tagged commit ${context.sha}. ` +
+                "Push the release commit to main and let this workflow finish before tagging it."
+              );
+              return;
+            }
+            core.info(`Promoting artifacts from main workflow run ${run.id}.`);
+            core.setOutput("run-id", String(run.id));
+
       - uses: actions/download-artifact@v4
         with:
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.build.outputs.run-id }}
           pattern: native-*
           path: dist/native
           merge-multiple: true
@@ -218,7 +280,6 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
 
       - name: Create GitHub release
-        if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_NOTES: ${{ steps.changelog.outputs.changelog }}

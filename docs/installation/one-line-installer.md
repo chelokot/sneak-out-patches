@@ -85,7 +85,9 @@ overwritten during uninstall.
 ## Publishing
 
 `python3 tools/package_installer_payload.py` remains available for local payload
-validation. The `Release installer` workflow runs the test suite once, builds only the
-graphical installer on Windows and Linux, builds the universal macOS Sikarugir GUI
-without repeating the tests, and creates the GitHub Release for `v*` tags. Windows and
-Linux are direct binaries; only the macOS app bundle is zipped.
+validation. A trusted `main` push runs the test suite once, builds the graphical
+installer on Windows and Linux, and builds both macOS Sikarugir GUI architectures in
+parallel. A short macOS packaging job joins the universal launcher with the Windows
+installer. A `v*` tag on that exact commit promotes those verified artifacts into a
+GitHub Release instead of rebuilding them. Windows and Linux are direct binaries; only
+the macOS app bundle is zipped.

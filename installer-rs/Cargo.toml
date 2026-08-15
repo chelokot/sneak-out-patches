@@ -1,6 +1,6 @@
 [package]
 name = "sneakout-patches-installer"
-version = "1.0.2"
+version = "1.0.3"
 edition = "2024"
 autobins = false
 description = "Native Sneak Out runtime mod installer"
@@ -60,5 +60,5 @@ assert_cmd = "2.1"
 tempfile = "3.23"
 
 [profile.release]
-lto = "thin"
+lto = false
 strip = true

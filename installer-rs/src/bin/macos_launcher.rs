@@ -1,40 +1,28 @@
-#[cfg(target_os = "macos")]
+#![cfg_attr(not(target_os = "macos"), allow(dead_code))]
+
 use eframe::egui::{self, Color32, RichText};
-#[cfg(target_os = "macos")]
 use sneakout_installer::{
     ProgressEvent, SikarugirWrapper, default_sikarugir_roots, discover_sikarugir_wrappers,
     inspect_sikarugir_wrapper, launch_sikarugir_installer, resolve_sikarugir_installer,
 };
-#[cfg(target_os = "macos")]
 use std::sync::mpsc::{self, Receiver, TryRecvError};
-#[cfg(target_os = "macos")]
 use std::thread;
-#[cfg(target_os = "macos")]
 use std::time::Duration;
 
-#[cfg(target_os = "macos")]
 const BACKGROUND: Color32 = Color32::from_rgb(6, 20, 29);
-#[cfg(target_os = "macos")]
 const CARD: Color32 = Color32::from_rgb(15, 34, 48);
-#[cfg(target_os = "macos")]
 const ACCENT: Color32 = Color32::from_rgb(13, 145, 181);
-#[cfg(target_os = "macos")]
 const PRIMARY: Color32 = Color32::from_rgb(246, 248, 250);
-#[cfg(target_os = "macos")]
 const SECONDARY: Color32 = Color32::from_rgb(183, 199, 211);
-#[cfg(target_os = "macos")]
 const SUCCESS: Color32 = Color32::from_rgb(119, 218, 55);
-#[cfg(target_os = "macos")]
 const ERROR: Color32 = Color32::from_rgb(244, 104, 95);
 
-#[cfg(target_os = "macos")]
 enum WorkerMessage {
     Discovered(Vec<SikarugirWrapper>),
     Progress(ProgressEvent),
     Launched(Result<String, String>),
 }
 
-#[cfg(target_os = "macos")]
 struct MacLauncherApp {
     wrappers: Vec<SikarugirWrapper>,
     selected: Option<usize>,
@@ -47,6 +35,15 @@ struct MacLauncherApp {
 }
 
 #[cfg(target_os = "macos")]
+fn pick_wrapper(dialog: rfd::FileDialog) -> Option<std::path::PathBuf> {
+    dialog.pick_file_or_folder()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn pick_wrapper(dialog: rfd::FileDialog) -> Option<std::path::PathBuf> {
+    dialog.pick_folder()
+}
+
 impl MacLauncherApp {
     fn new(context: &eframe::CreationContext<'_>) -> Self {
         let mut visuals = egui::Visuals::dark();
@@ -57,7 +54,7 @@ impl MacLauncherApp {
         visuals.widgets.hovered.weak_bg_fill = ACCENT;
         visuals.widgets.active.weak_bg_fill = ACCENT;
         context.egui_ctx.set_visuals(visuals);
-        context.egui_ctx.style_mut(|style| {
+        context.egui_ctx.all_styles_mut(|style| {
             style.spacing.item_spacing = egui::vec2(10.0, 10.0);
             style.spacing.button_padding = egui::vec2(14.0, 8.0);
         });
@@ -162,7 +159,7 @@ impl MacLauncherApp {
         {
             dialog = dialog.set_directory(root);
         }
-        let Some(path) = dialog.pick_file_or_folder() else {
+        let Some(path) = pick_wrapper(dialog) else {
             return;
         };
         match inspect_sikarugir_wrapper(&path) {
@@ -219,15 +216,14 @@ impl MacLauncherApp {
     }
 }
 
-#[cfg(target_os = "macos")]
 impl eframe::App for MacLauncherApp {
-    fn update(&mut self, context: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.receive_messages();
         if self.busy {
-            context.request_repaint_after(Duration::from_millis(100));
+            ui.ctx().request_repaint_after(Duration::from_millis(100));
         }
 
-        egui::CentralPanel::default().show(context, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             ui.add_space(14.0);
             ui.heading(RichText::new("Sneak Out Patches for Sikarugir").size(25.0));
             ui.label(

@@ -5,18 +5,9 @@ on:
 
 jobs:
   installer:
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - ubuntu-latest
-          - windows-latest
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.13"
 
       - name: Install the pinned Rust toolchain
         run: rustup toolchain install 1.94.1 --profile minimal --component rustfmt
@@ -31,6 +22,3 @@ jobs:
 
       - name: Test the native installer
         run: cargo +1.94.1 test --locked --manifest-path installer-rs/Cargo.toml --all-features
-
-      - name: Package the release payload
-        run: python tools/package_installer_payload.py

@@ -17,8 +17,6 @@ use crate::io::{exists, write_file_atomic};
 use crate::model::{ProgressEvent, RuntimeMod, SupportedBuild};
 
 const REPOSITORY: &str = "chelokot/sneak-out-patches";
-const PAYLOAD_ASSET_NAME: &str = "sneakout-patches-payload.zip";
-const PAYLOAD_CHECKSUM_ASSET_NAME: &str = "sneakout-patches-payload.zip.sha256";
 const BEPINEX_URL: &str = "https://builds.bepinex.dev/projects/bepinex_be/755/BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.755%2B3fab71a.zip";
 const BEPINEX_SHA256: &str = "3616d6a67f5f595973ec4aa7bd7edaf7f799d5bb9926f7146a6dcc7b4abf478f";
 
@@ -293,62 +291,10 @@ fn payload_override() -> Result<Option<Payload>> {
     Ok(None)
 }
 
-pub fn resolve_latest_payload(reporter: ProgressReporter<'_>) -> Result<Payload> {
+pub fn resolve_payload(_offline: bool, _reporter: ProgressReporter<'_>) -> Result<Payload> {
     if let Some(payload) = payload_override()? {
         return Ok(payload);
     }
-
-    let release = fetch_release(reporter)?;
-    let payload = release
-        .assets
-        .iter()
-        .find(|asset| asset.name == PAYLOAD_ASSET_NAME)
-        .context("release payload asset is missing")?;
-    let checksum = release
-        .assets
-        .iter()
-        .find(|asset| asset.name == PAYLOAD_CHECKSUM_ASSET_NAME)
-        .context("release payload checksum is missing")?;
-    let root = cache_root()?.join("releases").join(release.id.to_string());
-    if !is_payload_root(&root) {
-        if root.exists() {
-            fs::remove_dir_all(&root)?;
-        }
-        reporter(ProgressEvent::Message(format!(
-            "Downloading payload for {}...",
-            release.tag_name
-        )));
-        let payload_bytes =
-            fetch_bytes(&payload.browser_download_url, "Sneak Out patches", reporter)?;
-        let checksum_bytes =
-            fetch_bytes(&checksum.browser_download_url, "Payload checksum", reporter)?;
-        let checksum_text = String::from_utf8(checksum_bytes)?;
-        let expected = checksum_text
-            .split_whitespace()
-            .next()
-            .context("release checksum is empty")?;
-        extract_verified_zip(&payload_bytes, expected, &root)?;
-    }
-    Ok(Payload {
-        root,
-        source: format!("GitHub release {}", release.tag_name),
-    })
-}
-
-pub fn resolve_payload(offline: bool, reporter: ProgressReporter<'_>) -> Result<Payload> {
-    if let Some(payload) = payload_override()? {
-        return Ok(payload);
-    }
-
-    if !offline {
-        match resolve_latest_payload(reporter) {
-            Ok(payload) => return Ok(payload),
-            Err(error) => reporter(ProgressEvent::Message(format!(
-                "Could not use the latest release: {error}. Using the embedded payload."
-            ))),
-        }
-    }
-
     resolve_embedded_payload()
 }
 

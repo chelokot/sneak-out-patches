@@ -4,12 +4,26 @@ Runtime mods for **Sneak Out**.
 
 ## Install
 
-Download and extract the latest GitHub release, then run:
+Download the graphical installer for your platform from the latest GitHub release:
 
-- `SneakOutPatches.exe` on Windows
-- `./SneakOutPatches` on Linux
+- `SneakOutPatches-windows-x86_64.exe` on Windows
+- `SneakOutPatches-linux-x86_64` on Linux
+- `SneakOutPatches.app` from `SneakOutPatches-macos-universal.zip` on macOS when
+  Windows Steam and Sneak Out are installed in a Sikarugir wrapper
 
 Use the installer to choose or remove mods.
+
+On Linux, make the downloaded binary executable before running it:
+
+```sh
+chmod +x SneakOutPatches-linux-x86_64
+./SneakOutPatches-linux-x86_64
+```
+
+The macOS helper finds the Sikarugir Steam wrapper and opens the bundled Windows GUI
+inside it. Quit Sneak Out and Windows Steam before opening the installer. The app is
+not Developer ID signed or notarized; if necessary, Control-click it and choose
+**Open** after verifying the official release download.
 
 ## Mods
 

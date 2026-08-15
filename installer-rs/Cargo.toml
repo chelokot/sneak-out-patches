@@ -18,10 +18,18 @@ path = "src/bin/cli.rs"
 name = "sneakout-patches-gui"
 path = "src/bin/gui_main.rs"
 required-features = ["gui"]
+test = false
+
+[[bin]]
+name = "sneakout-patches-macos"
+path = "src/bin/macos_launcher.rs"
+required-features = ["macos-launcher"]
+test = false
 
 [features]
 default = []
 gui = ["dep:eframe", "dep:rfd"]
+macos-launcher = ["dep:eframe", "dep:rfd"]
 dev-mode = []
 
 [dependencies]
@@ -43,12 +51,9 @@ sha2 = "0.10"
 walkdir = "2.5"
 zip = { version = "8.2", default-features = false, features = ["deflate"] }
 
-[target.'cfg(target_os = "linux")'.dependencies]
-flate2 = "1.1"
-tar = "0.4"
-
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"
+windows-sys = { version = "0.61", features = ["Win32_System_LibraryLoader"] }
 
 [dev-dependencies]
 assert_cmd = "2.1"

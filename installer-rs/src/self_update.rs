@@ -3,15 +3,14 @@ use semver::Version;
 use sha2::{Digest, Sha256};
 use std::env;
 use std::ffi::{OsStr, OsString};
-use std::fs::{self, File, OpenOptions};
-use std::io::{Cursor, Write};
+use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
 use crate::ProgressReporter;
-use crate::io::{copy_file_atomic, write_file_atomic};
+use crate::io::{copy_file_atomic, sha256_file, write_file_atomic};
 use crate::model::ProgressEvent;
 use crate::payload::{cache_root, fetch_bytes, fetch_release};
 
@@ -42,38 +41,37 @@ impl PreparedSelfUpdate {
 }
 
 #[derive(Clone, Copy)]
-struct NativeArchiveSpec {
-    archive_name: &'static str,
+struct NativeBinarySpec {
+    binary_name: &'static str,
     checksum_name: &'static str,
-    gui_binary_name: &'static str,
-    cli_binary_name: &'static str,
 }
 
+#[cfg(any(test, all(target_os = "linux", target_arch = "x86_64")))]
+const LINUX_BINARY_SPEC: NativeBinarySpec = NativeBinarySpec {
+    binary_name: "SneakOutPatches-linux-x86_64",
+    checksum_name: "SneakOutPatches-linux-x86_64.sha256",
+};
+#[cfg(any(test, all(target_os = "windows", target_arch = "x86_64")))]
+const WINDOWS_BINARY_SPEC: NativeBinarySpec = NativeBinarySpec {
+    binary_name: "SneakOutPatches-windows-x86_64.exe",
+    checksum_name: "SneakOutPatches-windows-x86_64.exe.sha256",
+};
+
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-fn native_archive_spec() -> Option<NativeArchiveSpec> {
-    Some(NativeArchiveSpec {
-        archive_name: "SneakOutPatches-linux-x86_64.tar.gz",
-        checksum_name: "SneakOutPatches-linux-x86_64.tar.gz.sha256",
-        gui_binary_name: "SneakOutPatches",
-        cli_binary_name: "sneakout-patches",
-    })
+fn native_binary_spec() -> Option<NativeBinarySpec> {
+    Some(LINUX_BINARY_SPEC)
 }
 
 #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
-fn native_archive_spec() -> Option<NativeArchiveSpec> {
-    Some(NativeArchiveSpec {
-        archive_name: "SneakOutPatches-windows-x86_64.zip",
-        checksum_name: "SneakOutPatches-windows-x86_64.zip.sha256",
-        gui_binary_name: "SneakOutPatches.exe",
-        cli_binary_name: "sneakout-patches.exe",
-    })
+fn native_binary_spec() -> Option<NativeBinarySpec> {
+    Some(WINDOWS_BINARY_SPEC)
 }
 
 #[cfg(not(any(
     all(target_os = "linux", target_arch = "x86_64"),
     all(target_os = "windows", target_arch = "x86_64")
 )))]
-fn native_archive_spec() -> Option<NativeArchiveSpec> {
+fn native_binary_spec() -> Option<NativeBinarySpec> {
     None
 }
 
@@ -104,13 +102,6 @@ fn expected_checksum(bytes: Vec<u8>) -> Result<String> {
     Ok(checksum)
 }
 
-fn extracted_binary_paths(root: &Path, spec: NativeArchiveSpec) -> (PathBuf, PathBuf) {
-    (
-        root.join(spec.gui_binary_name),
-        root.join(spec.cli_binary_name),
-    )
-}
-
 fn stage_current_binary_as_helper(
     current_executable: &Path,
     binary_root: &Path,
@@ -125,25 +116,21 @@ fn stage_current_binary_as_helper(
     Ok(helper)
 }
 
-fn cached_binaries_are_valid(
-    root: &Path,
-    marker: &Path,
-    expected: &str,
-    spec: NativeArchiveSpec,
-) -> bool {
+fn cached_binary_is_valid(binary: &Path, marker: &Path, expected: &str) -> bool {
     let marker_matches =
         fs::read_to_string(marker).is_ok_and(|value| value.trim().eq_ignore_ascii_case(expected));
-    let (gui, cli) = extracted_binary_paths(root, spec);
-    marker_matches && gui.is_file() && cli.is_file()
+    marker_matches
+        && binary.is_file()
+        && sha256_file(binary).is_ok_and(|actual| actual.eq_ignore_ascii_case(expected))
 }
 
-fn materialize_native_binaries(
+fn materialize_native_binary(
     release_id: u64,
-    archive_url: &str,
+    binary_url: &str,
     checksum_url: &str,
-    spec: NativeArchiveSpec,
+    spec: NativeBinarySpec,
     reporter: ProgressReporter<'_>,
-) -> Result<PathBuf> {
+) -> Result<(PathBuf, PathBuf)> {
     let update_root = cache_root()?
         .join("self-update")
         .join(release_id.to_string());
@@ -161,131 +148,48 @@ fn materialize_native_binaries(
 
     let checksum_bytes = fetch_bytes(checksum_url, "Installer checksum", reporter)?;
     let expected = expected_checksum(checksum_bytes)?;
-    let binary_root = update_root.join("binaries");
+    let binary = update_root.join(spec.binary_name);
     let marker = update_root.join("verified.sha256");
-    if cached_binaries_are_valid(&binary_root, &marker, &expected, spec) {
-        return Ok(binary_root);
+    if cached_binary_is_valid(&binary, &marker, &expected) {
+        return Ok((update_root, binary));
     }
 
-    if binary_root.exists() {
-        fs::remove_dir_all(&binary_root)?;
-    }
-    fs::create_dir_all(&binary_root)?;
     reporter(ProgressEvent::Message(format!(
         "Downloading installer update {}...",
-        spec.archive_name
+        spec.binary_name
     )));
-    let archive = fetch_bytes(archive_url, "Installer update", reporter)?;
-    let actual = hex::encode(Sha256::digest(&archive));
+    let bytes = fetch_bytes(binary_url, "Installer update", reporter)?;
+    let actual = hex::encode(Sha256::digest(&bytes));
     if actual != expected {
-        let _ = fs::remove_dir_all(&binary_root);
-        bail!("installer archive checksum mismatch: expected {expected}, received {actual}");
+        let _ = fs::remove_file(&binary);
+        bail!("installer binary checksum mismatch: expected {expected}, received {actual}");
     }
-    if let Err(error) = extract_native_binaries(&archive, &binary_root, spec) {
-        let _ = fs::remove_dir_all(&binary_root);
-        return Err(error);
-    }
-    let (gui, cli) = extracted_binary_paths(&binary_root, spec);
-    if !gui.is_file() || !cli.is_file() {
-        let _ = fs::remove_dir_all(&binary_root);
-        bail!("native installer archive is missing one or more executables");
-    }
+    write_file_atomic(&binary, bytes)?;
+    set_executable_permissions(&binary)?;
     write_file_atomic(&marker, format!("{expected}\n"))?;
-    Ok(binary_root)
+    Ok((update_root, binary))
 }
 
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-fn extract_native_binaries(
-    bytes: &[u8],
-    destination: &Path,
-    spec: NativeArchiveSpec,
-) -> Result<()> {
-    use flate2::read::GzDecoder;
+#[cfg(unix)]
+fn set_executable_permissions(path: &Path) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
-    use tar::Archive;
-
-    let decoder = GzDecoder::new(Cursor::new(bytes));
-    let mut archive = Archive::new(decoder);
-    for entry in archive
-        .entries()
-        .context("native installer TAR is invalid")?
-    {
-        let mut entry = entry?;
-        if !entry.header().entry_type().is_file() {
-            continue;
-        }
-        let path = entry.path()?;
-        let Some(name) = path.file_name().and_then(OsStr::to_str) else {
-            continue;
-        };
-        if path.components().count() != 1
-            || (name != spec.gui_binary_name && name != spec.cli_binary_name)
-        {
-            continue;
-        }
-        let output = destination.join(name);
-        let mut file = File::create(&output)?;
-        std::io::copy(&mut entry, &mut file)?;
-        file.flush()?;
-        fs::set_permissions(&output, fs::Permissions::from_mode(0o755))?;
-    }
+    fs::set_permissions(path, fs::Permissions::from_mode(0o755))?;
     Ok(())
 }
 
-#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
-fn extract_native_binaries(
-    bytes: &[u8],
-    destination: &Path,
-    spec: NativeArchiveSpec,
-) -> Result<()> {
-    use zip::ZipArchive;
-
-    let mut archive =
-        ZipArchive::new(Cursor::new(bytes)).context("native installer ZIP is invalid")?;
-    for index in 0..archive.len() {
-        let mut entry = archive.by_index(index)?;
-        if entry.is_dir() {
-            continue;
-        }
-        let Some(path) = entry.enclosed_name() else {
-            continue;
-        };
-        let Some(name) = path.file_name().and_then(OsStr::to_str) else {
-            continue;
-        };
-        if path.components().count() != 1
-            || (name != spec.gui_binary_name && name != spec.cli_binary_name)
-        {
-            continue;
-        }
-        let output = destination.join(name);
-        let mut file = File::create(output)?;
-        std::io::copy(&mut entry, &mut file)?;
-        file.flush()?;
-    }
+#[cfg(not(unix))]
+fn set_executable_permissions(_path: &Path) -> Result<()> {
     Ok(())
-}
-
-#[cfg(not(any(
-    all(target_os = "linux", target_arch = "x86_64"),
-    all(target_os = "windows", target_arch = "x86_64")
-)))]
-fn extract_native_binaries(
-    _bytes: &[u8],
-    _destination: &Path,
-    _spec: NativeArchiveSpec,
-) -> Result<()> {
-    bail!("self-update is not supported on this platform")
 }
 
 pub fn prepare_self_update(
     binary_kind: BinaryKind,
     reporter: ProgressReporter<'_>,
 ) -> Result<Option<PreparedSelfUpdate>> {
-    if self_update_is_disabled() {
+    if binary_kind != BinaryKind::Gui || self_update_is_disabled() {
         return Ok(None);
     }
-    let Some(spec) = native_archive_spec() else {
+    let Some(spec) = native_binary_spec() else {
         return Ok(None);
     };
     let release = fetch_release(reporter)?;
@@ -296,14 +200,14 @@ pub fn prepare_self_update(
         return Ok(None);
     }
 
-    let archive_url = release
+    let binary_url = release
         .assets
         .iter()
-        .find(|asset| asset.name == spec.archive_name)
+        .find(|asset| asset.name == spec.binary_name)
         .with_context(|| {
             format!(
                 "release {} is missing {}",
-                release.tag_name, spec.archive_name
+                release.tag_name, spec.binary_name
             )
         })?
         .browser_download_url
@@ -320,13 +224,8 @@ pub fn prepare_self_update(
         })?
         .browser_download_url
         .clone();
-    let binary_root =
-        materialize_native_binaries(release.id, &archive_url, &checksum_url, spec, reporter)?;
-    let (gui, cli) = extracted_binary_paths(&binary_root, spec);
-    let replacement = match binary_kind {
-        BinaryKind::Cli => cli,
-        BinaryKind::Gui => gui,
-    };
+    let (binary_root, replacement) =
+        materialize_native_binary(release.id, &binary_url, &checksum_url, spec, reporter)?;
     let target = env::current_exe().context("could not locate the running installer")?;
     let helper = stage_current_binary_as_helper(&target, &binary_root)?;
     Ok(Some(PreparedSelfUpdate {
@@ -513,10 +412,26 @@ mod tests {
     fn checksums_must_be_sha256() {
         let expected = "a".repeat(64);
         assert_eq!(
-            expected_checksum(format!("{expected}  installer.zip\n").into_bytes()).unwrap(),
+            expected_checksum(format!("{expected}  installer\n").into_bytes()).unwrap(),
             expected
         );
         assert!(expected_checksum(b"not-a-checksum".to_vec()).is_err());
+    }
+
+    #[test]
+    fn cached_binary_must_match_its_checksum() {
+        let temporary = tempfile::tempdir().unwrap();
+        let binary = temporary.path().join("installer");
+        let marker = temporary.path().join("verified.sha256");
+        let bytes = b"graphical installer";
+        let expected = hex::encode(Sha256::digest(bytes));
+        fs::write(&binary, bytes).unwrap();
+        fs::write(&marker, format!("{expected}\n")).unwrap();
+
+        assert!(cached_binary_is_valid(&binary, &marker, &expected));
+
+        fs::write(&binary, b"corrupt").unwrap();
+        assert!(!cached_binary_is_valid(&binary, &marker, &expected));
     }
 
     #[test]
@@ -564,76 +479,23 @@ mod tests {
         assert_eq!(fs::read_to_string(marker).unwrap(), "preserved");
     }
 
-    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     #[test]
-    fn extracts_only_the_expected_linux_binaries() {
-        use flate2::Compression;
-        use flate2::write::GzEncoder;
-        use tar::{Builder, Header};
-
-        let spec = native_archive_spec().unwrap();
-        let mut compressed = Vec::new();
-        {
-            let encoder = GzEncoder::new(&mut compressed, Compression::default());
-            let mut archive = Builder::new(encoder);
-            for (name, contents) in [
-                (spec.gui_binary_name, b"gui".as_slice()),
-                (spec.cli_binary_name, b"cli".as_slice()),
-                ("unexpected", b"ignored".as_slice()),
-            ] {
-                let mut header = Header::new_gnu();
-                header.set_size(contents.len() as u64);
-                header.set_mode(0o755);
-                header.set_cksum();
-                archive.append_data(&mut header, name, contents).unwrap();
-            }
-            archive.into_inner().unwrap().finish().unwrap();
-        }
-        let destination = tempfile::tempdir().unwrap();
-
-        extract_native_binaries(&compressed, destination.path(), spec).unwrap();
-
+    fn releases_use_direct_gui_binaries() {
         assert_eq!(
-            fs::read(destination.path().join(spec.gui_binary_name)).unwrap(),
-            b"gui"
+            LINUX_BINARY_SPEC.binary_name,
+            "SneakOutPatches-linux-x86_64"
         );
         assert_eq!(
-            fs::read(destination.path().join(spec.cli_binary_name)).unwrap(),
-            b"cli"
-        );
-        assert!(!destination.path().join("unexpected").exists());
-    }
-
-    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
-    #[test]
-    fn extracts_only_the_expected_windows_binaries() {
-        let spec = native_archive_spec().unwrap();
-        let mut bytes = Vec::new();
-        {
-            let mut archive = zip::ZipWriter::new(Cursor::new(&mut bytes));
-            let options = zip::write::SimpleFileOptions::default();
-            for (name, contents) in [
-                (spec.gui_binary_name, b"gui".as_slice()),
-                (spec.cli_binary_name, b"cli".as_slice()),
-                ("unexpected", b"ignored".as_slice()),
-            ] {
-                archive.start_file(name, options).unwrap();
-                archive.write_all(contents).unwrap();
-            }
-            archive.finish().unwrap();
-        }
-        let destination = tempfile::tempdir().unwrap();
-
-        extract_native_binaries(&bytes, destination.path(), spec).unwrap();
-
-        assert_eq!(
-            fs::read(destination.path().join(spec.gui_binary_name)).unwrap(),
-            b"gui"
+            LINUX_BINARY_SPEC.checksum_name,
+            "SneakOutPatches-linux-x86_64.sha256"
         );
         assert_eq!(
-            fs::read(destination.path().join(spec.cli_binary_name)).unwrap(),
-            b"cli"
+            WINDOWS_BINARY_SPEC.binary_name,
+            "SneakOutPatches-windows-x86_64.exe"
         );
-        assert!(!destination.path().join("unexpected").exists());
+        assert_eq!(
+            WINDOWS_BINARY_SPEC.checksum_name,
+            "SneakOutPatches-windows-x86_64.exe.sha256"
+        );
     }
 }

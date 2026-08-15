@@ -46,66 +46,109 @@ jobs:
         with:
           workspaces: "./installer-rs -> target"
 
-      - name: Test platform-specific self-update behavior
-        run: >-
-          cargo +1.94.1 test
-          --locked
-          --manifest-path installer-rs/Cargo.toml
-          --lib
-          self_update::tests
-
-      - name: Build native release binaries
+      - name: Build the graphical installer
         run: >-
           cargo +1.94.1 build
           --locked
           --manifest-path installer-rs/Cargo.toml
           --release
           --features gui
-          --bins
+          --bin sneakout-patches-gui
 
-      - name: Package Linux binaries
+      - name: Stage the Linux binary
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          mkdir -p dist-native/package
-          install -m 755 installer-rs/target/release/sneakout-patches-gui dist-native/package/SneakOutPatches
-          install -m 755 installer-rs/target/release/sneakout-patches dist-native/package/sneakout-patches
-          tar -C dist-native/package -czf dist-native/SneakOutPatches-linux-x86_64.tar.gz SneakOutPatches sneakout-patches
+          mkdir -p dist-native
+          install -m 755 installer-rs/target/release/sneakout-patches-gui dist-native/SneakOutPatches-linux-x86_64
           cd dist-native
-          sha256sum SneakOutPatches-linux-x86_64.tar.gz > SneakOutPatches-linux-x86_64.tar.gz.sha256
+          sha256sum SneakOutPatches-linux-x86_64 > SneakOutPatches-linux-x86_64.sha256
 
-      - name: Package Windows binaries
+      - name: Stage the Windows binary
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force dist-native/package | Out-Null
-          Copy-Item installer-rs/target/release/sneakout-patches-gui.exe dist-native/package/SneakOutPatches.exe
-          Copy-Item installer-rs/target/release/sneakout-patches.exe dist-native/package/sneakout-patches.exe
-          $archive = "dist-native/SneakOutPatches-windows-x86_64.zip"
-          Compress-Archive -Path dist-native/package/* -DestinationPath $archive
-          $hash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLower()
-          "$hash  SneakOutPatches-windows-x86_64.zip" | Set-Content "$archive.sha256"
+          New-Item -ItemType Directory -Force dist-native | Out-Null
+          $binary = "dist-native/SneakOutPatches-windows-x86_64.exe"
+          Copy-Item installer-rs/target/release/sneakout-patches-gui.exe $binary
+          $hash = (Get-FileHash -Algorithm SHA256 $binary).Hash.ToLower()
+          "$hash  SneakOutPatches-windows-x86_64.exe" | Set-Content "$binary.sha256"
 
       - uses: actions/upload-artifact@v4
         with:
           name: native-${{ runner.os }}
           path: |
-            dist-native/*.tar.gz
-            dist-native/*.zip
+            dist-native/SneakOutPatches-linux-x86_64
+            dist-native/SneakOutPatches-windows-x86_64.exe
             dist-native/*.sha256
           if-no-files-found: error
 
-  release:
+  macos:
     needs: native
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install the pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.94.1 --profile minimal
+          rustup +1.94.1 target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Cache Rust dependencies and build outputs
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "./installer-rs -> target"
+
+      - name: Build the universal macOS launcher
+        run: |
+          cargo +1.94.1 build --locked --manifest-path installer-rs/Cargo.toml --release --target aarch64-apple-darwin --features macos-launcher --bin sneakout-patches-macos
+          cargo +1.94.1 build --locked --manifest-path installer-rs/Cargo.toml --release --target x86_64-apple-darwin --features macos-launcher --bin sneakout-patches-macos
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-Windows
+          path: dist-native/windows
+
+      - name: Package the macOS application
+        shell: bash
+        run: |
+          app="dist-native/package/SneakOutPatches.app"
+          mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+          lipo -create \
+            installer-rs/target/aarch64-apple-darwin/release/sneakout-patches-macos \
+            installer-rs/target/x86_64-apple-darwin/release/sneakout-patches-macos \
+            -output "$app/Contents/MacOS/SneakOutPatches"
+          lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/SneakOutPatches"
+          chmod 755 "$app/Contents/MacOS/SneakOutPatches"
+          cp installer-rs/macos/Info.plist "$app/Contents/Info.plist"
+          version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' installer-rs/Cargo.toml | head -n 1)"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $version" "$app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $version" "$app/Contents/Info.plist"
+          cp dist-native/windows/SneakOutPatches-windows-x86_64.exe "$app/Contents/Resources/SneakOutPatches.exe"
+          test -s "$app/Contents/Resources/SneakOutPatches.exe"
+          codesign --force --deep --sign - "$app"
+          codesign --verify --deep --strict "$app"
+          ditto -c -k --sequesterRsrc --keepParent "$app" dist-native/SneakOutPatches-macos-universal.zip
+          cd dist-native
+          shasum -a 256 SneakOutPatches-macos-universal.zip > SneakOutPatches-macos-universal.zip.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-macOS
+          path: |
+            dist-native/SneakOutPatches-macos-universal.zip
+            dist-native/SneakOutPatches-macos-universal.zip.sha256
+          if-no-files-found: error
+
+  release:
+    needs:
+      - native
+      - macos
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.13"
-
       - name: Verify installer version matches the release tag
         if: startsWith(github.ref, 'refs/tags/')
         shell: bash
@@ -119,8 +162,20 @@ jobs:
           path: dist/native
           merge-multiple: true
 
-      - name: Package the release payload
-        run: python tools/package_installer_payload.py
+      - name: Verify the release assets
+        shell: bash
+        run: |
+          expected_assets="$(printf '%s\n' \
+            SneakOutPatches-linux-x86_64 \
+            SneakOutPatches-linux-x86_64.sha256 \
+            SneakOutPatches-macos-universal.zip \
+            SneakOutPatches-macos-universal.zip.sha256 \
+            SneakOutPatches-windows-x86_64.exe \
+            SneakOutPatches-windows-x86_64.exe.sha256 | sort)"
+          actual_assets="$(find dist/native -maxdepth 1 -type f -printf '%f\n' | sort)"
+          test "$actual_assets" = "$expected_assets"
+          cd dist/native
+          sha256sum --check *.sha256
 
       - name: Build commit changelog
         id: changelog
@@ -169,8 +224,6 @@ jobs:
           RELEASE_NOTES: ${{ steps.changelog.outputs.changelog }}
         run: >-
           gh release create "${GITHUB_REF_NAME}"
-          dist/sneakout-patches-payload.zip
-          dist/sneakout-patches-payload.zip.sha256
           dist/native/*
           --notes "${RELEASE_NOTES}"
           --verify-tag

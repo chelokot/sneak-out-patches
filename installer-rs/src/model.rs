@@ -57,6 +57,8 @@ pub struct InstallState {
     pub external_files: Vec<ExternalFileRecord>,
     #[serde(default)]
     pub selected_mods: Vec<String>,
+    #[serde(default)]
+    pub registry_values: Vec<RegistryValueRecord>,
 }
 
 impl Default for InstallState {
@@ -66,6 +68,7 @@ impl Default for InstallState {
             files: Vec::new(),
             external_files: Vec::new(),
             selected_mods: Vec::new(),
+            registry_values: Vec::new(),
         }
     }
 }
@@ -86,4 +89,27 @@ pub struct FileRecord {
 pub struct ExternalFileRecord {
     pub path: PathBuf,
     pub original_base64: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RegistryValueRecord {
+    pub key: String,
+    pub name: String,
+    pub original: Option<String>,
+    pub installed: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn installer_state_without_registry_records_remains_compatible() {
+        let state: InstallState =
+            serde_json::from_str(r#"{"schema":1,"files":[],"externalFiles":[],"selectedMods":[]}"#)
+                .unwrap();
+
+        assert!(state.registry_values.is_empty());
+    }
 }

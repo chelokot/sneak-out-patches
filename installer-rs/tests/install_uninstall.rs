@@ -163,6 +163,7 @@ fn default_install_and_uninstall_restore_clean_state() {
     .unwrap();
     assert!(state.get("selectedMods").is_some());
     assert!(state.get("externalFiles").is_some());
+    assert!(state.get("registryValues").is_some());
     assert!(state.get("selected_mods").is_none());
     #[cfg(not(windows))]
     {

@@ -7,8 +7,8 @@ use sneakout_installer::{
     RuntimeMod, compatibility_issues, detect_game_directories, install, installed_runtime_mod_ids,
     is_steam_client_running, launch_self_update, load_payload_metadata, prepare_self_update,
     proton_launch_configuration_required, read_runtime_mod_version, resolve_bepinex,
-    resolve_embedded_payload, resolve_game_directory, resolve_latest_payload, resolve_payload,
-    uninstall, update_installed_runtime_mods, validate_installed,
+    resolve_embedded_payload, resolve_game_directory, resolve_payload, uninstall,
+    update_installed_runtime_mods, validate_installed,
 };
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -1069,17 +1069,11 @@ fn perform_startup_check(
             "Could not check for an installer update: {error:#}. Continuing."
         ))),
     }
-    let payload = resolve_latest_payload(&reporter)?;
-    let (latest_manifest, _) = load_payload_metadata(&payload.root)?;
-    let embedded = embedded_manifest()?;
-    let (manifest, legacy_ids) = merge_runtime_mod_catalog(&latest_manifest, &embedded);
-    let embedded_payload = resolve_embedded_payload()?;
-    let mod_versions = runtime_mod_versions(
-        &manifest,
-        &payload.root,
-        &embedded_payload.root,
-        &legacy_ids,
-    )?;
+    let payload = resolve_embedded_payload()?;
+    let latest_manifest = embedded_manifest()?;
+    let manifest = latest_manifest.clone();
+    let legacy_ids = HashSet::new();
+    let mod_versions = runtime_mod_versions(&manifest, &payload.root, &payload.root, &legacy_ids)?;
 
     let summary = if let Some(game_directory) = game_directory {
         let game_directory = resolve_game_directory(game_directory)?;
@@ -1101,7 +1095,7 @@ fn perform_startup_check(
     };
     retain_visible_selection(&mut selected_ids, &manifest);
 
-    let mut details = vec![format!("Catalog synchronized with {}", payload.source)];
+    let mut details = vec![format!("Catalog loaded from {}", payload.source)];
     if !summary.updated_ids.is_empty() {
         details.push(format!("{} plugin(s) updated", summary.updated_ids.len()));
     }

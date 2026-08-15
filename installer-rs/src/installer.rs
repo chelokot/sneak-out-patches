@@ -22,6 +22,10 @@ use crate::steam::{
     STEAM_APP_ID, is_proton_install, read_installed_build_id, steam_active_local_config_paths,
     steam_local_config_paths,
 };
+use crate::wine::{
+    enable_winhttp_override, is_wine_install, restore_registry_values, winhttp_override_is_active,
+    winhttp_override_record,
+};
 
 const STATE_FILE_NAME: &str = ".sneakout-patches-install.json";
 const BACKUP_DIRECTORY_NAME: &str = ".sneakout-patches-backup";
@@ -545,7 +549,7 @@ fn update_ini_setting(content: &str, section: &str, key: &str, value: &str) -> S
     format!("{}\n", lines.join("\n").trim_end_matches('\n'))
 }
 
-fn configure_bepinex_for_proton(game_directory: &Path, state: &mut InstallState) -> Result<()> {
+fn configure_bepinex_for_wine(game_directory: &Path, state: &mut InstallState) -> Result<()> {
     let path = game_directory.join("BepInEx/config/BepInEx.cfg");
     let original = fs::read_to_string(&path).unwrap_or_default();
     let updated = update_ini_setting(&original, "Logging.Console", "Enabled", "false");
@@ -558,6 +562,27 @@ fn configure_bepinex_for_proton(game_directory: &Path, state: &mut InstallState)
     if updated != original {
         install_bytes(game_directory, state, updated.as_bytes(), &path)?;
     }
+    Ok(())
+}
+
+fn configure_wine_loader(
+    game_directory: &Path,
+    state: &mut InstallState,
+    reporter: ProgressReporter<'_>,
+) -> Result<()> {
+    let record = winhttp_override_record()?;
+    if !state
+        .registry_values
+        .iter()
+        .any(|existing| existing.key == record.key && existing.name == record.name)
+    {
+        state.registry_values.push(record);
+        save_state(game_directory, state)?;
+    }
+    enable_winhttp_override()?;
+    reporter(ProgressEvent::Message(
+        "Configured the BepInEx loader for Wine/Sikarugir.".to_owned(),
+    ));
     Ok(())
 }
 
@@ -837,7 +862,12 @@ pub fn install(request: &InstallRequest, reporter: ProgressReporter<'_>) -> Resu
 
     if is_proton_install() {
         configure_proton(&request.game_directory, &mut state, reporter)?;
-        configure_bepinex_for_proton(&request.game_directory, &mut state)?;
+    }
+    if is_proton_install() || is_wine_install() {
+        configure_bepinex_for_wine(&request.game_directory, &mut state)?;
+    }
+    if is_wine_install() {
+        configure_wine_loader(&request.game_directory, &mut state, reporter)?;
     }
     state.selected_mods = selected_ids;
     save_state(&request.game_directory, &state)?;
@@ -913,6 +943,7 @@ pub fn uninstall(
             external.path.display()
         )));
     }
+    restore_registry_values(&state.registry_values, reporter)?;
     rollback_legacy_install(game_directory, manifest)?;
     reconcile_runtime_mod_selection(game_directory, manifest, &[], reporter)?;
     remove_path(&state_path(game_directory))?;
@@ -985,6 +1016,9 @@ pub fn validate_installed(
                 ));
             }
         }
+    }
+    if is_wine_install() && !winhttp_override_is_active() {
+        problems.push("Wine/Sikarugir winhttp loader override is inactive".to_owned());
     }
     Ok(problems)
 }

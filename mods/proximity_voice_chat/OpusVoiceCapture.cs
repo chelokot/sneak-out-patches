@@ -1,8 +1,5 @@
 using BepInEx.Logging;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
-using POpusCodec;
-using POpusCodec.Enums;
-using Photon.Voice;
 using UnityEngine;
 
 namespace SneakOut.ProximityVoiceChat;
@@ -21,7 +18,7 @@ internal sealed class OpusVoiceCapture : IDisposable
 
     private readonly ManualLogSource _logger;
     private readonly bool _loggingEnabled;
-    private readonly OpusEncoder _encoder;
+    private readonly OpusVoiceEncoder _encoder;
     private readonly Il2CppStructArray<float> _monoFrame = new(FrameSamples);
     private Il2CppStructArray<float>? _microphoneFrame;
     private AudioClip? _microphoneClip;
@@ -49,18 +46,7 @@ internal sealed class OpusVoiceCapture : IDisposable
     {
         _logger = logger;
         _loggingEnabled = loggingEnabled;
-        _encoder = new OpusEncoder(
-            SamplingRate.Sampling24000,
-            Channels.Mono,
-            Bitrate,
-            OpusApplicationType.Voip,
-            Delay.Delay20ms)
-        {
-            UseInbandFEC = true,
-            PacketLossPercentage = 30,
-            DtxEnabled = false,
-            Output = (Il2CppSystem.Action<Il2CppSystem.ArraySegment<byte>, FrameFlags>)OnEncodedFrame,
-        };
+        _encoder = new OpusVoiceEncoder(Bitrate);
     }
 
     public void SetRecording(bool shouldRecord)
@@ -142,9 +128,7 @@ internal sealed class OpusVoiceCapture : IDisposable
 
         var rootMeanSquare = (float)Math.Sqrt(sumSquares / FrameSamples);
         _pcmFrames++;
-        _encodedFrame = null;
-        _encoder.Encode(_monoFrame);
-        if (_encodedFrame is null)
+        if (!_encoder.TryEncode(_monoFrame, FrameSamples, out _encodedFrame))
         {
             _encoderFailures++;
             if (!_warnedEncoderStall
@@ -259,22 +243,6 @@ internal sealed class OpusVoiceCapture : IDisposable
         {
             _logger.LogInfo("Proximity voice Unity microphone stopped");
         }
-    }
-
-    private void OnEncodedFrame(Il2CppSystem.ArraySegment<byte> encoded, FrameFlags flags)
-    {
-        if (encoded.Count <= 0 || flags != 0)
-        {
-            return;
-        }
-
-        var result = new byte[encoded.Count];
-        var source = encoded.Array;
-        for (var index = 0; index < result.Length; index++)
-        {
-            result[index] = source[encoded.Offset + index];
-        }
-        _encodedFrame = result;
     }
 
     private void ReportCaptureStall(string state)

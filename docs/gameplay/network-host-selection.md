@@ -7,6 +7,7 @@ The stock client receives `matchId`, `hostId`, and `region`, then compares `host
 Safety protocol:
 
 - every real Fusion peer advertises the current protocol version and its membership-bound identity through room custom properties;
+- the participant snapshot comes from `SpookedNetworkPlayer` spawn/despawn callbacks and must match Fusion's scalar session player count before use, avoiding Fusion's mutable IL2CPP `ActivePlayers` iterator during joins;
 - the current lobby authority publishes the participant signature, revision, creator `PlayerRef` and exact Fusion user id as session custom properties;
 - every real participant acknowledges the same revision through its own membership-bound room property;
 - Leader Host becomes ready only after all acknowledgements arrive;

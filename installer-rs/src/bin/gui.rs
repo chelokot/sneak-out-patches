@@ -1398,6 +1398,7 @@ mod tests {
         assert_eq!(
             stable_ids,
             HashSet::from([
+                "performance-optimizer",
                 "portal-mode-selector",
                 "prop-buff",
                 "locker-stun-fix",

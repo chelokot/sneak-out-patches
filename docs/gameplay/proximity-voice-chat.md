@@ -29,7 +29,8 @@ external voice server, account, native codec, or microphone recording file is cr
   prevent the delayed monitor from being picked up by the microphone again.
 - Audio settings shows a separate 0–200% volume slider for every remote, non-bot party member.
   The local player is never listed, and overrides persist by SteamID64 across reconnects. Receive
-  gain maps 0% to silence, 100% to the old 600%, and 200% to the old 1200%.
+  gain maps 0% to silence, 100% to the old 600%, and 200% to the old 1200%. A smooth output
+  limiter preserves quiet-signal amplification without hard-clipping loud peaks.
 - `Directional voice` is enabled by default. Turning it off centers every remote voice equally in
   the left and right channels while retaining normal route-distance volume and wall/door muffling.
 - `MutedSteamIds` is a persistent local deny-list.
@@ -90,8 +91,8 @@ instead of accumulating latency. Teardown remains reliable.
 
 Each remote speaker owns:
 
-- a six-times-original linear receive baseline driven by that speaker's SteamID64 volume override, falling
-  back to the configured default when no override has been saved
+- a six-times-original receive baseline with smooth output limiting, driven by that speaker's
+  SteamID64 volume override and falling back to the configured default when no override is saved
 - an adaptive packet-jitter buffer based on arrival/capture delta variation
 - late/duplicate packet rejection and bounded loss recovery
 - Steam voice decompression into a three-second circular PCM clip

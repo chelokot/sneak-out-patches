@@ -7,16 +7,16 @@ internal sealed class VoiceGainProcessor
     private const float ReleasePerFrame = 0.08f;
 
     private readonly float _nominalGain;
-    private readonly bool _limitPeaks;
+    private readonly bool _softLimitOutput;
     private float _gain = 1f;
     private bool _initialized;
 
     public VoiceGainProcessor(
         float nominalGain = VoiceGainPolicy.NominalVoiceGain,
-        bool limitPeaks = true)
+        bool softLimitOutput = false)
     {
         _nominalGain = Math.Max(0f, nominalGain);
-        _limitPeaks = limitPeaks;
+        _softLimitOutput = softLimitOutput;
     }
 
     public float LastInputPeak { get; private set; }
@@ -32,17 +32,20 @@ internal sealed class VoiceGainProcessor
         }
 
         LastInputPeak = peak;
-        var targetGain = _limitPeaks
-            ? VoiceGainPolicy.CalculatePeakLimitedGain(peak, requestedGain, _nominalGain)
-            : VoiceGainPolicy.CalculateLinearGain(requestedGain, _nominalGain);
-        _gain = !_limitPeaks || !_initialized || targetGain < _gain
+        var targetGain = _softLimitOutput
+            ? VoiceGainPolicy.CalculateLinearGain(requestedGain, _nominalGain)
+            : VoiceGainPolicy.CalculatePeakLimitedGain(peak, requestedGain, _nominalGain);
+        _gain = _softLimitOutput || !_initialized || targetGain < _gain
             ? targetGain
             : Math.Min(targetGain, _gain + ReleasePerFrame);
         _initialized = true;
 
         for (var index = 0; index < samples.Length; index++)
         {
-            samples[index] *= _gain;
+            var amplifiedSample = samples[index] * _gain;
+            samples[index] = _softLimitOutput
+                ? VoiceGainPolicy.ApplySoftLimit(amplifiedSample)
+                : amplifiedSample;
         }
     }
 }

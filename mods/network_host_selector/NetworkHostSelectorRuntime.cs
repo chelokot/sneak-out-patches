@@ -50,6 +50,12 @@ internal static class NetworkHostSelectorRuntime
     private static int _lastAckedRevision = -1;
     private static bool _localOnlySession;
     private static IReadOnlyList<LeaderHostParticipant> _cachedParticipants = Array.Empty<LeaderHostParticipant>();
+    private static string _lastParticipantSnapshotLog = string.Empty;
+    private static string _lastPeerRegistryLog = string.Empty;
+    private static string _lastObservedStateLog = string.Empty;
+    private static string _lastLeaderResolutionLog = string.Empty;
+    private static string _lastCoordinatorQuorumLog = string.Empty;
+    private static string _lastPeerPublicationLog = string.Empty;
 
     public static void Initialize(ManualLogSource logger, NetworkHostSelectorConfig configuration)
     {
@@ -58,6 +64,9 @@ internal static class NetworkHostSelectorRuntime
         _harmony ??= new Harmony(NetworkHostSelectorPlugin.PluginGuid);
         _harmony.PatchAll();
         EnsureWatcher();
+        LogInfo(
+            $"TRACE initialized protocol={HostSelectionProtocol.Version} "
+            + $"enabled={configuration.EnableMod.Value} diagnostics={configuration.EnableLogging.Value}");
     }
 
     public static void ObservePlayer(SpookedNetworkPlayer player)
@@ -65,6 +74,7 @@ internal static class NetworkHostSelectorRuntime
         if (player is not null && player.Pointer != IntPtr.Zero)
         {
             ObservedPlayers[player.Pointer] = player;
+            LogObservedPlayer("spawned", player);
         }
     }
 
@@ -72,6 +82,7 @@ internal static class NetworkHostSelectorRuntime
     {
         if (player is not null)
         {
+            LogObservedPlayer("despawned", player);
             ObservedPlayers.Remove(player.Pointer);
         }
     }
@@ -125,13 +136,19 @@ internal static class NetworkHostSelectorRuntime
         if (_runnerPointer != runner.Pointer)
         {
             ResetForRunner(runner.Pointer);
+            LogInfo(
+                $"RUNNER attached session={FormatValue(runner.SessionInfo.Name)} "
+                + $"localRaw={runner.LocalPlayer.RawEncoded} server={runner.IsServer} "
+                + $"sharedMaster={runner.IsSharedModeMasterClient} playerCount={runner.SessionInfo.PlayerCount}");
         }
 
         var participants = GetParticipants(runner);
         _cachedParticipants = participants;
-        if (!LeaderHostParticipantPolicy.IsComplete(
-                runner.SessionInfo.PlayerCount,
-                participants.Count))
+        var participantSnapshotComplete = LeaderHostParticipantPolicy.IsComplete(
+            runner.SessionInfo.PlayerCount,
+            participants.Count);
+        LogParticipantSnapshot(runner, participants, participantSnapshotComplete);
+        if (!participantSnapshotComplete)
         {
             _cachedParticipants = Array.Empty<LeaderHostParticipant>();
             _localOnlySession = false;
@@ -163,6 +180,10 @@ internal static class NetworkHostSelectorRuntime
                 compatible: true,
                 ready: true,
                 valid: true);
+            LogTransition(
+                ref _lastCoordinatorQuorumLog,
+                $"HANDSHAKE local-only result=ready targetRaw={leader.PlayerRaw} "
+                + $"targetUserId={FormatValue(leader.UserId)} membership={membership}");
             return;
         }
 
@@ -173,6 +194,7 @@ internal static class NetworkHostSelectorRuntime
         }
 
         ReadObservedState(runner, participants);
+        LogPeerRegistry(runner, participants, membership);
         if (IsCoordinator(runner))
         {
             TickCoordinator(runner, participants);
@@ -187,6 +209,10 @@ internal static class NetworkHostSelectorRuntime
         {
             _nextAckAt = now + AckInterval;
             _lastAckedRevision = _observedRevision;
+            LogInfo(
+                $"HANDSHAKE acknowledgement requested revision={_observedRevision} "
+                + $"targetRaw={_observedTargetRaw} targetUserId={FormatValue(_observedTargetUserId)} "
+                + $"membership={_observedMembership}");
             PublishAck(runner);
         }
     }
@@ -202,10 +228,19 @@ internal static class NetworkHostSelectorRuntime
             LogInfo("Lobby membership changed; Leader Host compatibility will be reconfirmed");
         }
 
-        if (TryResolvePartyCreator(
-                participants.Select(participant => (participant.Raw, participant.UserId)),
-                runner.LocalPlayer.RawEncoded,
-                out var leader)
+        var leaderResolved = TryResolvePartyCreator(
+            participants.Select(participant => (participant.Raw, participant.UserId)),
+            runner.LocalPlayer.RawEncoded,
+            out var leader);
+        var party = PgosLobby.Instance;
+        LogTransition(
+            ref _lastLeaderResolutionLog,
+            $"COORDINATOR leader-resolution resolved={leaderResolved} localRaw={runner.LocalPlayer.RawEncoded} "
+            + $"amPartyLeader={party?.AmITeamLeader ?? false} "
+            + $"partyLeaderId={FormatValue(party?.TeamLeaderId)} "
+            + $"targetRaw={(leaderResolved ? leader.PlayerRaw : 0)} "
+            + $"targetUserId={FormatValue(leaderResolved ? leader.UserId : string.Empty)}");
+        if (leaderResolved
             && (_coordinatorTargetRaw != leader.PlayerRaw
                 || !string.Equals(_coordinatorTargetUserId, leader.UserId, StringComparison.Ordinal)))
         {
@@ -247,6 +282,12 @@ internal static class NetworkHostSelectorRuntime
                 && string.Equals(peer.UserId, participant.UserId, StringComparison.Ordinal)
                 && string.Equals(peer.Membership, _coordinatorMembership, StringComparison.Ordinal)
                 && peer.AcknowledgedRevision == _coordinatorRevision);
+        LogTransition(
+            ref _lastCoordinatorQuorumLog,
+            $"COORDINATOR quorum revision={_coordinatorRevision} membership={_coordinatorMembership} "
+            + $"compatible={compatible} ready={ready} targetRaw={_coordinatorTargetRaw} "
+            + $"targetUserId={FormatValue(_coordinatorTargetUserId)} "
+            + $"peers=[{DescribePeerStatuses(runner, participants, _coordinatorMembership, _coordinatorRevision)}]");
         PublishState(runner, ready);
     }
 
@@ -278,18 +319,29 @@ internal static class NetworkHostSelectorRuntime
                 compatible: true,
                 ready: true,
                 valid: true);
+            LogInfo(
+                $"TX STATE local-only revision={_coordinatorRevision} targetRaw={_coordinatorTargetRaw} "
+                + $"targetUserId={FormatValue(_coordinatorTargetUserId)} "
+                + $"membership={_coordinatorMembership} compatible=True ready=True");
             return;
         }
 
-        var properties = new Il2CppSystem.Collections.Generic.Dictionary<string, SessionProperty>();
-        properties[PropertyState] = HostSelectionProtocol.CreateState(
+        var encodedState = HostSelectionProtocol.CreateState(
             _coordinatorRevision,
             _coordinatorTargetRaw,
             _coordinatorTargetUserId,
             _coordinatorMembership,
             _coordinatorCompatible,
             ready);
-        if (!runner.SessionInfo.UpdateCustomProperties(properties))
+        var properties = new Il2CppSystem.Collections.Generic.Dictionary<string, SessionProperty>();
+        properties[PropertyState] = encodedState;
+        LogInfo(
+            $"TX STATE requested revision={_coordinatorRevision} targetRaw={_coordinatorTargetRaw} "
+            + $"targetUserId={FormatValue(_coordinatorTargetUserId)} membership={_coordinatorMembership} "
+            + $"compatible={_coordinatorCompatible} ready={ready}");
+        var accepted = runner.SessionInfo.UpdateCustomProperties(properties);
+        LogInfo($"TX STATE result acceptedByFusion={accepted} encoded={encodedState}");
+        if (!accepted)
         {
             return;
         }
@@ -315,20 +367,48 @@ internal static class NetworkHostSelectorRuntime
         try
         {
             var properties = runner.SessionInfo.Properties;
-            if (properties is null
-                || !TryReadString(properties, PropertyState, out var encodedState)
-                || !HostSelectionProtocol.TryParseState(encodedState, out var state))
+            if (properties is null)
             {
                 _observedValid = false;
+                LogTransition(ref _lastObservedStateLog, "RX STATE unavailable reason=no-properties");
+                return;
+            }
+            if (!TryReadString(properties, PropertyState, out var encodedState))
+            {
+                _observedValid = false;
+                LogTransition(ref _lastObservedStateLog, "RX STATE unavailable reason=property-missing");
+                return;
+            }
+            if (!HostSelectionProtocol.TryParseState(encodedState, out var state))
+            {
+                _observedValid = false;
+                LogTransition(
+                    ref _lastObservedStateLog,
+                    $"RX STATE rejected reason=empty-or-invalid encoded={FormatValue(encodedState)}");
                 return;
             }
 
             var localMembership = ComputeMembership(participants);
             var expectedLeaderId = PgosLobby.Instance?.TeamLeaderId ?? string.Empty;
+            var membershipMatches = string.Equals(
+                state.Membership,
+                localMembership,
+                StringComparison.Ordinal);
+            var leaderIdMatches = !string.IsNullOrWhiteSpace(expectedLeaderId)
+                && string.Equals(state.TargetUserId, expectedLeaderId, StringComparison.Ordinal);
+            var targetPresent = participants.Any(participant => participant.Raw == state.TargetPlayerRaw);
             var targetValid = state.TargetPlayerRaw != 0
-                && !string.IsNullOrWhiteSpace(expectedLeaderId)
-                && string.Equals(state.TargetUserId, expectedLeaderId, StringComparison.Ordinal)
-                && participants.Any(participant => participant.Raw == state.TargetPlayerRaw);
+                && leaderIdMatches
+                && targetPresent;
+            var valid = membershipMatches && targetValid;
+            LogTransition(
+                ref _lastObservedStateLog,
+                $"RX STATE revision={state.Revision} targetRaw={state.TargetPlayerRaw} "
+                + $"targetUserId={FormatValue(state.TargetUserId)} membership={state.Membership} "
+                + $"compatible={state.Compatible} ready={state.Ready} validation="
+                + $"membershipMatch:{membershipMatches},leaderIdMatch:{leaderIdMatches},"
+                + $"targetPresent:{targetPresent},valid:{valid} "
+                + $"expectedLeaderId={FormatValue(expectedLeaderId)} localMembership={localMembership}");
             SetObservedState(
                 state.Revision,
                 state.TargetPlayerRaw,
@@ -336,7 +416,7 @@ internal static class NetworkHostSelectorRuntime
                 state.Membership,
                 state.Compatible,
                 state.Ready,
-                string.Equals(state.Membership, localMembership, StringComparison.Ordinal) && targetValid);
+                valid);
         }
         catch (Exception exception)
         {
@@ -377,6 +457,10 @@ internal static class NetworkHostSelectorRuntime
         var local = participants.FirstOrDefault(participant => participant.Raw == localRaw);
         if (local is null || string.IsNullOrWhiteSpace(local.UserId))
         {
+            LogTransition(
+                ref _lastPeerPublicationLog,
+                $"TX PEER blocked reason=local-participant-missing localRaw={localRaw} "
+                + $"participants=[{FormatParticipants(participants)}]");
             return;
         }
 
@@ -398,16 +482,40 @@ internal static class NetworkHostSelectorRuntime
             local.UserId,
             membership,
             Math.Max(existingAck, acknowledgedRevision));
+        var effectiveAck = Math.Max(existingAck, acknowledgedRevision);
+        var messageType = effectiveAck >= 0 ? "ACK" : "HELLO";
         if (string.Equals(value, registry, StringComparison.Ordinal))
         {
+            LogTransition(
+                ref _lastPeerPublicationLog,
+                $"TX {messageType} current localRaw={localRaw} userId={FormatValue(local.UserId)} "
+                + $"membership={membership} acknowledgedRevision={effectiveAck}");
             return;
         }
-        UpdateProperty(runner, PropertyPeers, value);
+        LogInfo(
+            $"TX {messageType} requested localRaw={localRaw} userId={FormatValue(local.UserId)} "
+            + $"membership={membership} acknowledgedRevision={effectiveAck}");
+        var accepted = UpdateProperty(runner, PropertyPeers, value);
+        LogInfo(
+            $"TX {messageType} result acceptedByFusion={accepted} "
+            + $"localRaw={localRaw} membership={membership} acknowledgedRevision={effectiveAck}");
+        if (accepted)
+        {
+            _lastPeerPublicationLog = string.Empty;
+        }
     }
 
     public static void InitializeSessionProperties(StartGameArgs args)
     {
-        if (!Enabled || args.SessionProperties is null)
+        if (!Enabled)
+        {
+            return;
+        }
+
+        LogInfo(
+            $"START role={args.GameMode} session={FormatValue(args.SessionName)} "
+            + $"sessionPropertiesAvailable={args.SessionProperties is not null}");
+        if (args.SessionProperties is null)
         {
             return;
         }
@@ -550,6 +658,7 @@ internal static class NetworkHostSelectorRuntime
 
     private static void ResetForRunner(IntPtr runnerPointer)
     {
+        var previousRunnerPointer = _runnerPointer;
         _runnerPointer = runnerPointer;
         _cachedParticipants = Array.Empty<LeaderHostParticipant>();
         _nextHelloAt = 0f;
@@ -574,6 +683,16 @@ internal static class NetworkHostSelectorRuntime
         _observedValid = false;
         _lastAckedRevision = -1;
         _localOnlySession = false;
+        _lastParticipantSnapshotLog = string.Empty;
+        _lastPeerRegistryLog = string.Empty;
+        _lastObservedStateLog = string.Empty;
+        _lastLeaderResolutionLog = string.Empty;
+        _lastCoordinatorQuorumLog = string.Empty;
+        _lastPeerPublicationLog = string.Empty;
+        if (runnerPointer == IntPtr.Zero && previousRunnerPointer != IntPtr.Zero)
+        {
+            LogInfo($"RUNNER detached previousPointer=0x{previousRunnerPointer.ToInt64():X}");
+        }
     }
 
     public static void OverrideMatchHost(ref string hostId)
@@ -582,18 +701,33 @@ internal static class NetworkHostSelectorRuntime
         {
             return;
         }
+        var originalHostId = hostId;
         RefreshObservedFromCurrentRunner();
+        var privateGame = IsPrivateGameSelected();
+        var localSocialUserId = GetLocalSocialUserId();
+        var runner = PhotonLobby.Runner;
+        var localRaw = IsUsableLobbyRunner(runner)
+            ? runner!.LocalPlayer.RawEncoded
+            : 0;
+        LogInfo(
+            $"DECISION requested backendHostId={FormatValue(originalHostId)} "
+            + $"localSocialUserId={FormatValue(localSocialUserId)} localRaw={localRaw} "
+            + $"privateGame={privateGame} state="
+            + $"valid:{_observedValid},compatible:{_observedCompatible},ready:{_observedReady},"
+            + $"revision:{_observedRevision},targetRaw:{_observedTargetRaw},"
+            + $"targetUserId:{FormatValue(_observedTargetUserId)},membership:{FormatValue(_observedMembership)}");
         if (!_observedValid
             || !_observedCompatible
             || !_observedReady
             || _observedTargetRaw == 0
             || string.IsNullOrWhiteSpace(_observedTargetUserId))
         {
+            LogInfo(
+                $"DECISION final action=PRESERVE reason={DescribeDisarmedReasons()} "
+                + $"finalHostId={FormatValue(hostId)} localRole={ResolveLocalRole(hostId, localSocialUserId)}");
             return;
         }
 
-        var originalHostId = hostId;
-        var privateGame = IsPrivateGameSelected();
         if (!LeaderHostPolicy.ShouldOverrideAssignedHost(
                 privateGame,
                 originalHostId,
@@ -604,11 +738,21 @@ internal static class NetworkHostSelectorRuntime
             {
                 LogInfo("Public matchmaking detected; preserving the backend-assigned match host");
             }
+            var reason = !privateGame
+                ? "public-game"
+                : "backend-already-selected-party-leader";
+            LogInfo(
+                $"DECISION final action=PRESERVE reason={reason} "
+                + $"finalHostId={FormatValue(hostId)} localRole={ResolveLocalRole(hostId, localSocialUserId)}");
             return;
         }
 
         hostId = _observedTargetUserId;
         LogInfo($"Match Fusion host overridden {originalHostId} -> {hostId}");
+        LogInfo(
+            $"DECISION final action=OVERRIDE reason=private-compatible-quorum "
+            + $"backendHostId={FormatValue(originalHostId)} finalHostId={FormatValue(hostId)} "
+            + $"localRole={ResolveLocalRole(hostId, localSocialUserId)}");
     }
 
     private static bool IsPrivateGameSelected()
@@ -633,6 +777,9 @@ internal static class NetworkHostSelectorRuntime
         if (!IsUsableLobbyRunner(runner) || runner.Pointer != _runnerPointer)
         {
             _observedValid = false;
+            LogInfo(
+                $"DECISION refresh failed reason=runner-unavailable-or-changed "
+                + $"trackedPointer=0x{_runnerPointer.ToInt64():X}");
             return;
         }
         var participants = GetParticipants(runner);
@@ -641,6 +788,10 @@ internal static class NetworkHostSelectorRuntime
                 participants.Count))
         {
             _observedValid = false;
+            LogInfo(
+                $"DECISION refresh failed reason=incomplete-participant-snapshot "
+                + $"sessionPlayerCount={runner.SessionInfo.PlayerCount} observedRealPlayers={participants.Count} "
+                + $"participants=[{FormatParticipants(participants)}]");
             return;
         }
         if (participants.Count == 1 && participants[0].Raw == runner.LocalPlayer.RawEncoded)
@@ -651,6 +802,9 @@ internal static class NetworkHostSelectorRuntime
                     out var leader))
             {
                 _observedValid = false;
+                LogInfo(
+                    $"DECISION refresh failed reason=local-only-party-creator-unresolved "
+                    + $"localRaw={runner.LocalPlayer.RawEncoded}");
                 return;
             }
             _localOnlySession = true;
@@ -711,6 +865,181 @@ internal static class NetworkHostSelectorRuntime
             .FirstOrDefault(participant => participant.Raw == targetRaw)
             ?.Name
             ?? string.Empty;
+    }
+
+    private static void LogObservedPlayer(string lifecycle, SpookedNetworkPlayer player)
+    {
+        try
+        {
+            var playerRef = player.PlayerRef;
+            LogInfo(
+                $"PLAYER {lifecycle} pointer=0x{player.Pointer.ToInt64():X} "
+                + $"raw={playerRef.RawEncoded} playerId={playerRef.PlayerId} "
+                + $"name={FormatValue(player.Nickname)} real={playerRef.IsRealPlayer} bot={player.IsBot}");
+        }
+        catch
+        {
+            LogInfo($"PLAYER {lifecycle} pointer=0x{player.Pointer.ToInt64():X} details=unavailable");
+        }
+    }
+
+    private static void LogParticipantSnapshot(
+        NetworkRunner runner,
+        IReadOnlyList<LeaderHostParticipant> participants,
+        bool complete)
+    {
+        var membership = ComputeMembership(participants);
+        LogTransition(
+            ref _lastParticipantSnapshotLog,
+            $"SNAPSHOT sessionPlayerCount={runner.SessionInfo.PlayerCount} "
+            + $"observedRealPlayers={participants.Count} complete={complete} membership={membership} "
+            + $"participants=[{FormatParticipants(participants)}]");
+    }
+
+    private static void LogPeerRegistry(
+        NetworkRunner runner,
+        IReadOnlyList<LeaderHostParticipant> participants,
+        string membership)
+    {
+        var properties = runner.SessionInfo.Properties;
+        if (properties is null)
+        {
+            LogTransition(ref _lastPeerRegistryLog, "RX PEERS unavailable reason=no-properties");
+            return;
+        }
+        if (!TryReadString(properties, PropertyPeers, out var registry))
+        {
+            LogTransition(ref _lastPeerRegistryLog, "RX PEERS unavailable reason=property-missing");
+            return;
+        }
+
+        LogTransition(
+            ref _lastPeerRegistryLog,
+            $"RX PEERS membership={membership} encoded={FormatValue(registry)} "
+            + $"statuses=[{DescribePeerStatuses(runner, participants, membership, _observedRevision)}]");
+    }
+
+    private static string DescribePeerStatuses(
+        NetworkRunner runner,
+        IReadOnlyList<LeaderHostParticipant> participants,
+        string membership,
+        int expectedRevision)
+    {
+        var properties = runner.SessionInfo.Properties;
+        return string.Join(
+            "; ",
+            participants.Select(participant =>
+            {
+                var prefix = $"raw={participant.Raw},name={FormatValue(participant.Name)},"
+                    + $"userId={FormatValue(participant.UserId)}";
+                if (participant.Raw == runner.LocalPlayer.RawEncoded)
+                {
+                    return $"{prefix},status=local-implicit";
+                }
+                if (properties is null || !TryReadPeer(properties, participant.Raw, out var peer))
+                {
+                    return $"{prefix},status=missing";
+                }
+
+                var identityMatches = string.Equals(
+                    peer.UserId,
+                    participant.UserId,
+                    StringComparison.Ordinal);
+                var membershipMatches = string.Equals(
+                    peer.Membership,
+                    membership,
+                    StringComparison.Ordinal);
+                var revisionMatches = peer.AcknowledgedRevision == expectedRevision;
+                return $"{prefix},status=received,peerUserId={FormatValue(peer.UserId)},"
+                    + $"peerMembership={peer.Membership},ack={peer.AcknowledgedRevision},"
+                    + $"identityMatch={identityMatches},membershipMatch={membershipMatches},"
+                    + $"revisionMatch={revisionMatches}";
+            }));
+    }
+
+    private static string FormatParticipants(IEnumerable<LeaderHostParticipant> participants)
+    {
+        return string.Join(
+            "; ",
+            participants.Select(participant =>
+                $"raw={participant.Raw},name={FormatValue(participant.Name)},"
+                + $"fusionUserId={FormatValue(participant.UserId)},"
+                + $"real={participant.IsRealPlayer},bot={participant.IsBot}"));
+    }
+
+    private static string GetLocalSocialUserId()
+    {
+        try
+        {
+            return PgosLobby.Instance?._nakamaService?.UserId ?? string.Empty;
+        }
+        catch (Exception exception)
+        {
+            LogError("Reading the local social user id failed", exception);
+            return string.Empty;
+        }
+    }
+
+    private static string ResolveLocalRole(string finalHostId, string localSocialUserId)
+    {
+        if (string.IsNullOrWhiteSpace(finalHostId) || string.IsNullOrWhiteSpace(localSocialUserId))
+        {
+            return "Unknown";
+        }
+
+        return string.Equals(finalHostId, localSocialUserId, StringComparison.Ordinal)
+            ? "Host"
+            : "Client";
+    }
+
+    private static string DescribeDisarmedReasons()
+    {
+        var reasons = new List<string>();
+        if (!_observedValid)
+        {
+            reasons.Add("state-invalid");
+        }
+        if (!_observedCompatible)
+        {
+            reasons.Add("compatibility-quorum-incomplete");
+        }
+        if (!_observedReady)
+        {
+            reasons.Add("acknowledgement-quorum-incomplete");
+        }
+        if (_observedTargetRaw == 0)
+        {
+            reasons.Add("target-player-missing");
+        }
+        if (string.IsNullOrWhiteSpace(_observedTargetUserId))
+        {
+            reasons.Add("target-user-id-missing");
+        }
+        return reasons.Count == 0 ? "unknown" : string.Join(",", reasons);
+    }
+
+    private static string FormatValue(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "<empty>";
+        }
+
+        return value
+            .Replace("\r", " ", StringComparison.Ordinal)
+            .Replace("\n", " ", StringComparison.Ordinal)
+            .Replace(";", ",", StringComparison.Ordinal);
+    }
+
+    private static void LogTransition(ref string previous, string message)
+    {
+        if (!LoggingEnabled || string.Equals(previous, message, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        previous = message;
+        _logger?.LogInfo(message);
     }
 
     private static bool TryReadString(

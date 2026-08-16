@@ -25,7 +25,7 @@ internal sealed class NetworkHostSelectorConfig
             "diagnostics",
             "EnableLogging",
             false,
-            "Log compatibility handshakes, synchronized leader identity, and match host overrides.");
+            "Log participant snapshots, handshake traffic and validation, quorum state, and final match host decisions.");
         return new NetworkHostSelectorConfig(enableMod, enableLogging);
     }
 }

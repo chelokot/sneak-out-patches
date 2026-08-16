@@ -1400,9 +1400,12 @@ mod tests {
             HashSet::from([
                 "performance-optimizer",
                 "portal-mode-selector",
+                "network-host-selector",
+                "quick-reconnect",
                 "prop-buff",
                 "locker-stun-fix",
                 "magic-wardrobe-hook-fix",
+                "chair-wall-throw-fix",
                 "minimap",
                 "proximity-voice-chat",
                 "start-delay-reducer",

@@ -8,7 +8,7 @@ public sealed class NetworkHostSelectorPlugin : BasePlugin
 {
     public const string PluginGuid = "chelokot.sneakout.network-host-selector";
     public const string PluginName = "Leader Host";
-    public const string PluginVersion = "0.2.1";
+    public const string PluginVersion = "0.2.2";
 
     public override void Load()
     {

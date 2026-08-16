@@ -314,6 +314,18 @@ Require(
     !LeaderHostPolicy.TryResolve(new[] { (4, "steam-d") }, 4, string.Empty, out _),
     "Leader Host accepted an empty party-leader identity");
 Require(
+    LeaderHostHudText.Compose("Lobby", "Party Creator") == "Lobby   Host: Party Creator",
+    "Leader Host did not append the creator to the stock map value");
+Require(
+    LeaderHostHudText.Compose("Lobby   Host: Old Host", "New Host") == "Lobby   Host: New Host",
+    "Leader Host duplicated its HUD suffix during repeated stock refreshes");
+Require(
+    LeaderHostHudText.Compose("Lobby   Host: Old Host", string.Empty) == "Lobby",
+    "Leader Host did not restore the stock map value when the host became unavailable");
+Require(
+    LeaderHostHudText.Compose("Lobby", "Line One\nLine Two") == "Lobby   Host: Line One Line Two",
+    "Leader Host allowed a player name to break the bottom HUD strip");
+Require(
     HostSelectionProtocol.CreateHello("AABBCCDD", "steam-a") == "3|AABBCCDD|steam-a",
     "Leader Host hello token changed unexpectedly");
 Require(
@@ -405,6 +417,10 @@ Require(
     !leaderHostRuntimeSource.Contains("ActivePlayers", StringComparison.Ordinal)
     && !leaderHostRuntimeSource.Contains("Il2CppSystem.Collections.IEnumerator", StringComparison.Ordinal),
     "Leader Host reintroduced unsafe polling of Fusion's mutable IL2CPP player iterator");
+Require(
+    !leaderHostRuntimeSource.Contains("LeaderHostStatus", StringComparison.Ordinal)
+    && !leaderHostRuntimeSource.Contains("Instantiate(view._playButton", StringComparison.Ordinal),
+    "Leader Host reintroduced the cloned rounded portal button");
 
 Console.WriteLine("Gameplay fixes and synchronized Leader Host protocol tests passed.");
 

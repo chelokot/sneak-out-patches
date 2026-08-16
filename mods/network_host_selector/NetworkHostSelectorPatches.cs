@@ -2,18 +2,18 @@ using Fusion;
 using Gameplay.Player.Components;
 using HarmonyLib;
 using Networking.Lobby;
-using UI;
+using UI.Views;
 using UI.Views.Lobby;
 
 namespace SneakOut.NetworkHostSelector;
 
-[HarmonyPatch(typeof(GameUIManager), "OnAwake")]
-internal static class NetworkHostSelectorGameUiManagerPatch
+[HarmonyPatch(typeof(PingView), "Refresh")]
+internal static class NetworkHostSelectorPingViewPatch
 {
     [HarmonyPostfix]
-    private static void Postfix(GameUIManager __instance)
+    private static void Postfix(PingView __instance)
     {
-        NetworkHostSelectorRuntime.BindPortalManager(__instance);
+        NetworkHostSelectorRuntime.RefreshHostLabel(__instance);
     }
 }
 

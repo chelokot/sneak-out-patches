@@ -20,4 +20,4 @@ The BepInEx IL2CPP bridge bundled with the game setup cannot safely box Fusion's
 `ReliableKey` and `ArraySegment<byte>` value types and can otherwise terminate the process
 before a managed postfix is entered.
 
-The portal status is informational: there is no host selector. Once every participant confirms compatibility, it shows the party creator who will host the match. Ping never changes that choice.
+There is no host selector or extra portal button. The stock lower-left map/ping strip appends `Host: <name>` for the party creator selected to host the match. Ping never changes that choice.

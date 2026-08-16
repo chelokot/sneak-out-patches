@@ -5,20 +5,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Reference Include="EasyPerformantOutline">
-      <HintPath>$(InteropDir)/EasyPerformantOutline.dll</HintPath>
-    </Reference>
     <Reference Include="Fusion.Runtime">
       <HintPath>$(InteropDir)/Fusion.Runtime.dll</HintPath>
     </Reference>
     <Reference Include="UnityEngine.CoreModule">
       <HintPath>$(InteropDir)/UnityEngine.CoreModule.dll</HintPath>
-    </Reference>
-    <Reference Include="UnityEngine.PhysicsModule">
-      <HintPath>$(InteropDir)/UnityEngine.PhysicsModule.dll</HintPath>
-    </Reference>
-    <Reference Include="UnityEngine.UIModule">
-      <HintPath>$(InteropDir)/UnityEngine.UIModule.dll</HintPath>
     </Reference>
   </ItemGroup>
 </Project>

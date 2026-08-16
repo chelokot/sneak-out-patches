@@ -66,7 +66,7 @@ not Developer ID signed or notarized; if necessary, Control-click it and choose
 | `background-loading-guard` | Background Loading Guard | Yes | Allows loading to continue while the game is in the background and restores your previous setting afterward. |
 | `keyboard-layout-fix` | Keyboard Layout Fix | Yes | Keeps physical WASD controls working on Cyrillic keyboard layouts under Wine and updates key labels when layouts change. |
 | `friend-invite-unlock` | Friend Invite Unlock | Yes | Sends Steam game invites to offline friends and adds Steam overlay Invite to Play and Join Game support for lobby parties. |
-| `community-discord` | Community Discord | Yes | Adds a separate red Discord statue toward the lobby portal with its own community invite interaction. |
+| `community-discord` | Community Discord | Yes | Replaces the existing lobby Discord statue invite URL with the configured community invite. |
 
 ### Progression
 

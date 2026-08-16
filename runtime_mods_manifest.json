@@ -260,7 +260,7 @@
   {
     "option_id": "community-discord",
     "label": "Community Discord",
-    "details": "Adds a separate red Discord statue toward the lobby portal with its own community invite interaction.",
+    "details": "Replaces the existing lobby Discord statue invite URL with the configured community invite.",
     "category": "quality-of-life",
     "default_enabled": true,
     "stable": true,

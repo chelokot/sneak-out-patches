@@ -8,7 +8,7 @@ public sealed class CommunityDiscordPlugin : BasePlugin
 {
     public const string PluginGuid = "chelokot.sneakout.community-discord";
     public const string PluginName = "Community Discord";
-    public const string PluginVersion = "0.2.12";
+    public const string PluginVersion = "0.2.13";
 
     public override void Load()
     {

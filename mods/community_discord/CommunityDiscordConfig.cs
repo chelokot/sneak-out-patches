@@ -26,17 +26,17 @@ internal sealed class CommunityDiscordConfig
             "general",
             "EnableMod",
             true,
-            "Add a separate red Discord statue toward the lobby portal.");
+            "Replace the existing lobby Discord statue invite URL.");
         var inviteUrl = configFile.Bind(
             "general",
             "InviteUrl",
             "https://discord.gg/gFVTPqqCZD",
-            "Open this invite when the separate red Discord statue is used.");
+            "Open this invite when the existing Discord statue is used.");
         var enableLogging = configFile.Bind(
             "general",
             "EnableLogging",
             false,
-            "Log extra community-statue diagnostics.");
+            "Log Discord statue URL replacement diagnostics.");
         return new CommunityDiscordConfig(enableMod, inviteUrl, enableLogging);
     }
 }

@@ -518,6 +518,17 @@ Require(
     && clientConfirmedOverlayIndex > clientConfirmedPrefixIndex
     && clientConfirmedPostfixIndex > clientConfirmedOverlayIndex,
     "the profile overlay must run before ClientCache.OnClientConfirmed notifies inventory subscribers");
+Require(
+    unlockEverythingProfilePatchesSource.Contains(
+        "HarmonyPatch(typeof(PlayerNewMetaInventory), nameof(PlayerNewMetaInventory.LoadOwnedSeekers))",
+        StringComparison.Ordinal)
+    && unlockEverythingProfilePatchesSource.Contains("RuntimeCharacterType.murderer_ripper", StringComparison.Ordinal)
+    && unlockEverythingProfilePatchesSource.Contains("RuntimeCharacterType.murderer_scarecrow", StringComparison.Ordinal)
+    && unlockEverythingProfilePatchesSource.Contains("RuntimeCharacterType.murderer_dracula", StringComparison.Ordinal)
+    && unlockEverythingProfilePatchesSource.Contains("RuntimeCharacterType.murderer_butcher", StringComparison.Ordinal)
+    && unlockEverythingProfilePatchesSource.Contains("RuntimeCharacterType.murderer_clown", StringComparison.Ordinal)
+    && !unlockEverythingProfilePatchesSource.Contains("RuntimeCharacterType.murderer_mummy,", StringComparison.Ordinal),
+    "the perk-shop inventory must include every hunter with a retail perk tree and exclude Mummy");
 var leaderHostRuntimeSource = File.ReadAllText(Path.Combine(
     repositoryRoot.FullName,
     "mods",

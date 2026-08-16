@@ -1,8 +1,10 @@
 using Base;
 using Collections;
 using HarmonyLib;
+using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using Kinguinverse.WebServiceProvider.Types_v2;
 using Il2CppTasks = Il2CppSystem.Threading.Tasks;
+using RuntimeCharacterType = Types.CharacterType;
 
 namespace SneakOut.UnlockEverything;
 
@@ -33,6 +35,60 @@ internal static class ClientCacheOnClientConfirmedPatch
         catch (Exception exception)
         {
             UnlockEverythingRuntime.LogError("Backend stabilizer ClientCache.OnClientConfirmed diagnostics failed", exception);
+        }
+    }
+}
+
+[HarmonyPatch(typeof(PlayerNewMetaInventory), nameof(PlayerNewMetaInventory.LoadOwnedSeekers))]
+internal static class PlayerNewMetaInventoryLoadOwnedSeekersPatch
+{
+    private static readonly RuntimeCharacterType[] PerkShopSeekers =
+    {
+        RuntimeCharacterType.murderer_ripper,
+        RuntimeCharacterType.murderer_scarecrow,
+        RuntimeCharacterType.murderer_dracula,
+        RuntimeCharacterType.murderer_butcher,
+        RuntimeCharacterType.murderer_clown,
+    };
+
+    private static void Postfix(PlayerNewMetaInventory __instance)
+    {
+        if (!UnlockEverythingRuntime.UseProfileOverlay && !UnlockEverythingRuntime.UseLocalStub)
+        {
+            return;
+        }
+
+        try
+        {
+            var ownedSeekers = __instance.OwnedSeekers;
+            var mergedSeekers = new List<RuntimeCharacterType>();
+            if (ownedSeekers is not null)
+            {
+                foreach (var ownedSeeker in ownedSeekers)
+                {
+                    if (!mergedSeekers.Contains(ownedSeeker))
+                    {
+                        mergedSeekers.Add(ownedSeeker);
+                    }
+                }
+            }
+
+            foreach (var perkShopSeeker in PerkShopSeekers)
+            {
+                if (!mergedSeekers.Contains(perkShopSeeker))
+                {
+                    mergedSeekers.Add(perkShopSeeker);
+                }
+            }
+
+            __instance.OwnedSeekers = new Il2CppStructArray<RuntimeCharacterType>(mergedSeekers.ToArray());
+            UnlockEverythingRuntime.LogSkillUiEvent(
+                "PlayerNewMetaInventory.LoadOwnedSeekers",
+                $"before={ownedSeekers?.Length ?? 0}, after={mergedSeekers.Count}, seekers=[{string.Join(",", mergedSeekers)}]");
+        }
+        catch (Exception exception)
+        {
+            UnlockEverythingRuntime.LogError("Unlock Everything owned seeker inventory merge failed", exception);
         }
     }
 }

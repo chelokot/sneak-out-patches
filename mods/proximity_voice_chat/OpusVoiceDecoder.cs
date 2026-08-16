@@ -9,20 +9,18 @@ internal sealed class OpusVoiceDecoder : IDisposable
 {
     private const int MaximumOpusPacketLength = 1275;
 
-    private readonly OpusDecoder<float> _decoder;
     private readonly Il2CppStructArray<byte> _packetBuffer = new(MaximumOpusPacketLength);
+    private readonly Il2CppStructArray<float> _pcmBuffer = new(OpusVoiceCapture.FrameSamples);
     private readonly Action<Il2CppArrayBase<float>> _onDecodedFrame;
+    private IntPtr _handle;
     private byte _frameNumber;
-    private long _outputFrames;
 
     public OpusVoiceDecoder(Action<Il2CppArrayBase<float>> onDecodedFrame)
     {
         _onDecodedFrame = onDecodedFrame;
-        _decoder = new OpusDecoder<float>(
-            (Il2CppSystem.Action<FrameOut<float>>)OnDecoded,
+        _handle = Wrapper.opus_decoder_create(
             SamplingRate.Sampling24000,
-            Channels.Mono,
-            OpusVoiceCapture.FrameSamples);
+            Channels.Mono);
     }
 
     public bool TryDecode(byte[] encodedAudio, int missingFramesBefore)
@@ -32,7 +30,6 @@ internal sealed class OpusVoiceDecoder : IDisposable
             return false;
         }
 
-        var outputFramesBefore = _outputFrames;
         for (var index = 0; index < missingFramesBefore; index++)
         {
             DecodeMissingFrame();
@@ -52,8 +49,7 @@ internal sealed class OpusVoiceDecoder : IDisposable
             null!);
         try
         {
-            _decoder.DecodePacket(ref packet, false);
-            return _outputFrames > outputFramesBefore;
+            return DecodePacket(packet);
         }
         finally
         {
@@ -69,7 +65,7 @@ internal sealed class OpusVoiceDecoder : IDisposable
             _frameNumber++);
         try
         {
-            _decoder.DecodePacket(ref missingPacket, false);
+            DecodePacket(missingPacket);
         }
         finally
         {
@@ -77,17 +73,41 @@ internal sealed class OpusVoiceDecoder : IDisposable
         }
     }
 
-    private void OnDecoded(FrameOut<float> frame)
+    private bool DecodePacket(FrameBuffer packet)
     {
-        if (!frame.EndOfStream && frame.Buf.Length > 0)
+        if (_handle == IntPtr.Zero)
         {
-            _outputFrames++;
-            _onDecodedFrame(frame.Buf);
+            throw new ObjectDisposedException(nameof(OpusVoiceDecoder));
         }
+
+        var decodedSamples = Wrapper.opus_decode(
+            _handle,
+            packet,
+            _pcmBuffer,
+            OpusVoiceCapture.FrameSamples,
+            0);
+        if (decodedSamples <= 0)
+        {
+            return false;
+        }
+        if (decodedSamples != OpusVoiceCapture.FrameSamples)
+        {
+            throw new InvalidOperationException(
+                $"Opus decoded {decodedSamples} samples for a {OpusVoiceCapture.FrameSamples}-sample frame");
+        }
+
+        _onDecodedFrame(_pcmBuffer);
+        return true;
     }
 
     public void Dispose()
     {
-        _decoder.Dispose();
+        if (_handle == IntPtr.Zero)
+        {
+            return;
+        }
+
+        Wrapper.opus_decoder_destroy(_handle);
+        _handle = IntPtr.Zero;
     }
 }

@@ -6,6 +6,7 @@ from pathlib import Path
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CAPTURE_SOURCE = REPOSITORY_ROOT / "mods" / "proximity_voice_chat" / "OpusVoiceCapture.cs"
 ENCODER_SOURCE = REPOSITORY_ROOT / "mods" / "proximity_voice_chat" / "OpusVoiceEncoder.cs"
+DECODER_SOURCE = REPOSITORY_ROOT / "mods" / "proximity_voice_chat" / "OpusVoiceDecoder.cs"
 
 
 def require(condition: bool, message: str) -> None:
@@ -15,6 +16,7 @@ def require(condition: bool, message: str) -> None:
 
 capture = CAPTURE_SOURCE.read_text(encoding="utf-8")
 encoder = ENCODER_SOURCE.read_text(encoding="utf-8")
+decoder = DECODER_SOURCE.read_text(encoding="utf-8")
 module_source = "\n".join(
     path.read_text(encoding="utf-8")
     for path in sorted(CAPTURE_SOURCE.parent.glob("*.cs"))
@@ -23,6 +25,8 @@ module_source = "\n".join(
 for forbidden in (
     "Il2CppSystem.ArraySegment",
     "POpusCodec.OpusEncoder",
+    "POpusCodec.OpusDecoder",
+    "Il2CppSystem.Action<FrameOut",
     "OnEncodedFrame",
 ):
     require(
@@ -61,6 +65,26 @@ require(
 require(
     "if (_handle == IntPtr.Zero)" in encoder,
     "Opus encoder disposal is not idempotent",
+)
+
+for required in (
+    "Wrapper.opus_decoder_create",
+    "Wrapper.opus_decode",
+    "Wrapper.opus_decoder_destroy",
+):
+    require(required in decoder, f"direct Opus decoder lifecycle operation is missing: {required}")
+
+require(
+    "decodedSamples != OpusVoiceCapture.FrameSamples" in decoder,
+    "Opus decoded sample count is not validated before playback",
+)
+require(
+    decoder.count("Wrapper.opus_decoder_destroy") == 1,
+    "Opus decoder handle must be destroyed exactly once by the idempotent disposal path",
+)
+require(
+    "if (_handle == IntPtr.Zero)" in decoder,
+    "Opus decoder disposal is not idempotent",
 )
 
 print("Proximity voice Opus interop boundary test passed.")

@@ -9,18 +9,30 @@ namespace SneakOut.UnlockEverything;
 [HarmonyPatch(typeof(ClientCache), nameof(ClientCache.OnClientConfirmed))]
 internal static class ClientCacheOnClientConfirmedPatch
 {
-    private static void Postfix(ClientCache __instance)
+    private static void Prefix(ClientCache __instance)
     {
         try
         {
             UnlockEverythingRuntime.TrackClientCache(__instance);
+            // The original method synchronously notifies PlayerNewMetaInventory, which snapshots
+            // OwnedSeekers for the perk-shop picker. Populate the profile before that notification.
             UnlockEverythingOverlay.EnsureClientCache(__instance);
+        }
+        catch (Exception exception)
+        {
+            UnlockEverythingRuntime.LogError("Backend stabilizer ClientCache.OnClientConfirmed prefix failed", exception);
+        }
+    }
 
+    private static void Postfix(ClientCache __instance)
+    {
+        try
+        {
             UnlockEverythingRuntime.LogClientCacheState("ClientCache.OnClientConfirmed", __instance);
         }
         catch (Exception exception)
         {
-            UnlockEverythingRuntime.LogError("Backend stabilizer ClientCache.OnClientConfirmed postfix failed", exception);
+            UnlockEverythingRuntime.LogError("Backend stabilizer ClientCache.OnClientConfirmed diagnostics failed", exception);
         }
     }
 }

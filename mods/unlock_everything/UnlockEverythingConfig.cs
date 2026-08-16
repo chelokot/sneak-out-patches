@@ -33,7 +33,7 @@ internal sealed class UnlockEverythingConfig
             "general",
             "EnableProfileOverlay",
             true,
-            "Apply a local max-profile overlay after the stock backend profile refresh has completed.");
+            "Apply a local max-profile overlay before stock client caches initialize and after profile refresh.");
         var enableLocalStub = configFile.Bind(
             "general",
             "EnableLocalStub",

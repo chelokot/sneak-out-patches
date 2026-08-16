@@ -460,6 +460,11 @@ var unlockEverythingCosmeticPatchesSource = File.ReadAllText(Path.Combine(
     "mods",
     "unlock_everything",
     "UnlockEverythingCosmeticPatches.cs"));
+var unlockEverythingProfilePatchesSource = File.ReadAllText(Path.Combine(
+    repositoryRoot.FullName,
+    "mods",
+    "unlock_everything",
+    "UnlockEverythingProfilePatches.cs"));
 var titleLocalizationPatchesSource = File.ReadAllText(Path.Combine(
     repositoryRoot.FullName,
     "mods",
@@ -499,6 +504,20 @@ Require(
         "button.gameObject.SetActive(shouldShow)",
         StringComparison.Ordinal),
     "the title menu must reveal rarity 4 only on Shift-click and remove unbound badge slots");
+var clientConfirmedPrefixIndex = unlockEverythingProfilePatchesSource.IndexOf(
+    "private static void Prefix(ClientCache __instance)",
+    StringComparison.Ordinal);
+var clientConfirmedOverlayIndex = unlockEverythingProfilePatchesSource.IndexOf(
+    "UnlockEverythingOverlay.EnsureClientCache(__instance);",
+    StringComparison.Ordinal);
+var clientConfirmedPostfixIndex = unlockEverythingProfilePatchesSource.IndexOf(
+    "private static void Postfix(ClientCache __instance)",
+    StringComparison.Ordinal);
+Require(
+    clientConfirmedPrefixIndex >= 0
+    && clientConfirmedOverlayIndex > clientConfirmedPrefixIndex
+    && clientConfirmedPostfixIndex > clientConfirmedOverlayIndex,
+    "the profile overlay must run before ClientCache.OnClientConfirmed notifies inventory subscribers");
 var leaderHostRuntimeSource = File.ReadAllText(Path.Combine(
     repositoryRoot.FullName,
     "mods",

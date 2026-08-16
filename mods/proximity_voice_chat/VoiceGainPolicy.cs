@@ -2,7 +2,7 @@ namespace SneakOut.ProximityVoiceChat;
 
 internal static class VoiceGainPolicy
 {
-    public const float NominalVoiceGain = 7f;
+    public const float NominalVoiceGain = 21f;
     private const float PeakHeadroom = 0.95f;
 
     public static float CalculatePeakLimitedGain(float peak, float requestedGain)

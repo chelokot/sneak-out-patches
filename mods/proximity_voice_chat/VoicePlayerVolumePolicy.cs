@@ -5,7 +5,7 @@ namespace SneakOut.ProximityVoiceChat;
 internal static class VoicePlayerVolumePolicy
 {
     public const float MinimumVolume = 0f;
-    public const float MaximumVolume = 5f;
+    public const float MaximumVolume = 2f;
 
     public static Dictionary<ulong, float> Parse(string? text)
     {

@@ -10,7 +10,7 @@ Require(
     "per-player voice volumes were not parsed and clamped");
 Require(
     VoicePlayerVolumePolicy.Serialize(playerVolumes)
-        == "76561198000000001=1.75,76561198000000002=0.5,76561198000000003=5",
+        == "76561198000000001=1.75,76561198000000002=0.5,76561198000000003=2",
     "per-player voice volumes were not serialized deterministically");
 
 static void Require(bool condition, string message)
@@ -91,13 +91,13 @@ incompatibleCodecPacket[6] = 0;
 Require(!VoiceProtocol.TryDecode(incompatibleCodecPacket, out _), "incompatible voice codec was accepted");
 
 Require(
-    Math.Abs(VoiceGainPolicy.CalculatePeakLimitedGain(0.1f, 1f) - 7f) < 0.001f,
-    "100% receive volume did not apply the doubled nominal voice gain");
+    Math.Abs(VoiceGainPolicy.CalculatePeakLimitedGain(0.01f, 1f) - 21f) < 0.001f,
+    "100% receive volume did not apply six times the original nominal voice gain");
 Require(
-    Math.Abs(VoiceGainPolicy.CalculatePeakLimitedGain(0f, 5f) - 35f) < 0.001f,
-    "500% receive volume did not preserve the doubled slider mapping");
+    Math.Abs(VoiceGainPolicy.CalculatePeakLimitedGain(0f, 2f) - 42f) < 0.001f,
+    "200% receive volume did not apply twelve times the original nominal voice gain");
 Require(
-    Math.Abs(VoiceGainPolicy.CalculatePeakLimitedGain(0.5f, 5f) - 1.9f) < 0.001f,
+    Math.Abs(VoiceGainPolicy.CalculatePeakLimitedGain(0.5f, 2f) - 1.9f) < 0.001f,
     "loud speech gain was not limited below clipping");
 Require(
     Math.Abs(VoiceGainPolicy.CalculatePeakLimitedGain(0.1f, 2f, 1f) - 2f) < 0.001f,

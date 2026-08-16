@@ -244,14 +244,18 @@ internal sealed class ProximityVoiceChatConfig
             1f,
             new ConfigDescription(
                 "Outgoing microphone volume applied before Opus encoding.",
-                new AcceptableValueRange<float>(0f, 5f)));
+                new AcceptableValueRange<float>(
+                    VoicePlayerVolumePolicy.MinimumVolume,
+                    VoicePlayerVolumePolicy.MaximumVolume)));
         var masterVolume = config.Bind(
             "Playback",
             "MasterVolume",
             1f,
             new ConfigDescription(
-                "Default voice volume for players without a saved per-player override; the receive baseline is doubled.",
-                new AcceptableValueRange<float>(0f, 5f)));
+                "Default voice volume for players without a saved per-player override; 100% is six times the original receive baseline.",
+                new AcceptableValueRange<float>(
+                    VoicePlayerVolumePolicy.MinimumVolume,
+                    VoicePlayerVolumePolicy.MaximumVolume)));
         var playerVolumes = config.Bind(
             "Playback",
             "PlayerVolumes",

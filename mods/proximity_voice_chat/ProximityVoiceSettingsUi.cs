@@ -136,22 +136,27 @@ internal static class ProximityVoiceSettingsUi
 
     public static void Tick()
     {
-        if (_configuration is null || !RowsAreAvailable())
+        if (_configuration is null)
         {
             return;
         }
 
         try
         {
-            RefreshMicrophoneDevices(force: false);
-            SyncPlayerVolumeRows(force: false);
-            TickVisualDiagnostic();
-            if (_modeRow?.Root.activeInHierarchy != true)
+            var controlsAvailable = RowsAreAvailable();
+            var audioTabActive = controlsAvailable && _modeRow?.Root.activeInHierarchy == true;
+            if (VoiceMicrophoneTestPolicy.ShouldCancelForSettingsState(
+                    controlsAvailable,
+                    audioTabActive))
             {
                 CancelBindingRecording();
                 ProximityVoiceChatRuntime.CancelMicrophoneTest();
                 return;
             }
+
+            RefreshMicrophoneDevices(force: false);
+            SyncPlayerVolumeRows(force: false);
+            TickVisualDiagnostic();
             if (!_updating)
             {
                 TickBindingRecording();

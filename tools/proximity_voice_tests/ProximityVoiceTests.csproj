@@ -16,6 +16,7 @@
     <Compile Include="../../mods/proximity_voice_chat/VoiceFragmentAssembler.cs" Link="VoiceFragmentAssembler.cs" />
     <Compile Include="../../mods/proximity_voice_chat/VoiceGainPolicy.cs" Link="VoiceGainPolicy.cs" />
     <Compile Include="../../mods/proximity_voice_chat/VoiceMicrophoneDevicePolicy.cs" Link="VoiceMicrophoneDevicePolicy.cs" />
+    <Compile Include="../../mods/proximity_voice_chat/VoiceMicrophoneTestPolicy.cs" Link="VoiceMicrophoneTestPolicy.cs" />
     <Compile Include="../../mods/proximity_voice_chat/VoiceProtocol.cs" Link="VoiceProtocol.cs" />
     <Compile Include="../../mods/proximity_voice_chat/VoicePeerAdmission.cs" Link="VoicePeerAdmission.cs" />
     <Compile Include="../../mods/proximity_voice_chat/VoiceTransportSendMode.cs" Link="VoiceTransportSendMode.cs" />

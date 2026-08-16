@@ -14,13 +14,6 @@ namespace SneakOut.ProximityVoiceChat;
 
 internal readonly record struct VoicePartyMember(ulong SteamId, string DisplayName);
 
-internal enum VoiceMicrophoneTestState
-{
-    Idle,
-    Capturing,
-    Draining,
-}
-
 internal static class ProximityVoiceChatRuntime
 {
     private const float HelloIntervalSeconds = 1.75f;
@@ -75,6 +68,8 @@ internal static class ProximityVoiceChatRuntime
     {
         _logger = logger;
         _configuration = configuration;
+        _microphoneTestRequested = false;
+        _microphoneTestState = VoiceMicrophoneTestState.Idle;
         ProximityVoiceSettingsUi.Initialize(configuration, logger);
         _shutdown = false;
         _harmony ??= new Harmony(ProximityVoiceChatPlugin.PluginGuid);
@@ -112,6 +107,10 @@ internal static class ProximityVoiceChatRuntime
 
     public static void CancelMicrophoneTest()
     {
+        if (!VoiceMicrophoneTestPolicy.IsActive(_microphoneTestRequested, _microphoneTestState))
+        {
+            return;
+        }
         StopMicrophoneTest(logCancellation: _microphoneTestState != VoiceMicrophoneTestState.Idle);
     }
 

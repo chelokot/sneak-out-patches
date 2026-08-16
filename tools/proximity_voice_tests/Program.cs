@@ -1,5 +1,35 @@
 using SneakOut.ProximityVoiceChat;
 
+Require(
+    !VoiceMicrophoneTestPolicy.IsActive(
+        testRequested: false,
+        VoiceMicrophoneTestState.Idle),
+    "an idle microphone test was treated as active and stopped normal capture");
+Require(
+    VoiceMicrophoneTestPolicy.IsActive(
+        testRequested: true,
+        VoiceMicrophoneTestState.Idle)
+    && VoiceMicrophoneTestPolicy.IsActive(
+        testRequested: false,
+        VoiceMicrophoneTestState.Capturing)
+    && VoiceMicrophoneTestPolicy.IsActive(
+        testRequested: false,
+        VoiceMicrophoneTestState.Draining),
+    "an active microphone test could not be canceled");
+Require(
+    !VoiceMicrophoneTestPolicy.ShouldCancelForSettingsState(
+        controlsAvailable: true,
+        audioTabActive: true),
+    "an open Audio settings tab canceled its microphone test");
+Require(
+    VoiceMicrophoneTestPolicy.ShouldCancelForSettingsState(
+        controlsAvailable: true,
+        audioTabActive: false)
+    && VoiceMicrophoneTestPolicy.ShouldCancelForSettingsState(
+        controlsAvailable: false,
+        audioTabActive: false),
+    "leaving or closing Settings did not cancel the microphone test");
+
 var microphoneDevices = VoiceMicrophoneDevicePolicy.NormalizeDevices(
     new[] { " USB microphone ", "Built-in microphone", "USB microphone", "" });
 Require(

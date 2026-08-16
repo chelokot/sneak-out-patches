@@ -36,7 +36,7 @@
   {
     "option_id": "network-host-selector",
     "label": "Leader Host",
-    "details": "Always makes the party creator host the match when every player has the compatible mod.",
+    "details": "Makes the party creator host private matches when every player has the compatible mod; public matchmaking keeps the backend-assigned host.",
     "category": "quality-of-life",
     "default_enabled": false,
     "stable": false,

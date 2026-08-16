@@ -298,6 +298,24 @@ Require(
     !LeaderHostPolicy.TryResolve(new[] { (4, "steam-d") }, 4, string.Empty, out _),
     "Leader Host accepted an empty party-leader identity");
 Require(
+    !LeaderHostPolicy.ShouldOverrideAssignedHost(
+        privateGame: false,
+        assignedHostId: "public-host",
+        leaderHostId: "party-creator"),
+    "Leader Host replaced the backend-assigned host for public matchmaking");
+Require(
+    LeaderHostPolicy.ShouldOverrideAssignedHost(
+        privateGame: true,
+        assignedHostId: "private-peer",
+        leaderHostId: "party-creator"),
+    "Leader Host did not select the party creator for a private match");
+Require(
+    !LeaderHostPolicy.ShouldOverrideAssignedHost(
+        privateGame: true,
+        assignedHostId: "party-creator",
+        leaderHostId: "party-creator"),
+    "Leader Host rewrote an already-correct private match host");
+Require(
     LeaderHostHudText.Compose("Lobby", "Party Creator") == "Lobby   Host: Party Creator",
     "Leader Host did not append the creator to the stock map value");
 Require(
@@ -469,6 +487,10 @@ Require(
     && !leaderHostRuntimeSource.Contains("AllowPortalPlay", StringComparison.Ordinal)
     && !leaderHostRuntimeSource.Contains("PLAY held", StringComparison.Ordinal),
     "Leader Host must fall back to stock matchmaking instead of swallowing PLAY");
+Require(
+    leaderHostRuntimeSource.Contains("gameState.PrivateGameCheckbox", StringComparison.Ordinal)
+    && leaderHostRuntimeSource.Contains("ShouldOverrideAssignedHost", StringComparison.Ordinal),
+    "Leader Host must preserve the backend-assigned host during public matchmaking");
 
 Console.WriteLine("Gameplay fixes, Community Discord, and synchronized Leader Host protocol tests passed.");
 

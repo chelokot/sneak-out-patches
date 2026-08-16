@@ -593,8 +593,38 @@ internal static class NetworkHostSelectorRuntime
         }
 
         var originalHostId = hostId;
+        var privateGame = IsPrivateGameSelected();
+        if (!LeaderHostPolicy.ShouldOverrideAssignedHost(
+                privateGame,
+                originalHostId,
+                _observedTargetUserId))
+        {
+            if (!privateGame
+                && !string.Equals(originalHostId, _observedTargetUserId, StringComparison.Ordinal))
+            {
+                LogInfo("Public matchmaking detected; preserving the backend-assigned match host");
+            }
+            return;
+        }
+
         hostId = _observedTargetUserId;
         LogInfo($"Match Fusion host overridden {originalHostId} -> {hostId}");
+    }
+
+    private static bool IsPrivateGameSelected()
+    {
+        try
+        {
+            var gameState = PgosLobby.Instance?._gameState;
+            return gameState is not null
+                && gameState.Pointer != IntPtr.Zero
+                && gameState.PrivateGameCheckbox;
+        }
+        catch (Exception exception)
+        {
+            LogError("Reading the private-game state failed; preserving the backend-assigned host", exception);
+            return false;
+        }
     }
 
     private static void RefreshObservedFromCurrentRunner()

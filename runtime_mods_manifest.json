@@ -104,7 +104,7 @@
   {
     "option_id": "prop-buff",
     "label": "Prop Buff",
-    "details": "Lets you move slowly while disguised and change your prop with the mouse wheel.",
+    "details": "Lets you change your prop with the mouse wheel while remaining stationary.",
     "category": "gameplay",
     "default_enabled": true,
     "stable": true,

@@ -46,7 +46,7 @@ not Developer ID signed or notarized; if necessary, Control-click it and choose
 | `portal-mode-selector` | Portal Mode Selector | Yes | Lets you choose Classic or Crown maps from the portal while keeping unfinished maps unavailable. |
 | `mummy-unlock` | Mummy Unlock | Yes | Makes Mummy available as a selectable hunter. |
 | `alternate-skill-hotkey` | Alternate Skill Hotkey | No | Lets you press Left Alt to use your character's unequipped alternate active skill. |
-| `prop-buff` | Prop Buff | Yes | Lets you move slowly while disguised and change your prop with the mouse wheel. |
+| `prop-buff` | Prop Buff | Yes | Lets you change your prop with the mouse wheel while remaining stationary. |
 | `first-person-experiment` | First Person Experiment | No | Adds an experimental first-person mode with mouse look, immersive hiding and task views, a top-center stamina bar, and hold-X cursor release. |
 | `locker-stun-fix` | Locker Stun Fix | Yes | Prevents an unwanted stun and Boo cooldown when another player opens your occupied locker. |
 | `magic-wardrobe-hook-fix` | Magic Wardrobe Hook Fix | Yes | Prevents a Butcher hook from snapping you back to a magic wardrobe after interrupting your entry. |

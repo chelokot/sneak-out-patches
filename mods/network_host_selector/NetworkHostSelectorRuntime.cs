@@ -576,26 +576,6 @@ internal static class NetworkHostSelectorRuntime
         _localOnlySession = false;
     }
 
-    public static bool AllowPortalPlay()
-    {
-        if (!Enabled)
-        {
-            return true;
-        }
-        RefreshObservedFromCurrentRunner();
-        if (_observedValid
-            && _observedCompatible
-            && _observedReady
-            && _observedTargetRaw != 0
-            && !string.IsNullOrWhiteSpace(_observedTargetUserId))
-        {
-            return true;
-        }
-
-        _logger?.LogWarning("PLAY held until every real participant acknowledges the party creator as match host");
-        return false;
-    }
-
     public static void OverrideMatchHost(ref string hostId)
     {
         if (!Enabled)

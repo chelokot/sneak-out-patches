@@ -3,7 +3,6 @@ using Gameplay.Player.Components;
 using HarmonyLib;
 using Networking.Lobby;
 using UI.Views;
-using UI.Views.Lobby;
 
 namespace SneakOut.NetworkHostSelector;
 
@@ -14,17 +13,6 @@ internal static class NetworkHostSelectorPingViewPatch
     private static void Postfix(PingView __instance)
     {
         NetworkHostSelectorRuntime.RefreshHostLabel(__instance);
-    }
-}
-
-[HarmonyPatch(typeof(PortalPlayView), "OnPlay")]
-internal static class NetworkHostSelectorPortalPlayPatch
-{
-    [HarmonyPrefix]
-    [HarmonyPriority(Priority.First + 50)]
-    private static bool Prefix()
-    {
-        return NetworkHostSelectorRuntime.AllowPortalPlay();
     }
 }
 

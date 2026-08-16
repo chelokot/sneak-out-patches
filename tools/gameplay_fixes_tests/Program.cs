@@ -451,6 +451,11 @@ var leaderHostRuntimeSource = File.ReadAllText(Path.Combine(
     "mods",
     "network_host_selector",
     "NetworkHostSelectorRuntime.cs"));
+var leaderHostPatchesSource = File.ReadAllText(Path.Combine(
+    repositoryRoot.FullName,
+    "mods",
+    "network_host_selector",
+    "NetworkHostSelectorPatches.cs"));
 Require(
     !leaderHostRuntimeSource.Contains("ActivePlayers", StringComparison.Ordinal)
     && !leaderHostRuntimeSource.Contains("Il2CppSystem.Collections.IEnumerator", StringComparison.Ordinal),
@@ -459,6 +464,11 @@ Require(
     !leaderHostRuntimeSource.Contains("LeaderHostStatus", StringComparison.Ordinal)
     && !leaderHostRuntimeSource.Contains("Instantiate(view._playButton", StringComparison.Ordinal),
     "Leader Host reintroduced the cloned rounded portal button");
+Require(
+    !leaderHostPatchesSource.Contains("typeof(PortalPlayView), \"OnPlay\"", StringComparison.Ordinal)
+    && !leaderHostRuntimeSource.Contains("AllowPortalPlay", StringComparison.Ordinal)
+    && !leaderHostRuntimeSource.Contains("PLAY held", StringComparison.Ordinal),
+    "Leader Host must fall back to stock matchmaking instead of swallowing PLAY");
 
 Console.WriteLine("Gameplay fixes, Community Discord, and synchronized Leader Host protocol tests passed.");
 

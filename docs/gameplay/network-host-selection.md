@@ -13,7 +13,7 @@ Safety protocol:
 - Leader Host becomes ready only after all acknowledgements arrive;
 - lobby test bots are excluded from the quorum;
 - a join, leave, missing identity advertisement, identity mismatch, stale revision, or absent mod disarms the override;
-- when disarmed, PLAY is held instead of allowing clients to disagree about the match host.
+- when disarmed, the mod leaves PLAY and the stock match-host choice untouched.
 
 The protocol deliberately does not Harmony-patch `PhotonLobby.OnReliableDataReceived`.
 The BepInEx IL2CPP bridge bundled with the game setup cannot safely box Fusion's nested

@@ -91,11 +91,11 @@ incompatibleCodecPacket[6] = 0;
 Require(!VoiceProtocol.TryDecode(incompatibleCodecPacket, out _), "incompatible voice codec was accepted");
 
 Require(
-    Math.Abs(VoiceGainPolicy.CalculatePeakLimitedGain(0.01f, 1f) - 21f) < 0.001f,
-    "100% receive volume did not apply six times the original nominal voice gain");
+    Math.Abs(VoiceGainPolicy.CalculateLinearGain(1f, VoiceGainPolicy.NominalVoiceGain) - 21f) < 0.001f,
+    "100% receive volume did not apply six times the original nominal voice gain without limiting");
 Require(
-    Math.Abs(VoiceGainPolicy.CalculatePeakLimitedGain(0f, 2f) - 42f) < 0.001f,
-    "200% receive volume did not apply twelve times the original nominal voice gain");
+    Math.Abs(VoiceGainPolicy.CalculateLinearGain(2f, VoiceGainPolicy.NominalVoiceGain) - 42f) < 0.001f,
+    "200% receive volume did not apply twelve times the original nominal voice gain without limiting");
 Require(
     Math.Abs(VoiceGainPolicy.CalculatePeakLimitedGain(0.5f, 2f) - 1.9f) < 0.001f,
     "loud speech gain was not limited below clipping");

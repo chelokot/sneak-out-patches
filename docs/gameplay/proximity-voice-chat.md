@@ -90,7 +90,7 @@ instead of accumulating latency. Teardown remains reliable.
 
 Each remote speaker owns:
 
-- a six-times-original peak-safe receive baseline driven by that speaker's SteamID64 volume override, falling
+- a six-times-original linear receive baseline driven by that speaker's SteamID64 volume override, falling
   back to the configured default when no override has been saved
 - an adaptive packet-jitter buffer based on arrival/capture delta variation
 - late/duplicate packet rejection and bounded loss recovery

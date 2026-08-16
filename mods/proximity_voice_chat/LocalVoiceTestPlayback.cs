@@ -18,7 +18,7 @@ internal sealed class LocalVoiceTestPlayback : IDisposable
 
     private readonly ManualLogSource _logger;
     private readonly Queue<ScheduledVoiceFrame> _encodedFrames = new();
-    private readonly VoiceGainProcessor _gainProcessor = new();
+    private readonly VoiceGainProcessor _gainProcessor = new(limitPeaks: false);
     private readonly Photon.Voice.Unity.Logger _photonLogger;
     private readonly UnityAudioOut _audioOutput;
     private readonly OpusVoiceDecoder _decoder;

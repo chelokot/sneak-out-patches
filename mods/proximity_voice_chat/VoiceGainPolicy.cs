@@ -15,9 +15,14 @@ internal static class VoiceGainPolicy
         float requestedGain,
         float nominalGain)
     {
-        var safeRequestedGain = Math.Max(0f, requestedGain) * Math.Max(0f, nominalGain);
+        var safeRequestedGain = CalculateLinearGain(requestedGain, nominalGain);
         return peak <= 0f
             ? safeRequestedGain
             : Math.Min(safeRequestedGain, PeakHeadroom / peak);
+    }
+
+    public static float CalculateLinearGain(float requestedGain, float nominalGain)
+    {
+        return Math.Max(0f, requestedGain) * Math.Max(0f, nominalGain);
     }
 }

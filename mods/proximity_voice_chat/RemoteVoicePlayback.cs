@@ -39,7 +39,7 @@ internal sealed class RemoteVoicePlayback : IDisposable
     private readonly string _peerLabel;
     private readonly AdaptiveJitterBuffer _jitterBuffer;
     private readonly OpusVoiceDecoder _decoder;
-    private readonly VoiceGainProcessor _gainProcessor = new(softLimitOutput: true);
+    private readonly VoiceGainProcessor _gainProcessor = new();
     private readonly Photon.Voice.Unity.Logger _photonLogger;
     private readonly UnityAudioOut _audioOutput;
     private readonly GameObject _host;

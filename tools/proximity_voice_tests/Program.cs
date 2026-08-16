@@ -97,18 +97,19 @@ Require(
     Math.Abs(VoiceGainPolicy.CalculateLinearGain(2f, VoiceGainPolicy.NominalVoiceGain) - 42f) < 0.001f,
     "200% receive volume did not apply twelve times the original nominal voice gain without limiting");
 Require(
-    Math.Abs(VoiceGainPolicy.ApplySoftLimit(0.5f) - 0.5f) < 0.001f,
-    "receive soft limiter changed a clean in-range sample");
-Require(
-    VoiceGainPolicy.ApplySoftLimit(10.8f) > 0.8f
-    && VoiceGainPolicy.ApplySoftLimit(10.8f) < 0.98f
-    && Math.Abs(
-        VoiceGainPolicy.ApplySoftLimit(-10.8f)
-        + VoiceGainPolicy.ApplySoftLimit(10.8f)) < 0.001f,
-    "receive soft limiter did not smoothly and symmetrically bound an amplified peak");
-Require(
     Math.Abs(VoiceGainPolicy.CalculatePeakLimitedGain(0.5f, 2f) - 1.9f) < 0.001f,
     "loud speech gain was not limited below clipping");
+var recoveredGain = 1.9f;
+for (var frame = 0; frame < 10; frame++)
+{
+    recoveredGain = VoiceGainPolicy.RecoverGain(recoveredGain, VoiceGainPolicy.NominalVoiceGain);
+}
+Require(
+    recoveredGain > 20f,
+    "receive gain did not recover from a transient peak within 200 milliseconds");
+Require(
+    VoiceGainPolicy.RecoverGain(10f, 2f) == 2f,
+    "receive gain did not react immediately to a louder peak");
 Require(
     Math.Abs(VoiceGainPolicy.CalculatePeakLimitedGain(0.1f, 2f, 1f) - 2f) < 0.001f,
     "outgoing microphone volume did not use a unity base gain");

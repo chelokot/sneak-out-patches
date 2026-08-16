@@ -8,7 +8,7 @@ public sealed class UnlockEverythingPlugin : BasePlugin
 {
     public const string PluginGuid = "chelokot.sneakout.unlock-everything";
     public const string PluginName = "Unlock Everything";
-    public const string PluginVersion = "0.2.8";
+    public const string PluginVersion = "0.2.9";
 
     public override void Load()
     {

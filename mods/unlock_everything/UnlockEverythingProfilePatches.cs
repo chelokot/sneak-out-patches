@@ -49,6 +49,7 @@ internal static class PlayerNewMetaInventoryLoadOwnedSeekersPatch
         RuntimeCharacterType.murderer_dracula,
         RuntimeCharacterType.murderer_butcher,
         RuntimeCharacterType.murderer_clown,
+        RuntimeCharacterType.murderer_mummy,
     };
 
     private static void Postfix(PlayerNewMetaInventory __instance)

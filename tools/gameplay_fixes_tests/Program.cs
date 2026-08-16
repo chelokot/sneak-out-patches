@@ -465,6 +465,21 @@ var unlockEverythingProfilePatchesSource = File.ReadAllText(Path.Combine(
     "mods",
     "unlock_everything",
     "UnlockEverythingProfilePatches.cs"));
+var unlockEverythingSkillPatchesSource = File.ReadAllText(Path.Combine(
+    repositoryRoot.FullName,
+    "mods",
+    "unlock_everything",
+    "UnlockEverythingSkillPatches.cs"));
+var unlockEverythingSkillSelectionsSource = File.ReadAllText(Path.Combine(
+    repositoryRoot.FullName,
+    "mods",
+    "unlock_everything",
+    "UnlockEverythingSkillSelections.cs"));
+var mummyPerkShopRuntimeSource = File.ReadAllText(Path.Combine(
+    repositoryRoot.FullName,
+    "mods",
+    "unlock_everything",
+    "MummyPerkShopRuntime.cs"));
 var titleLocalizationPatchesSource = File.ReadAllText(Path.Combine(
     repositoryRoot.FullName,
     "mods",
@@ -527,8 +542,20 @@ Require(
     && unlockEverythingProfilePatchesSource.Contains("RuntimeCharacterType.murderer_dracula", StringComparison.Ordinal)
     && unlockEverythingProfilePatchesSource.Contains("RuntimeCharacterType.murderer_butcher", StringComparison.Ordinal)
     && unlockEverythingProfilePatchesSource.Contains("RuntimeCharacterType.murderer_clown", StringComparison.Ordinal)
-    && !unlockEverythingProfilePatchesSource.Contains("RuntimeCharacterType.murderer_mummy,", StringComparison.Ordinal),
-    "the perk-shop inventory must include every hunter with a retail perk tree and exclude Mummy");
+    && unlockEverythingProfilePatchesSource.Contains("RuntimeCharacterType.murderer_mummy", StringComparison.Ordinal),
+    "the perk-shop inventory must include all supported hunters and the synthetic Mummy entry");
+Require(
+    mummyPerkShopRuntimeSource.Contains("SkillTree = reaperPassiveTree.SkillTree", StringComparison.Ordinal)
+    && mummyPerkShopRuntimeSource.Contains("emptyTree.Rows = Array.Empty<ListWrapper>()", StringComparison.Ordinal)
+    && unlockEverythingSkillPatchesSource.Contains(
+        "HarmonyPatch(typeof(CharactersSkillsRuntime), \"GetSkillsForCharacterType\")",
+        StringComparison.Ordinal)
+    && unlockEverythingSkillPatchesSource.Contains("__result = __instance.RipperSkills", StringComparison.Ordinal)
+    && unlockEverythingSkillPatchesSource.Contains("__result.ActiveSkill = default", StringComparison.Ordinal)
+    && unlockEverythingSkillSelectionsSource.Contains(
+        "? MummyPerkShopRuntime.ReaperCharacterType",
+        StringComparison.Ordinal),
+    "Mummy must reuse only Reaper's passive tree and synchronized passive storage");
 var leaderHostRuntimeSource = File.ReadAllText(Path.Combine(
     repositoryRoot.FullName,
     "mods",

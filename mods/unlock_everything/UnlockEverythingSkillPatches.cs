@@ -9,10 +9,59 @@ using Il2CppTasks = Il2CppSystem.Threading.Tasks;
 using PlayersActiveSkillsRuntime = Collections.Skills.PlayersActiveSkills;
 using RuntimeCharacterType = Types.CharacterType;
 using ScopeCleanerRuntime = Gameplay.ScopeCleaner;
+using SimplifiedSkillsRuntime = Types.Structs.SimplifiedWebPlayerSkills;
 using SpookedNetworkPlayerRuntime = Gameplay.Player.Components.SpookedNetworkPlayer;
 using SpookedSkillType = Types.SpookedSkillType;
+using TreeSkillSlotTypeRuntime = Types.TreeSkillSlotType;
 
 namespace SneakOut.UnlockEverything;
+
+[HarmonyPatch(typeof(MainBoostersView), nameof(MainBoostersView.ManagerAwake))]
+internal static class MainBoostersViewManagerAwakeMummyPerkTreePatch
+{
+    private static void Prefix(MainBoostersView __instance)
+    {
+        try
+        {
+            MummyPerkShopRuntime.PrepareView(__instance);
+        }
+        catch (Exception exception)
+        {
+            UnlockEverythingRuntime.LogError("Preparing the Mummy perk shop failed", exception);
+        }
+    }
+}
+
+[HarmonyPatch(typeof(MainBoostersView), nameof(MainBoostersView.SetSkillTree))]
+internal static class MainBoostersViewSetSkillTreeMummyNamePatch
+{
+    private static void Postfix(MainBoostersView __instance)
+    {
+        MummyPerkShopRuntime.ApplyCharacterName(__instance);
+    }
+}
+
+[HarmonyPatch(typeof(CharactersSkillsRuntime), "GetSkillsForCharacterType")]
+internal static class CharactersSkillsGetMummyPassiveSkillsPatch
+{
+    private static bool Prefix(
+        ref CharactersSkillsRuntime __instance,
+        RuntimeCharacterType characterType,
+        ref SimplifiedSkillsRuntime __result)
+    {
+        if ((!UnlockEverythingRuntime.UseProfileOverlay && !UnlockEverythingRuntime.UseLocalStub)
+            || characterType != MummyPerkShopRuntime.MummyCharacterType)
+        {
+            return true;
+        }
+
+        // The retail payload has no Mummy slot. Reuse only Reaper's synchronized passive fields;
+        // Mummy's Sand Trap and Sarcophagus remain the active abilities supplied by the game.
+        __result = __instance.RipperSkills;
+        __result.ActiveSkill = default;
+        return false;
+    }
+}
 
 [HarmonyPatch(typeof(MainBoostersViewModel), "ChangeEquippedSkill")]
 internal static class MainBoostersViewModelChangeEquippedSkillLoggingPatch
@@ -66,10 +115,27 @@ internal static class MainBoostersViewOpenSkillSyncPatch
 [HarmonyPatch(typeof(PlayerNewMetaInventory), nameof(PlayerNewMetaInventory.OnTreeSkillChange))]
 internal static class PlayerNewMetaInventoryOnTreeSkillChangePatch
 {
-    private static bool Prefix(PlayerNewMetaInventory __instance, SkillType cardSkillType, int slotType, ClientCharacterType characterType)
+    private static bool Prefix(
+        PlayerNewMetaInventory __instance,
+        SkillType cardSkillType,
+        int slotType,
+        ClientCharacterType characterType,
+        ref Il2CppTasks.Task<bool> __result)
     {
         UnlockEverythingSelections.RememberInventory(__instance);
         UnlockEverythingRuntime.LogSkillUiEvent("PlayerNewMetaInventory.OnTreeSkillChange:prefix", $"skill={cardSkillType}, slotType={slotType}, characterType={characterType}");
+
+        if (characterType == MummyPerkShopRuntime.MummyCharacterType)
+        {
+            var passiveSlot = (TreeSkillSlotTypeRuntime)slotType;
+            var applied = passiveSlot is TreeSkillSlotTypeRuntime.Right
+                or TreeSkillSlotTypeRuntime.Down
+                or TreeSkillSlotTypeRuntime.Left
+                && UnlockEverythingSelections.ApplyTreeSkillSelection(characterType, cardSkillType, slotType);
+            __result = Il2CppTasks.Task.FromResult(applied);
+            return false;
+        }
+
         return true;
     }
 

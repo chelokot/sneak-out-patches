@@ -35,7 +35,13 @@ internal static class LockerHandleBooSkillPatch
 {
     private static bool Prefix(Locker __instance, int playerId)
     {
-        return LockerStunFixRuntime.ShouldApplyLockerStun(__instance, playerId);
+        var shouldApply = LockerStunFixRuntime.ShouldApplyLockerStun(__instance, playerId);
+        if (shouldApply)
+        {
+            LockerStunFixRuntime.HighlightLockerStunZone(__instance, playerId);
+        }
+
+        return shouldApply;
     }
 }
 

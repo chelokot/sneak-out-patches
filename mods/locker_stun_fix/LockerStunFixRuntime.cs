@@ -12,6 +12,7 @@ internal static class LockerStunFixRuntime
     private static ManualLogSource? _logger;
     private static Harmony? _harmony;
     private static LockerStunFixConfig? _configuration;
+    private static bool _loggedIndicatorFailure;
 
     public static void Initialize(ManualLogSource logger, LockerStunFixConfig configuration)
     {
@@ -84,6 +85,48 @@ internal static class LockerStunFixRuntime
         return true;
     }
 
+    public static void HighlightLockerStunZone(Locker locker, int playerId)
+    {
+        if (_configuration?.EnableMod.Value != true
+            || _configuration.HighlightStunZone.Value != true
+            || locker.Pointer == IntPtr.Zero)
+        {
+            return;
+        }
+
+        try
+        {
+            var player = locker.NetworkPlayerRegistry?[playerId];
+            var skills = locker._playersActiveSkills;
+            var entitySkills = player?.EntitySkillsComponent;
+            if (player is null
+                || player.Pointer == IntPtr.Zero
+                || skills is null
+                || skills.Pointer == IntPtr.Zero
+                || entitySkills is null
+                || entitySkills.Pointer == IntPtr.Zero
+                || !skills.HaveSkillEquipped(playerId, SkillType.PenguinBoo, player.CharacterType)
+                || !entitySkills.CanUseBooSkill())
+            {
+                return;
+            }
+
+            if (!LockerStunZoneIndicator.TryShow(locker, out var failure))
+            {
+                LogIndicatorFailureOnce(failure);
+                return;
+            }
+
+            LogTrace(
+                $"boo-zone locker=0x{locker.Pointer:X} exitingPlayer={playerId} "
+                + $"radius={LockerStunZonePolicy.Radius:0.##} duration={LockerStunZonePolicy.IndicatorDurationSeconds:0.##}");
+        }
+        catch (Exception exception)
+        {
+            LogIndicatorFailureOnce($"{exception.GetType().Name}: {exception.Message}");
+        }
+    }
+
     public static void ClearCycle(Locker locker, string source)
     {
         if (locker.Pointer != IntPtr.Zero && Policy.Clear(locker.Pointer))
@@ -124,5 +167,16 @@ internal static class LockerStunFixRuntime
         {
             _logger?.LogInfo(message);
         }
+    }
+
+    private static void LogIndicatorFailureOnce(string failure)
+    {
+        if (_loggedIndicatorFailure)
+        {
+            return;
+        }
+
+        _loggedIndicatorFailure = true;
+        _logger?.LogWarning($"Locker Boo stun-zone indicator unavailable; gameplay is unchanged: {failure}");
     }
 }

@@ -188,6 +188,41 @@ Require(
     "an external-open marker suppressed a different occupant");
 Require(lockerPolicy.Clear(5), "hide/close boundary did not clear the locker cycle");
 
+Require(
+    LockerStunZonePolicy.TryResolveCenter(
+        new LockerStunZonePoint(10f, 2f, -4f),
+        new LockerStunZonePoint(0f, 0f, 1f),
+        out var lockerStunCenter),
+    "locker stun-zone center rejected finite transform data");
+RequireClose(lockerStunCenter.X, 10f, "locker stun-zone center drifted sideways");
+RequireClose(lockerStunCenter.Y, 2.75f, "locker stun-zone center lost its native height offset");
+RequireClose(lockerStunCenter.Z, -3f, "locker stun-zone center lost its native forward offset");
+RequireClose(LockerStunZonePolicy.Radius, 1.25f, "locker stun-zone radius diverged from Physics.OverlapSphere");
+Require(
+    LockerStunZonePolicy.IsPointInsideQuery(
+        new LockerStunZonePoint(0f, 0f, 0f),
+        new LockerStunZonePoint(0f, 0f, 1f),
+        new LockerStunZonePoint(0f, 0.75f, 1f)),
+    "the space directly in front of the locker was omitted from the stun query");
+Require(
+    !LockerStunZonePolicy.IsPointInsideQuery(
+        new LockerStunZonePoint(0f, 0f, 0f),
+        new LockerStunZonePoint(0f, 0f, 1f),
+        new LockerStunZonePoint(1f, 0.75f, 0f)),
+    "a one-metre position beside the locker was treated as part of a centered stun radius");
+Require(
+    !LockerStunZonePolicy.IsPointInsideQuery(
+        new LockerStunZonePoint(0f, 0f, 0f),
+        new LockerStunZonePoint(0f, 0f, 1f),
+        new LockerStunZonePoint(-1f, 0.75f, 0f)),
+    "the opposite side of the locker was treated as part of a centered stun radius");
+Require(
+    !LockerStunZonePolicy.TryResolveCenter(
+        new LockerStunZonePoint(float.NaN, 0f, 0f),
+        new LockerStunZonePoint(0f, 0f, 1f),
+        out _),
+    "locker stun-zone center accepted non-finite transform data");
+
 var russianForward = NativeMovementPolicy.Resolve(true, true, false, false, false, false);
 Require(
     russianForward.ShouldOverride && russianForward.OwnsMovement && russianForward.Vertical == 1f,

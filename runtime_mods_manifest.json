@@ -152,7 +152,7 @@
   {
     "option_id": "locker-stun-fix",
     "label": "Locker Stun Fix",
-    "details": "Prevents an unwanted stun and Boo cooldown when another player opens your occupied locker.",
+    "details": "Prevents an unwanted stun and Boo cooldown when another player opens your occupied locker, and highlights the valid Boo stun zone.",
     "category": "gameplay",
     "default_enabled": true,
     "stable": true,

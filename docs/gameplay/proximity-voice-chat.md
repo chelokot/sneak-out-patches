@@ -21,6 +21,9 @@ external voice server, account, native codec, or microphone recording file is cr
   and ends are not clipped.
 - `AlwaysOn` exists but is not the privacy-preserving default.
 - `Stop when game is unfocused` is enabled by default and can be changed in Audio settings.
+- `Microphone test` records four seconds without transmitting, releases the microphone, then
+  replays the sample through the same Opus decoder, gain stage, and Unity audio output used for
+  remote voices. Its separate 0–500% slider makes party-free loudness comparisons possible.
 - Audio settings shows a separate 0–500% volume slider for every remote, non-bot party member.
   The local player is never listed, and overrides persist by SteamID64 across reconnects.
 - `Directional voice` is enabled by default. Turning it off centers every remote voice equally in
@@ -128,5 +131,6 @@ The 0.4.0 stock-settings UI passed a captured visual smoke run on the live clien
 showed the voice, transmission-mode, and directional-audio controls with their intended labels and
 did not create the removed global volume row. A remote account is required to populate and
 visually test the dynamic party-member rows.
-Actual microphone-to-speaker validation still requires two different Steam accounts; one local
-client cannot authenticate a P2P voice peer to itself.
+The local microphone test validates capture, Opus, gain, and Unity playback without a second
+account. Authentication, Steam transport, per-peer jitter, and world propagation still require two
+different Steam accounts because a local client cannot authenticate a P2P voice peer to itself.

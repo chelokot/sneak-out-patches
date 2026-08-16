@@ -27,6 +27,8 @@ internal static class ProximityVoiceSettingsUi
     private static BindingSettingsRow? _bindingRow;
     private static ToggleSettingsRow? _stopWhenUnfocusedRow;
     private static ToggleSettingsRow? _directionalVoiceRow;
+    private static ToggleSettingsRow? _microphoneTestRow;
+    private static SliderSettingsRow? _microphoneTestVolumeRow;
     private static SliderSettingsRow? _sensitivityRow;
     private static UnityAction? _bindingClickAction;
     private static UnityAction? _bindingResetAction;
@@ -83,11 +85,24 @@ internal static class ProximityVoiceSettingsUi
                 toggleTemplate,
                 view._audioPanel.transform,
                 "ProximityVoiceDirectionalPanel");
+            _microphoneTestRow = CreateToggleRow(
+                toggleTemplate,
+                view._audioPanel.transform,
+                "ProximityVoiceMicrophoneTestPanel");
+            _microphoneTestVolumeRow = CreateSliderRow(
+                sliderTemplate,
+                view._audioPanel.transform,
+                "ProximityVoiceMicrophoneTestVolumePanel");
             _sensitivityRow = CreateSliderRow(
                 sliderTemplate,
                 view._audioPanel.transform,
                 "ProximityVoiceSensitivityPanel");
 
+            ConfigureSlider(
+                _microphoneTestVolumeRow.Slider,
+                VoicePlayerVolumePolicy.MinimumVolume,
+                VoicePlayerVolumePolicy.MaximumVolume,
+                wholeNumbers: false);
             ConfigureSlider(_sensitivityRow.Slider, 0f, 100f, wholeNumbers: true);
             SyncPlayerVolumeRows(force: true);
             Refresh(forceSliderValues: true);
@@ -118,6 +133,7 @@ internal static class ProximityVoiceSettingsUi
             if (_modeRow?.Root.activeInHierarchy != true)
             {
                 CancelBindingRecording();
+                ProximityVoiceChatRuntime.SetMicrophoneTestEnabled(false);
                 return;
             }
             if (!_updating)
@@ -172,6 +188,11 @@ internal static class ProximityVoiceSettingsUi
         var mode = (VoiceTransmissionMode)Mathf.Clamp(_modeRow!.Dropdown.value, 0, 2);
         var stopWhenUnfocused = _stopWhenUnfocusedRow!.Toggle.isOn;
         var directionalVoice = _directionalVoiceRow!.Toggle.isOn;
+        var microphoneTestEnabled = _microphoneTestRow!.Toggle.isOn;
+        var microphoneTestVolume = Mathf.Clamp(
+            _microphoneTestVolumeRow!.Slider.value,
+            VoicePlayerVolumePolicy.MinimumVolume,
+            VoicePlayerVolumePolicy.MaximumVolume);
         var sensitivity = Mathf.Clamp01(_sensitivityRow!.Slider.value / 100f);
         var threshold = Mathf.Lerp(LeastSensitiveThreshold, MostSensitiveThreshold, sensitivity);
 
@@ -190,6 +211,14 @@ internal static class ProximityVoiceSettingsUi
         if (configuration.DirectionalVoice.Value != directionalVoice)
         {
             configuration.DirectionalVoice.Value = directionalVoice;
+        }
+        if (!Mathf.Approximately(ProximityVoiceChatRuntime.MicrophoneTestVolume, microphoneTestVolume))
+        {
+            ProximityVoiceChatRuntime.SetMicrophoneTestVolume(microphoneTestVolume);
+        }
+        if (ProximityVoiceChatRuntime.IsMicrophoneTestEnabled != microphoneTestEnabled)
+        {
+            ProximityVoiceChatRuntime.SetMicrophoneTestEnabled(microphoneTestEnabled);
         }
         foreach (var playerRow in PlayerVolumeRows.Values)
         {
@@ -228,6 +257,11 @@ internal static class ProximityVoiceSettingsUi
             RefreshDropdown(_modeRow!, (int)mode);
             RefreshToggle(_stopWhenUnfocusedRow!, _configuration.StopWhenGameIsUnfocused.Value);
             RefreshToggle(_directionalVoiceRow!, _configuration.DirectionalVoice.Value);
+            RefreshToggle(_microphoneTestRow!, ProximityVoiceChatRuntime.IsMicrophoneTestEnabled);
+            RefreshSlider(
+                _microphoneTestVolumeRow!,
+                ProximityVoiceChatRuntime.MicrophoneTestVolume,
+                forceSliderValues);
             RefreshSlider(_sensitivityRow!, sensitivity, forceSliderValues);
             foreach (var playerRow in PlayerVolumeRows.Values)
             {
@@ -248,6 +282,18 @@ internal static class ProximityVoiceSettingsUi
             SetTextIfChanged(_bindingRow.ResetLabel, "Reset");
             SetTextIfChanged(_stopWhenUnfocusedRow!.Title, "Stop when game is unfocused");
             SetTextIfChanged(_directionalVoiceRow!.Title, "Directional voice");
+            SetTextIfChanged(
+                _microphoneTestRow!.Title,
+                ProximityVoiceChatRuntime.MicrophoneTestState switch
+                {
+                    VoiceMicrophoneTestState.Recording => "Microphone test (recording 4 seconds)",
+                    VoiceMicrophoneTestState.Playing => "Microphone test (playing)",
+                    _ => "Microphone test",
+                });
+            SetTextIfChanged(_microphoneTestVolumeRow!.Title, "Microphone test volume");
+            SetTextIfChanged(
+                _microphoneTestVolumeRow.Value,
+                $"{Mathf.RoundToInt(ProximityVoiceChatRuntime.MicrophoneTestVolume * 100f)}%");
             SetTextIfChanged(_sensitivityRow!.Title, "Microphone sensitivity");
             SetTextIfChanged(_sensitivityRow.Value, $"{Mathf.RoundToInt(sensitivity)}%");
 
@@ -635,6 +681,8 @@ internal static class ProximityVoiceSettingsUi
             && BindingRowIsAvailable(_bindingRow)
             && ToggleRowIsAvailable(_stopWhenUnfocusedRow)
             && ToggleRowIsAvailable(_directionalVoiceRow)
+            && ToggleRowIsAvailable(_microphoneTestRow)
+            && SliderRowIsAvailable(_microphoneTestVolumeRow)
             && SliderRowIsAvailable(_sensitivityRow);
     }
 
@@ -684,6 +732,7 @@ internal static class ProximityVoiceSettingsUi
             }
         }
         CancelBindingRecording();
+        ProximityVoiceChatRuntime.SetMicrophoneTestEnabled(false);
         PlayerVolumeRows.Clear();
         _view = null;
         _sliderTemplate = null;
@@ -692,6 +741,8 @@ internal static class ProximityVoiceSettingsUi
         _bindingRow = null;
         _stopWhenUnfocusedRow = null;
         _directionalVoiceRow = null;
+        _microphoneTestRow = null;
+        _microphoneTestVolumeRow = null;
         _sensitivityRow = null;
         _bindingClickAction = null;
         _bindingResetAction = null;

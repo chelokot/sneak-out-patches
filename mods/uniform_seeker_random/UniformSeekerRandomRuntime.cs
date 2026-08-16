@@ -33,7 +33,7 @@ internal static class UniformSeekerRandomRuntime
             return false;
         }
 
-        var candidateInternalIds = CollectEligibleSeekerInternalIds(shouldStartState);
+        var candidateInternalIds = CollectSeekerCandidateInternalIds(shouldStartState);
         if (candidateInternalIds.Count == 0)
         {
             return false;
@@ -49,21 +49,32 @@ internal static class UniformSeekerRandomRuntime
         return true;
     }
 
-    private static List<int> CollectEligibleSeekerInternalIds(ShouldStartState shouldStartState)
+    private static List<int> CollectSeekerCandidateInternalIds(ShouldStartState shouldStartState)
     {
-        var candidateInternalIds = new List<int>();
+        var preferredCandidateInternalIds = new List<int>();
+        var fallbackCandidateInternalIds = new List<int>();
         var networkPlayers = shouldStartState._networkPlayerRegistry._components;
         for (var playerIndex = 0; playerIndex < networkPlayers.Length; playerIndex++)
         {
             var networkPlayer = networkPlayers[playerIndex];
-            if (networkPlayer is null || !networkPlayer.CanBeSeeker)
+            if (networkPlayer is null)
             {
                 continue;
             }
 
-            candidateInternalIds.Add(networkPlayer.InternalId);
+            if (!networkPlayer.IsBot)
+            {
+                fallbackCandidateInternalIds.Add(networkPlayer.InternalId);
+            }
+
+            if (networkPlayer.CanBeSeeker)
+            {
+                preferredCandidateInternalIds.Add(networkPlayer.InternalId);
+            }
         }
 
-        return candidateInternalIds;
+        return preferredCandidateInternalIds.Count > 0
+            ? preferredCandidateInternalIds
+            : fallbackCandidateInternalIds;
     }
 }

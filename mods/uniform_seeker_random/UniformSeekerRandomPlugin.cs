@@ -8,7 +8,7 @@ public sealed class UniformSeekerRandomPlugin : BasePlugin
 {
     public const string PluginGuid = "chelokot.sneakout.uniform-seeker-random";
     public const string PluginName = "Uniform Seeker Random";
-    public const string PluginVersion = "0.1.0";
+    public const string PluginVersion = "0.1.1";
 
     public override void Load()
     {

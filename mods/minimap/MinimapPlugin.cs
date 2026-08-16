@@ -8,7 +8,7 @@ public sealed class MinimapPlugin : BasePlugin
 {
     public const string PluginGuid = "chelokot.sneakout.minimap";
     public const string PluginName = "Minimap";
-    public const string PluginVersion = "0.3.4";
+    public const string PluginVersion = "0.3.5";
 
     public override void Load()
     {

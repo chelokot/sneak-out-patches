@@ -8,7 +8,7 @@ The default display contains:
 
 - a full-scene floor plan in a circular top-right frame by default;
 - distinct colors for ordinary rooms, hallways, spawn, task rooms, and labyrinth rooms;
-- matching gold markers for interactive doors and authored pass-through doorway frames;
+- matching gold markers for interactive doors, authored pass-through doorway frames, and wide East-map arches;
 - cyan point markers for teleporting magic wardrobes;
 - yellow point markers for the coin-operated item rollers;
 - zoom-aware perimeter guidance: colored strips for off-screen task rooms and colored dots for off-screen wardrobes and item rollers;
@@ -25,6 +25,8 @@ The client has no minimap or radar type. `UnityEngine.AI.NavMesh.Triangulate` ap
 The working room source is `Gameplay.Enviro.Room`. Each playable room or hallway has one root trigger collider. The plugin reads those colliders once, converts box-collider corners into world X/Z polygons, rounds their projected corners slightly, fits a square projection with padding, and rasterizes a 512 x 512 texture. `Room` instances without a root trigger are excluded, which removes unrelated table/owl helpers that also use the type.
 
 Interactive doors come from `Gameplay.Interactions.Door._doorInteractableCollider`. The longer horizontal axis of each live interaction volume becomes a short gold line over the room outline. Standard wall doorway lintel renderers supply the complete set of authored door slots; slots with no nearby interaction volume use the same gold line, so both kinds of traversable doorway have one visual language.
+
+The East-map wall kit authors its wide arches differently: each `BuildingSet_b_Wall_BigDoor_a_Prefab` instance has a collider on a root transform centered on the opening, rather than a standard lintel below a `Renderers` child. The minimap reads that root transform once per arch and uses its horizontal alignment for the same gold marker.
 
 Points of interest are also resolved directly from live interactables. `Gameplay.Interactions.MagicWardrobe` positions become cyan dots, while `Gameplay.Interactions.ItemGenerator` positions become yellow dots. The latter is the victim item roller backed by the game's `ItemGeneratorCost` setting. Both use a dark outline so their color survives reduction from the 512 x 512 floor-plan texture to HUD size. This is still runtime geometry: no scene or prefab asset is modified and no state is networked by the minimap.
 
@@ -66,10 +68,11 @@ manual or deployment-time configuration:
 
 ## Validation
 
-The implementation was compiled against the supported Steam build `24488474` interop assemblies and exercised in private Fusion matches with the authoritative test bot.
+The implementation is compiled against the supported Steam build `24728288` interop assemblies. Core behavior was exercised on build `24488474` in private Fusion matches with the authoritative test bot, and the East-map arch source was verified against build `24728288` scene data.
 
 - Map02: 37 usable room volumes, 35 live door colliders, 19 additional pass-through doorway frames, 4 teleport wardrobes, and 1 item roller; square projection from approximately `(-55.47, -62.91)` to `(55.39, 47.96)`. A Zoom 80 framebuffer confirmed player-relative purple/brown task-room strips, four cyan wardrobe dots, and one yellow roller dot on the circular perimeter without duplicating targets visible in the viewport.
 - Map_School02: its structurally different compact room layout generated without map-specific values; floor plan and marker confirmed in a second framebuffer capture.
+- Map_East01 and Map_East02: build `24728288` scene inspection found 11 and 12 wide arch roots respectively. Every root has the collider and centered horizontal transform used by the East-map doorway collector; neither scene contains a standard `_Door_*_02c` lintel for those arches.
 
 Both sessions completed without minimap exceptions. The room-volume path is scene-driven and applies to every supported `Map*` scene without per-map textures or coordinate tables.
 

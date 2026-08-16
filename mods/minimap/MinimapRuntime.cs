@@ -26,6 +26,7 @@ internal static class MinimapRuntime
     private const float MaximumZoomScale = 4f;
     private const float DoorMarkerLength = 2.1f;
     private const float DoorSlotMatchDistance = 0.8f;
+    private const string EastWideDoorwayRootName = "BuildingSet_b_Wall_BigDoor_a_Prefab";
     private const float RoomCornerRadiusPixels = 6f;
     private const int RoomCornerSegments = 4;
     private const int PointMarkerOutlineRadius = 6;
@@ -395,10 +396,55 @@ internal static class MinimapRuntime
             authoredSlots.Add(new DoorShape(start, end));
         }
 
+        // The East-map wall set does not use the standard Renderers/_Door_*_02c
+        // lintel hierarchy. Its wide arches instead expose a collider on the
+        // authored prefab root, whose transform is centered on and aligned with
+        // the opening.
+        foreach (var collider in Resources.FindObjectsOfTypeAll<Collider>())
+        {
+            if (collider is null
+                || collider.Pointer == IntPtr.Zero
+                || collider.gameObject.scene.handle != scene.handle
+                || !IsEastWideDoorwayRootName(collider.name))
+            {
+                continue;
+            }
+
+            var doorwayTransform = collider.transform;
+            var center = ToHorizontal(doorwayTransform.position);
+            if (authoredSlots.Any(slot => Vector2.Distance(slot.Center, center) < 0.25f))
+            {
+                continue;
+            }
+
+            var direction = ToHorizontal(doorwayTransform.right);
+            if (direction.sqrMagnitude <= 0.000001f)
+            {
+                continue;
+            }
+
+            direction.Normalize();
+            var halfLength = DoorMarkerLength * 0.5f;
+            authoredSlots.Add(new DoorShape(
+                center - direction * halfLength,
+                center + direction * halfLength));
+        }
+
         return authoredSlots
             .Where(slot => !interactiveDoors.Any(door =>
                 Vector2.Distance(door.Center, slot.Center) <= DoorSlotMatchDistance))
             .ToList();
+    }
+
+    private static bool IsEastWideDoorwayRootName(string candidate)
+    {
+        return IsPrefabInstanceName(candidate, EastWideDoorwayRootName);
+    }
+
+    private static bool IsPrefabInstanceName(string candidate, string prefabName)
+    {
+        return string.Equals(candidate, prefabName, StringComparison.OrdinalIgnoreCase)
+            || candidate.StartsWith(prefabName + " (", StringComparison.OrdinalIgnoreCase);
     }
 
     private static List<Vector2> CollectInteractablePositions<T>(Scene scene, string markerName)

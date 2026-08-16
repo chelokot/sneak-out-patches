@@ -8,6 +8,8 @@ namespace SneakOut.UnlockEverything;
 
 internal static class LocalSelectionsStore
 {
+    private const int CurrentSchemaVersion = 1;
+
     private sealed record AppliedGoldOverlay(int DisplayedGold, int ChargedPurchaseCount);
 
     private static readonly object Sync = new();
@@ -38,7 +40,11 @@ internal static class LocalSelectionsStore
             var profileKey = UnlockEverythingStub.GetProfileStorageKey();
             UnlockEverythingRuntime.LogPersistentSelectionStore("LocalSelectionsStore.SaveCharacterSelection:key", profileKey, character.Type);
             var profileSelections = GetOrCreateProfileSelections(profileKey);
-            profileSelections.Characters[((int)character.Type).ToString()] = PersistedCharacterSelection.FromCharacter(character);
+            var characterKey = ((int)character.Type).ToString();
+            profileSelections.Characters.TryGetValue(characterKey, out var previousSelection);
+            var updatedSelection = PersistedCharacterSelection.FromCharacter(character);
+            updatedSelection.CopyAppearanceFrom(previousSelection);
+            profileSelections.Characters[characterKey] = updatedSelection;
             Save();
         }
     }
@@ -394,6 +400,17 @@ internal static class LocalSelectionsStore
 
     private static void ApplySkinParts(WebPlayer player, Character character, PersistedCharacterSelection selection)
     {
+        if (!PersistentSelectionPolicy.HasSkinPartSelection(
+                selection.HeadSkinPartType,
+                selection.ChestSkinPartType,
+                selection.LegsSkinPartType,
+                selection.HandsSkinPartType,
+                selection.BackSkinPartType,
+                selection.WholeSkinPartType))
+        {
+            return;
+        }
+
         character.SkinParts ??= new SkinParts();
         if (selection.WholeSkinPartType.HasValue)
         {
@@ -669,22 +686,50 @@ internal static class LocalSelectionsStore
         {
             if (!File.Exists(StoragePath))
             {
-                return new PersistedSelectionsRoot();
+                return CreateEmptyRoot();
             }
 
             var content = File.ReadAllText(StoragePath);
             if (string.IsNullOrWhiteSpace(content))
             {
-                return new PersistedSelectionsRoot();
+                return CreateEmptyRoot();
             }
 
-            return JsonSerializer.Deserialize<PersistedSelectionsRoot>(content, JsonOptions) ?? new PersistedSelectionsRoot();
+            var root = JsonSerializer.Deserialize<PersistedSelectionsRoot>(content, JsonOptions) ?? CreateEmptyRoot();
+            Migrate(root);
+            return root;
         }
         catch (Exception exception)
         {
             UnlockEverythingRuntime.LogError("Backend stabilizer failed to load persistent selections", exception);
-            return new PersistedSelectionsRoot();
+            return CreateEmptyRoot();
         }
+    }
+
+    private static PersistedSelectionsRoot CreateEmptyRoot()
+    {
+        return new PersistedSelectionsRoot
+        {
+            SchemaVersion = CurrentSchemaVersion
+        };
+    }
+
+    private static void Migrate(PersistedSelectionsRoot root)
+    {
+        if (root.SchemaVersion >= CurrentSchemaVersion)
+        {
+            return;
+        }
+
+        foreach (var profile in root.Profiles.Values)
+        {
+            foreach (var selection in profile.Characters.Values)
+            {
+                selection.ClearLegacyEmptyAppearance();
+            }
+        }
+
+        root.SchemaVersion = CurrentSchemaVersion;
     }
 
     private static void Save()
@@ -693,7 +738,7 @@ internal static class LocalSelectionsStore
         {
             Directory.CreateDirectory(Path.GetDirectoryName(StoragePath)!);
             UnlockEverythingRuntime.LogPersistentSelectionFileWrite("LocalSelectionsStore.Save:file", StoragePath);
-            File.WriteAllText(StoragePath, JsonSerializer.Serialize(_root ?? new PersistedSelectionsRoot(), JsonOptions));
+            File.WriteAllText(StoragePath, JsonSerializer.Serialize(_root ?? CreateEmptyRoot(), JsonOptions));
         }
         catch (Exception exception)
         {
@@ -704,6 +749,8 @@ internal static class LocalSelectionsStore
 
 internal sealed class PersistedSelectionsRoot
 {
+    public int SchemaVersion { get; set; }
+
     public Dictionary<string, PersistedProfileSelections> Profiles { get; set; } = new();
 }
 
@@ -739,6 +786,40 @@ internal sealed class PersistedCharacterSelection
     public int? PassiveSkill2 { get; set; }
     public int? PassiveSkill3 { get; set; }
     public int? PassiveSkill4 { get; set; }
+
+    public void CopyAppearanceFrom(PersistedCharacterSelection? previous)
+    {
+        CharacterSkin = previous?.CharacterSkin;
+        HeadSkinPartType = previous?.HeadSkinPartType;
+        ChestSkinPartType = previous?.ChestSkinPartType;
+        LegsSkinPartType = previous?.LegsSkinPartType;
+        HandsSkinPartType = previous?.HandsSkinPartType;
+        BackSkinPartType = previous?.BackSkinPartType;
+        WholeSkinPartType = previous?.WholeSkinPartType;
+    }
+
+    public void ClearLegacyEmptyAppearance()
+    {
+        if (!PersistentSelectionPolicy.IsLegacyEmptyAppearance(
+                CharacterSkin,
+                HeadSkinPartType,
+                ChestSkinPartType,
+                LegsSkinPartType,
+                HandsSkinPartType,
+                BackSkinPartType,
+                WholeSkinPartType))
+        {
+            return;
+        }
+
+        CharacterSkin = null;
+        HeadSkinPartType = null;
+        ChestSkinPartType = null;
+        LegsSkinPartType = null;
+        HandsSkinPartType = null;
+        BackSkinPartType = null;
+        WholeSkinPartType = null;
+    }
 
     public static PersistedCharacterSelection FromCharacter(Character character)
     {

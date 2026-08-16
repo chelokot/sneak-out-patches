@@ -9,10 +9,52 @@ using Gameplay.Spawn;
 using Scriptables;
 using Types.Structs;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using ClientCharacterType = Types.CharacterType;
 using Il2CppTasks = Il2CppSystem.Threading.Tasks;
 
 namespace SneakOut.UnlockEverything;
+
+[HarmonyPatch(typeof(AvatarAndFrameView), "OnTitlesCategory")]
+internal static class AvatarAndFrameViewOnTitlesCategoryPatch
+{
+    private static void Prefix(AvatarAndFrameView __instance)
+    {
+        var keyboard = Keyboard.current;
+        var revealRarityFour = keyboard?.leftShiftKey.isPressed == true
+            || keyboard?.rightShiftKey.isPressed == true;
+        TitleMenuVisibility.SetRevealRarityFour(__instance, revealRarityFour);
+    }
+}
+
+internal static class TitleMenuVisibility
+{
+    private static readonly HashSet<IntPtr> RevealedViews = new();
+
+    public static void SetRevealRarityFour(AvatarAndFrameView view, bool reveal)
+    {
+        if (view is null || view.Pointer == IntPtr.Zero)
+        {
+            return;
+        }
+
+        if (reveal)
+        {
+            RevealedViews.Add(view.Pointer);
+        }
+        else
+        {
+            RevealedViews.Remove(view.Pointer);
+        }
+    }
+
+    public static bool ShouldRevealRarityFour(AvatarAndFrameView view)
+    {
+        return view is not null
+            && view.Pointer != IntPtr.Zero
+            && RevealedViews.Contains(view.Pointer);
+    }
+}
 
 [HarmonyPatch(typeof(TypesUtils), nameof(TypesUtils.IsPurchasable), new[] { typeof(SkinPartType) })]
 internal static class TypesUtilsSkinPartIsPurchasablePatch
@@ -83,7 +125,7 @@ internal static class SceneSpawnerGetCharacterDataPatch
 }
 
 [HarmonyPatch(typeof(AvatarAndFrameView), "SetProducts")]
-internal static class AvatarAndFrameViewSetProductsPatch
+internal static class AvatarAndFrameViewFilterTitleSlotsPatch
 {
     private static void Postfix(AvatarAndFrameView __instance)
     {
@@ -96,20 +138,25 @@ internal static class AvatarAndFrameViewSetProductsPatch
         {
             foreach (var button in __instance._titleRecordButtons)
             {
-                if (button?._titleText is null)
+                if (button is null)
                 {
                     continue;
                 }
 
-                var currentText = button._titleText.text;
-                button._titleText.text = AvatarSelectionPolicy.GetTitleDisplayText(
-                    currentText,
-                    currentText);
+                var storedProduct = button.StoredProduct;
+                var shouldShow = storedProduct is not null
+                    && storedProduct.Pointer != IntPtr.Zero
+                    && System.Enum.TryParse(storedProduct.ToString(), out DescriptionType descriptionType)
+                    && TitleAccessPolicy.ShouldShowInMenu(
+                        (int)descriptionType,
+                        __instance._spookedSettings.Titles.GetTitleRarity(descriptionType),
+                        TitleMenuVisibility.ShouldRevealRarityFour(__instance));
+                button.gameObject.SetActive(shouldShow);
             }
         }
         catch (Exception exception)
         {
-            UnlockEverythingRuntime.LogError("Failed to apply title display fallbacks", exception);
+            UnlockEverythingRuntime.LogError("Failed to filter title slots", exception);
         }
     }
 }

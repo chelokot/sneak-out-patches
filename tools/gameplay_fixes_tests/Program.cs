@@ -26,18 +26,33 @@ Require(
 Require(
     AvatarSelectionPolicy.PreserveOwnedProductId(0, 100_004) == 100_004,
     "avatar overlay did not assign an id to a synthetic product");
+var missingTitleEntries = TitleLocalizationPolicy.MissingEntries.ToDictionary(entry => entry.Key, entry => entry.Value);
+Require(missingTitleEntries.Count == 10, "missing title localization catalog changed unexpectedly");
+Require(missingTitleEntries["TITLE_MAGNATE"] == "Magnate", "Magnate localization is missing");
+Require(missingTitleEntries["TITLE_CHAIR_DESTROYER"] == "Chair Destroyer", "Chair Destroyer localization is missing");
+Require(missingTitleEntries["TITLE_ARISTOCRATE"] == "Aristocrat", "Aristocrat localization preserved the game's typo");
+Require(!missingTitleEntries.ContainsKey("TITLE_DEVELOPER"), "existing title localization would be overwritten");
+Require(!missingTitleEntries.ContainsKey("TITLE_COMMUNITY_LEADER"), "existing Community Leader localization would be overwritten");
+Require(!TitleAccessPolicy.ShouldShowInMenu(2, 4, false), "rarity 4 remained visible after a regular tab click");
+Require(TitleAccessPolicy.ShouldShowInMenu(2, 4, true), "Shift-click did not reveal rarity 4");
+Require(TitleAccessPolicy.ShouldShowInMenu(5, 3, false), "a regular title was hidden");
+Require(!TitleAccessPolicy.ShouldShowInMenu(0, 0, true), "the empty title sentinel remained visible");
+Require(!TitleAccessPolicy.ShouldShowInMenu(19, 0, true), "an unsupported rank title remained visible");
 Require(
-    AvatarSelectionPolicy.GetTitleDisplayText("TITLE_CHAIR_DESTROYER", "chair_destroyer") == "Chair Destroyer",
-    "missing title translation was not humanized");
+    PersistentSelectionPolicy.IsLegacyEmptyAppearance(0, 0, 0, 0, 0, 0, 0),
+    "legacy all-None appearance snapshot was not recognized");
 Require(
-    AvatarSelectionPolicy.GetTitleDisplayText("Developer", "developer") == "Developer",
-    "existing title translation was replaced");
+    !PersistentSelectionPolicy.IsLegacyEmptyAppearance(0, 0, 0, 17, 0, 0, 0),
+    "valid persisted outfit was mistaken for a legacy empty snapshot");
 Require(
-    AvatarSelectionPolicy.GetTitleDisplayText("TITLE_ARISTOCRATE", "aristocrate") == "Aristocrat",
-    "known misspelled title enum leaked into the UI");
+    !PersistentSelectionPolicy.IsLegacyEmptyAppearance(null, null, null, null, null, null, null),
+    "unset appearance fields were mistaken for a legacy empty snapshot");
 Require(
-    AvatarSelectionPolicy.GetTitleDisplayText("TITLE_CHAIR_DESTROYER", "TITLE_CHAIR_DESTROYER") == "Chair Destroyer",
-    "title localization key fallback still depended on the boxed IL2CPP enum");
+    !PersistentSelectionPolicy.HasSkinPartSelection(null, null, null, null, null, null),
+    "unset skin-part persistence would overwrite the server outfit");
+Require(
+    PersistentSelectionPolicy.HasSkinPartSelection(null, 12, null, null, null, null),
+    "explicit skin-part persistence was ignored");
 Require(LocalSkinEconomy.DisplayedGold(5_000, 3) == 2_000, "local skin ledger did not reduce displayed Gold");
 Require(LocalSkinEconomy.DisplayedGold(500, 1) == 0, "local skin ledger allowed a negative displayed balance");
 Require(LocalSkinEconomy.DisplayedGold(5_000, 0) == 5_000, "empty local skin ledger changed server Gold");
@@ -387,6 +402,50 @@ Require(
     && !communityDiscordRuntimeSource.Contains("Object.Instantiate", StringComparison.Ordinal)
     && !communityDiscordRuntimeSource.Contains("CommunityDiscordStatue", StringComparison.Ordinal),
     "Community Discord must replace the stock statue URL without creating another statue");
+var unlockEverythingCosmeticPatchesSource = File.ReadAllText(Path.Combine(
+    repositoryRoot.FullName,
+    "mods",
+    "unlock_everything",
+    "UnlockEverythingCosmeticPatches.cs"));
+var titleLocalizationPatchesSource = File.ReadAllText(Path.Combine(
+    repositoryRoot.FullName,
+    "mods",
+    "unlock_everything",
+    "TitleLocalizationPatches.cs"));
+Require(
+    titleLocalizationPatchesSource.Contains(
+        "HarmonyPatch(typeof(GameTranslator), nameof(GameTranslator.ReloadDictionary))",
+        StringComparison.Ordinal)
+    && titleLocalizationPatchesSource.Contains(
+        "dictionary.Add(entry.Key, entry.Value)",
+        StringComparison.Ordinal)
+    && !unlockEverythingCosmeticPatchesSource.Contains(
+        "AvatarTitleDisplay",
+        StringComparison.Ordinal)
+    && !unlockEverythingCosmeticPatchesSource.Contains(
+        "GetTitleDisplayText",
+        StringComparison.Ordinal)
+    && !unlockEverythingCosmeticPatchesSource.Contains(
+        "HarmonyPatch(typeof(AvatarAndFrameView), \"OnAvatarPicked\")",
+        StringComparison.Ordinal),
+    "title labels must come from the localization dictionary without UI rewriting or the unsafe IL2CPP callback");
+Require(
+    unlockEverythingCosmeticPatchesSource.Contains(
+        "TitleAccessPolicy.ShouldShowInMenu",
+        StringComparison.Ordinal)
+    && unlockEverythingCosmeticPatchesSource.Contains(
+        "HarmonyPatch(typeof(AvatarAndFrameView), \"OnTitlesCategory\")",
+        StringComparison.Ordinal)
+    && unlockEverythingCosmeticPatchesSource.Contains(
+        "Keyboard.current",
+        StringComparison.Ordinal)
+    && unlockEverythingCosmeticPatchesSource.Contains(
+        "GetTitleRarity(descriptionType)",
+        StringComparison.Ordinal)
+    && unlockEverythingCosmeticPatchesSource.Contains(
+        "button.gameObject.SetActive(shouldShow)",
+        StringComparison.Ordinal),
+    "the title menu must reveal rarity 4 only on Shift-click and remove unbound badge slots");
 var leaderHostRuntimeSource = File.ReadAllText(Path.Combine(
     repositoryRoot.FullName,
     "mods",

@@ -610,7 +610,7 @@ internal static partial class UnlockEverythingSelections
         }
 
         character.CharacterSkin = characterSkin;
-        SaveSelection(character);
+        LocalSelectionsStore.SaveCharacterSkin(character.Type, characterSkin);
         return true;
     }
 
@@ -662,7 +662,7 @@ internal static partial class UnlockEverythingSelections
             }
 
             NormalizeEquippedSkinParts(character, skinPart.SkinType);
-            SaveSelection(character);
+            LocalSelectionsStore.SaveSkinPartSelection(character.Type, skinPart.SkinType, skinPart.SkinPartType);
             SyncLivePlayerCharacterData(character);
             return true;
         }
@@ -747,7 +747,7 @@ internal static partial class UnlockEverythingSelections
         }
 
         NormalizeEquippedSkinParts(character, skinType);
-        SaveSelection(character);
+        LocalSelectionsStore.SaveSkinPartSelection(character.Type, skinType, skinPartType);
         SyncLivePlayerCharacterData(character);
         UnlockEverythingRuntime.LogSkinSelectionSnapshot("UnlockEverythingSelections.ApplySkinPartSelection:applied", character);
         SyncPreviewCharacterData(skinType, skinPartType);

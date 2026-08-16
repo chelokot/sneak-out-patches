@@ -17,6 +17,7 @@ internal sealed class ProximityVoiceChatConfig
     private ProximityVoiceChatConfig(
         ConfigEntry<bool> enableMod,
         ConfigEntry<VoiceTransmissionMode> transmissionMode,
+        ConfigEntry<string> microphoneDevice,
         ConfigEntry<string> pushToTalkBinding,
         ConfigEntry<bool> stopWhenGameIsUnfocused,
         ConfigEntry<float> voiceActivationThreshold,
@@ -35,6 +36,7 @@ internal sealed class ProximityVoiceChatConfig
     {
         EnableMod = enableMod;
         TransmissionMode = transmissionMode;
+        MicrophoneDevice = microphoneDevice;
         PushToTalkBinding = pushToTalkBinding;
         StopWhenGameIsUnfocused = stopWhenGameIsUnfocused;
         VoiceActivationThreshold = voiceActivationThreshold;
@@ -54,6 +56,7 @@ internal sealed class ProximityVoiceChatConfig
 
     public ConfigEntry<bool> EnableMod { get; }
     public ConfigEntry<VoiceTransmissionMode> TransmissionMode { get; }
+    public ConfigEntry<string> MicrophoneDevice { get; }
     public ConfigEntry<string> PushToTalkBinding { get; }
     public ConfigEntry<bool> StopWhenGameIsUnfocused { get; }
     public ConfigEntry<float> VoiceActivationThreshold { get; }
@@ -213,6 +216,11 @@ internal sealed class ProximityVoiceChatConfig
             "TransmissionMode",
             VoiceTransmissionMode.PushToTalk,
             "PushToTalk, VoiceActivation, or AlwaysOn.");
+        var microphoneDevice = config.Bind(
+            "Capture",
+            "MicrophoneDevice",
+            string.Empty,
+            "Unity microphone device name. Empty uses the current system default.");
         var pushToTalkBinding = config.Bind(
             "Capture",
             "PushToTalkBinding",
@@ -252,7 +260,7 @@ internal sealed class ProximityVoiceChatConfig
             "MasterVolume",
             1f,
             new ConfigDescription(
-                "Default voice volume for players without a saved per-player override; 100% is six times the original receive baseline.",
+                "Default voice volume for players without a saved per-player override; 100% is the original receive baseline.",
                 new AcceptableValueRange<float>(
                     VoicePlayerVolumePolicy.MinimumVolume,
                     VoicePlayerVolumePolicy.MaximumVolume)));
@@ -320,6 +328,7 @@ internal sealed class ProximityVoiceChatConfig
         return new ProximityVoiceChatConfig(
             enableMod,
             transmissionMode,
+            microphoneDevice,
             pushToTalkBinding,
             stopWhenGameIsUnfocused,
             voiceActivationThreshold,

@@ -148,6 +148,27 @@ fn default_install_and_uninstall_restore_clean_state() {
             runtime_mod["option_id"]
         );
     }
+    let proximity_voice_config = fs::read_to_string(
+        fixture
+            .game_directory
+            .join("BepInEx/config/chelokot.sneakout.proximity-voice-chat.cfg"),
+    )
+    .unwrap();
+    for expected_default in [
+        "Enabled = true",
+        "TransmissionMode = PushToTalk",
+        "PushToTalkBinding = <Keyboard>/v",
+        "MicrophoneVolume = 1",
+        "MasterVolume = 1",
+        "PlayerVolumes =",
+    ] {
+        assert!(
+            proximity_voice_config
+                .lines()
+                .any(|line| line.trim() == expected_default),
+            "missing proximity voice default: {expected_default}"
+        );
+    }
     assert_eq!(
         fs::read_to_string(fixture.game_directory.join("winhttp.dll")).unwrap(),
         "loader"

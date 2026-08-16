@@ -236,10 +236,10 @@
   {
     "option_id": "proximity-voice-chat",
     "label": "Proximity Voice Chat",
-    "details": "Adds low-latency Opus proximity voice with push-to-talk, voice activation, outgoing and per-player volume controls, a delayed solo microphone monitor, optional directional audio, routed wall and door occlusion, and separate living and ghost channels.",
+    "details": "Adds low-latency Opus proximity voice with microphone selection, push-to-talk, voice activation, outgoing and per-player volume controls, a delayed solo microphone monitor, optional directional audio, routed wall and door occlusion, and separate living and ghost channels.",
     "category": "gameplay",
-    "default_enabled": false,
-    "stable": false,
+    "default_enabled": true,
+    "stable": true,
     "project_relative_path": "mods/proximity_voice_chat/ProximityVoiceChat.csproj",
     "assembly_name": "SneakOut.ProximityVoiceChat",
     "config_relative_path": "BepInEx/config/chelokot.sneakout.proximity-voice-chat.cfg",

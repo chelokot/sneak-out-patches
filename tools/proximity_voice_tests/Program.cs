@@ -1,5 +1,21 @@
 using SneakOut.ProximityVoiceChat;
 
+var microphoneDevices = VoiceMicrophoneDevicePolicy.NormalizeDevices(
+    new[] { " USB microphone ", "Built-in microphone", "USB microphone", "" });
+Require(
+    microphoneDevices.SequenceEqual(new[] { "USB microphone", "Built-in microphone" }),
+    "microphone device names were not normalized deterministically");
+Require(
+    VoiceMicrophoneDevicePolicy.GetSelectionIndex("Built-in microphone", microphoneDevices) == 2
+    && VoiceMicrophoneDevicePolicy.GetSelection(2, microphoneDevices) == "Built-in microphone",
+    "saved microphone selection did not round-trip through the dropdown");
+Require(
+    VoiceMicrophoneDevicePolicy.GetSelectionIndex("Disconnected microphone", microphoneDevices) == 0
+    && VoiceMicrophoneDevicePolicy.ResolveCaptureDevice(
+        "Disconnected microphone",
+        microphoneDevices) is null,
+    "missing microphone did not fall back to the system default");
+
 var playerVolumes = VoicePlayerVolumePolicy.Parse(
     "76561198000000002=0.5;invalid;76561198000000001:1.75;76561198000000003=99");
 Require(
@@ -91,11 +107,11 @@ incompatibleCodecPacket[6] = 0;
 Require(!VoiceProtocol.TryDecode(incompatibleCodecPacket, out _), "incompatible voice codec was accepted");
 
 Require(
-    Math.Abs(VoiceGainPolicy.CalculateLinearGain(1f, VoiceGainPolicy.NominalVoiceGain) - 21f) < 0.001f,
-    "100% receive volume did not apply six times the original nominal voice gain without limiting");
+    Math.Abs(VoiceGainPolicy.CalculateLinearGain(1f, VoiceGainPolicy.NominalVoiceGain) - 3.5f) < 0.001f,
+    "100% receive volume did not apply the original nominal voice gain");
 Require(
-    Math.Abs(VoiceGainPolicy.CalculateLinearGain(2f, VoiceGainPolicy.NominalVoiceGain) - 42f) < 0.001f,
-    "200% receive volume did not apply twelve times the original nominal voice gain without limiting");
+    Math.Abs(VoiceGainPolicy.CalculateLinearGain(2f, VoiceGainPolicy.NominalVoiceGain) - 7f) < 0.001f,
+    "200% receive volume did not apply twice the original nominal voice gain");
 Require(
     Math.Abs(VoiceGainPolicy.CalculatePeakLimitedGain(0.5f, 2f) - 1.9f) < 0.001f,
     "loud speech gain was not limited below clipping");
@@ -105,7 +121,7 @@ for (var frame = 0; frame < 10; frame++)
     recoveredGain = VoiceGainPolicy.RecoverGain(recoveredGain, VoiceGainPolicy.NominalVoiceGain);
 }
 Require(
-    recoveredGain > 20f,
+    recoveredGain > 3.45f,
     "receive gain did not recover from a transient peak within 200 milliseconds");
 Require(
     VoiceGainPolicy.RecoverGain(10f, 2f) == 2f,

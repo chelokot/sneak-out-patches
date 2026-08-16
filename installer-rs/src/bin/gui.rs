@@ -1403,6 +1403,7 @@ mod tests {
                 "locker-stun-fix",
                 "magic-wardrobe-hook-fix",
                 "minimap",
+                "proximity-voice-chat",
                 "start-delay-reducer",
                 "background-loading-guard",
                 "community-discord",

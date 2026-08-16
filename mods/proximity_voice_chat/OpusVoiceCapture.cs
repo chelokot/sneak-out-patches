@@ -24,7 +24,8 @@ internal sealed class OpusVoiceCapture : IDisposable
     private readonly Il2CppStructArray<float> _monoFrame = new(FrameSamples);
     private Il2CppStructArray<float>? _microphoneFrame;
     private AudioClip? _microphoneClip;
-    private string _microphoneDevice = string.Empty;
+    private string? _microphoneDevice;
+    private string _activeMicrophoneSelection = string.Empty;
     private int _readPosition;
     private int _microphoneChannels;
     private int _framesReadThisPoll;
@@ -56,6 +57,21 @@ internal sealed class OpusVoiceCapture : IDisposable
 
     public void SetRecording(bool shouldRecord)
     {
+        var configuredSelection = _configuration.MicrophoneDevice.Value ?? string.Empty;
+        if (shouldRecord
+            && _recording
+            && !string.Equals(
+                configuredSelection,
+                _activeMicrophoneSelection,
+                StringComparison.Ordinal))
+        {
+            _logger.LogInfo(
+                $"Proximity voice restarting capture for microphone "
+                + VoiceMicrophoneDevicePolicy.GetDisplayName(configuredSelection));
+            StopRecording();
+            StartRecording();
+            return;
+        }
         if (shouldRecord == _recording)
         {
             return;
@@ -178,8 +194,8 @@ internal sealed class OpusVoiceCapture : IDisposable
         }
         _nextStartAttemptAtMilliseconds = nowMilliseconds + StartRetryIntervalMilliseconds;
 
-        var devices = Microphone.devices;
-        if (devices is null || devices.Length == 0)
+        var devices = ReadAvailableDevices();
+        if (devices.Length == 0)
         {
             if (!_warnedNoDevices)
             {
@@ -189,7 +205,17 @@ internal sealed class OpusVoiceCapture : IDisposable
             return;
         }
 
-        _microphoneDevice = devices[0];
+        var configuredSelection = _configuration.MicrophoneDevice.Value ?? string.Empty;
+        _activeMicrophoneSelection = configuredSelection;
+        _microphoneDevice = VoiceMicrophoneDevicePolicy.ResolveCaptureDevice(
+            configuredSelection,
+            devices);
+        if (!string.IsNullOrWhiteSpace(configuredSelection) && _microphoneDevice is null)
+        {
+            _logger.LogWarning(
+                $"Proximity voice microphone is unavailable: {configuredSelection}; "
+                + "using System default");
+        }
         Microphone.GetDeviceCaps(_microphoneDevice, out var minimumFrequency, out var maximumFrequency);
         _microphoneClip = Microphone.Start(
             _microphoneDevice,
@@ -227,7 +253,8 @@ internal sealed class OpusVoiceCapture : IDisposable
         _warnedEncoderStall = false;
         _recording = true;
         _logger.LogInfo(
-            $"Proximity voice Unity microphone started: device={_microphoneDevice}, "
+            $"Proximity voice Unity microphone started: "
+            + $"device={VoiceMicrophoneDevicePolicy.GetDisplayName(_microphoneDevice)}, "
             + $"requestedRate={SampleRate}, actualRate={_microphoneClip.frequency}, "
             + $"channels={_microphoneChannels}, caps={minimumFrequency}-{maximumFrequency}, "
             + $"codec=Opus, frameMs=20, bitrate={Bitrate}");
@@ -245,6 +272,8 @@ internal sealed class OpusVoiceCapture : IDisposable
         }
         _microphoneClip = null;
         _microphoneFrame = null;
+        _microphoneDevice = null;
+        _activeMicrophoneSelection = string.Empty;
         _recording = false;
         _framesReadThisPoll = 0;
         _nextStartAttemptAtMilliseconds = 0;
@@ -293,6 +322,17 @@ internal sealed class OpusVoiceCapture : IDisposable
     {
         var result = value % modulus;
         return result < 0 ? result + modulus : result;
+    }
+
+    private static string[] ReadAvailableDevices()
+    {
+        var unityDevices = Microphone.devices;
+        var devices = new string[unityDevices?.Length ?? 0];
+        for (var index = 0; index < devices.Length; index++)
+        {
+            devices[index] = unityDevices![index];
+        }
+        return VoiceMicrophoneDevicePolicy.NormalizeDevices(devices);
     }
 
     public void Dispose()

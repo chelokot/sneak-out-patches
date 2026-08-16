@@ -16,6 +16,7 @@ internal static class ProximityVoiceSettingsUi
     private const float LeastSensitiveThreshold = 0.08f;
     private const float MostSensitiveThreshold = 0.002f;
     private const float PartyRowRefreshIntervalSeconds = 0.5f;
+    private const float MicrophoneDeviceRefreshIntervalSeconds = 1f;
 
     private static readonly Dictionary<ulong, PlayerVolumeSettingsRow> PlayerVolumeRows = new();
     private static ProximityVoiceChatConfig? _configuration;
@@ -24,6 +25,7 @@ internal static class ProximityVoiceSettingsUi
     private static GameObject? _sliderTemplate;
     private static ToggleSettingsRow? _enabledRow;
     private static DropdownSettingsRow? _modeRow;
+    private static DropdownSettingsRow? _microphoneRow;
     private static BindingSettingsRow? _bindingRow;
     private static ToggleSettingsRow? _stopWhenUnfocusedRow;
     private static ToggleSettingsRow? _directionalVoiceRow;
@@ -37,6 +39,8 @@ internal static class ProximityVoiceSettingsUi
     private static bool _recordingBinding;
     private static float _recordingReadyAt;
     private static float _nextPartyRowRefreshAt;
+    private static float _nextMicrophoneDeviceRefreshAt;
+    private static string[] _microphoneDevices = Array.Empty<string>();
     private static float _diagnosticOpenAt = -1f;
     private static float _diagnosticCaptureAt = -1f;
 
@@ -76,7 +80,16 @@ internal static class ProximityVoiceSettingsUi
                 ?? throw new InvalidOperationException("Stock key-binding panel is unavailable");
 
             _enabledRow = CreateToggleRow(toggleTemplate, view._audioPanel.transform, "ProximityVoiceEnabledPanel");
-            _modeRow = CreateDropdownRow(dropdownTemplate, view._audioPanel.transform, "ProximityVoiceModePanel");
+            _modeRow = CreateDropdownRow(
+                dropdownTemplate,
+                view._audioPanel.transform,
+                "ProximityVoiceModePanel",
+                configureModeOptions: true);
+            _microphoneRow = CreateDropdownRow(
+                dropdownTemplate,
+                view._audioPanel.transform,
+                "ProximityVoiceMicrophonePanel",
+                configureModeOptions: false);
             _bindingRow = CreateBindingRow(bindingTemplate, view._audioPanel.transform);
             _stopWhenUnfocusedRow = CreateToggleRow(
                 toggleTemplate,
@@ -105,6 +118,7 @@ internal static class ProximityVoiceSettingsUi
                 VoicePlayerVolumePolicy.MaximumVolume,
                 wholeNumbers: false);
             ConfigureSlider(_sensitivityRow.Slider, 0f, 100f, wholeNumbers: true);
+            RefreshMicrophoneDevices(force: true);
             SyncPlayerVolumeRows(force: true);
             Refresh(forceSliderValues: true);
             if (_configuration.CaptureSettingsScreenshot.Value)
@@ -129,6 +143,7 @@ internal static class ProximityVoiceSettingsUi
 
         try
         {
+            RefreshMicrophoneDevices(force: false);
             SyncPlayerVolumeRows(force: false);
             TickVisualDiagnostic();
             if (_modeRow?.Root.activeInHierarchy != true)
@@ -187,6 +202,9 @@ internal static class ProximityVoiceSettingsUi
         var configuration = _configuration!;
         var enabled = _enabledRow!.Toggle.isOn;
         var mode = (VoiceTransmissionMode)Mathf.Clamp(_modeRow!.Dropdown.value, 0, 2);
+        var microphoneDevice = VoiceMicrophoneDevicePolicy.GetSelection(
+            _microphoneRow!.Dropdown.value,
+            _microphoneDevices);
         var stopWhenUnfocused = _stopWhenUnfocusedRow!.Toggle.isOn;
         var directionalVoice = _directionalVoiceRow!.Toggle.isOn;
         var ownVoiceVolume = Mathf.Clamp(
@@ -203,6 +221,16 @@ internal static class ProximityVoiceSettingsUi
         if (configuration.TransmissionMode.Value != mode)
         {
             configuration.TransmissionMode.Value = mode;
+        }
+        if (!string.Equals(
+                configuration.MicrophoneDevice.Value,
+                microphoneDevice,
+                StringComparison.Ordinal))
+        {
+            configuration.MicrophoneDevice.Value = microphoneDevice;
+            _logger?.LogInfo(
+                $"Proximity voice microphone changed to "
+                + VoiceMicrophoneDevicePolicy.GetDisplayName(microphoneDevice));
         }
         if (configuration.StopWhenGameIsUnfocused.Value != stopWhenUnfocused)
         {
@@ -251,6 +279,7 @@ internal static class ProximityVoiceSettingsUi
 
             RefreshToggle(_enabledRow!, _configuration.EnableMod.Value);
             RefreshDropdown(_modeRow!, (int)mode);
+            RefreshMicrophoneDropdown();
             RefreshToggle(_stopWhenUnfocusedRow!, _configuration.StopWhenGameIsUnfocused.Value);
             RefreshToggle(_directionalVoiceRow!, _configuration.DirectionalVoice.Value);
             RefreshSlider(
@@ -268,6 +297,7 @@ internal static class ProximityVoiceSettingsUi
 
             SetTextIfChanged(_enabledRow!.Title, "Proximity voice chat");
             SetTextIfChanged(_modeRow!.Title, "Voice mode");
+            SetTextIfChanged(_microphoneRow!.Title, "Microphone");
             SetTextIfChanged(_bindingRow!.Title, "Push-to-talk key");
             SetTextIfChanged(
                 _bindingRow.Value,
@@ -331,7 +361,11 @@ internal static class ProximityVoiceSettingsUi
         return new ToggleSettingsRow(root, toggle, title);
     }
 
-    private static DropdownSettingsRow CreateDropdownRow(GameObject template, Transform parent, string name)
+    private static DropdownSettingsRow CreateDropdownRow(
+        GameObject template,
+        Transform parent,
+        string name,
+        bool configureModeOptions)
     {
         var root = UnityEngine.Object.Instantiate(template, parent, false);
         root.name = name;
@@ -351,7 +385,17 @@ internal static class ProximityVoiceSettingsUi
             UnityEngine.Object.Destroy(screenModeView);
         }
         dropdown.onValueChanged = new TMP_Dropdown.DropdownEvent();
-        EnsureModeOptions(dropdown);
+        if (configureModeOptions)
+        {
+            EnsureModeOptions(dropdown);
+        }
+        else
+        {
+            dropdown.ClearOptions();
+            var options = new Il2CppSystem.Collections.Generic.List<TMP_Dropdown.OptionData>();
+            options.Add(new TMP_Dropdown.OptionData(VoiceMicrophoneDevicePolicy.SystemDefaultLabel));
+            dropdown.AddOptions(options);
+        }
         dropdown.interactable = true;
         dropdown.RefreshShownValue();
 
@@ -524,6 +568,73 @@ internal static class ProximityVoiceSettingsUi
         if (row.Dropdown.captionText is not null)
         {
             SetTextIfChanged(row.Dropdown.captionText, GetModeLabel(clamped));
+        }
+    }
+
+    private static void RefreshMicrophoneDevices(bool force)
+    {
+        if (_configuration is null || !DropdownRowIsAvailable(_microphoneRow))
+        {
+            return;
+        }
+
+        var now = Time.unscaledTime;
+        if (!force && now < _nextMicrophoneDeviceRefreshAt)
+        {
+            return;
+        }
+        _nextMicrophoneDeviceRefreshAt = now + MicrophoneDeviceRefreshIntervalSeconds;
+
+        var unityDevices = Microphone.devices;
+        var discoveredDevices = new string[unityDevices?.Length ?? 0];
+        for (var index = 0; index < discoveredDevices.Length; index++)
+        {
+            discoveredDevices[index] = unityDevices![index];
+        }
+        var normalizedDevices = VoiceMicrophoneDevicePolicy.NormalizeDevices(discoveredDevices);
+        if (!force && _microphoneDevices.SequenceEqual(normalizedDevices, StringComparer.Ordinal))
+        {
+            return;
+        }
+
+        _microphoneDevices = normalizedDevices;
+        var dropdown = _microphoneRow!.Dropdown;
+        dropdown.ClearOptions();
+        var options = new Il2CppSystem.Collections.Generic.List<TMP_Dropdown.OptionData>();
+        options.Add(new TMP_Dropdown.OptionData(VoiceMicrophoneDevicePolicy.SystemDefaultLabel));
+        foreach (var device in _microphoneDevices)
+        {
+            options.Add(new TMP_Dropdown.OptionData(device));
+        }
+        dropdown.AddOptions(options);
+        dropdown.interactable = true;
+        RefreshMicrophoneDropdown();
+    }
+
+    private static void RefreshMicrophoneDropdown()
+    {
+        if (_configuration is null || !DropdownRowIsAvailable(_microphoneRow))
+        {
+            return;
+        }
+
+        var selectionIndex = VoiceMicrophoneDevicePolicy.GetSelectionIndex(
+            _configuration.MicrophoneDevice.Value,
+            _microphoneDevices);
+        var dropdown = _microphoneRow!.Dropdown;
+        if (dropdown.value != selectionIndex)
+        {
+            dropdown.SetValueWithoutNotify(selectionIndex);
+        }
+        dropdown.RefreshShownValue();
+        if (dropdown.captionText is not null)
+        {
+            var selection = VoiceMicrophoneDevicePolicy.GetSelection(
+                selectionIndex,
+                _microphoneDevices);
+            SetTextIfChanged(
+                dropdown.captionText,
+                VoiceMicrophoneDevicePolicy.GetDisplayName(selection));
         }
     }
 
@@ -702,6 +813,7 @@ internal static class ProximityVoiceSettingsUi
             && _view.Pointer != IntPtr.Zero
             && ToggleRowIsAvailable(_enabledRow)
             && DropdownRowIsAvailable(_modeRow)
+            && DropdownRowIsAvailable(_microphoneRow)
             && BindingRowIsAvailable(_bindingRow)
             && ToggleRowIsAvailable(_stopWhenUnfocusedRow)
             && ToggleRowIsAvailable(_directionalVoiceRow)
@@ -777,6 +889,7 @@ internal static class ProximityVoiceSettingsUi
         _sliderTemplate = null;
         _enabledRow = null;
         _modeRow = null;
+        _microphoneRow = null;
         _bindingRow = null;
         _stopWhenUnfocusedRow = null;
         _directionalVoiceRow = null;
@@ -788,6 +901,8 @@ internal static class ProximityVoiceSettingsUi
         _microphoneTestClickAction = null;
         _updating = false;
         _nextPartyRowRefreshAt = 0f;
+        _nextMicrophoneDeviceRefreshAt = 0f;
+        _microphoneDevices = Array.Empty<string>();
         _diagnosticOpenAt = -1f;
         _diagnosticCaptureAt = -1f;
     }

@@ -20,6 +20,9 @@ external voice server, account, native codec, or microphone recording file is cr
 - `VoiceActivation` has configurable threshold, 160 ms pre-roll, and hangover so syllable starts
   and ends are not clipped.
 - `AlwaysOn` exists but is not the privacy-preserving default.
+- `Microphone` lists Unity's currently available input devices plus `System default`. The selection
+  persists, and changing it while capture is active safely restarts capture on the chosen device.
+  A disconnected saved device falls back to `System default`.
 - `Stop when game is unfocused` is enabled by default and can be changed in Audio settings.
 - `My voice volume` applies a persistent 0–200% peak-safe gain before Opus encoding, changing the
   level sent to every other player without affecting voice-activation detection.
@@ -29,7 +32,7 @@ external voice server, account, native codec, or microphone recording file is cr
   prevent the delayed monitor from being picked up by the microphone again.
 - Audio settings shows a separate 0–200% volume slider for every remote, non-bot party member.
   The local player is never listed, and overrides persist by SteamID64 across reconnects. Receive
-  gain maps 0% to silence, 100% to the old 600%, and 200% to the old 1200%. A transparent peak
+  gain maps 0% to silence, 100% to the original baseline, and 200% to twice that baseline. A transparent peak
   limiter preserves waveform shape and restores quiet-signal amplification within 200 ms.
 - `Directional voice` is enabled by default. Turning it off centers every remote voice equally in
   the left and right channels while retaining normal route-distance volume and wall/door muffling.
@@ -91,7 +94,7 @@ instead of accumulating latency. Teardown remains reliable.
 
 Each remote speaker owns:
 
-- a six-times-original receive baseline with transparent peak limiting, driven by that speaker's
+- the original receive baseline with transparent peak limiting, driven by that speaker's
   SteamID64 volume override and falling back to the configured default when no override is saved
 - an adaptive packet-jitter buffer based on arrival/capture delta variation
 - late/duplicate packet rejection and bounded loss recovery

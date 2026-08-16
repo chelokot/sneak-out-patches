@@ -17,8 +17,8 @@ internal readonly record struct VoicePartyMember(ulong SteamId, string DisplayNa
 internal enum VoiceMicrophoneTestState
 {
     Idle,
-    Recording,
-    Playing,
+    Capturing,
+    Draining,
 }
 
 internal static class ProximityVoiceChatRuntime
@@ -29,8 +29,6 @@ internal static class ProximityVoiceChatRuntime
     private const int MaximumPeerBytesPerSecond = 256 * 1024;
     private const int MaximumTrackedTrafficPeers = 64;
     private const float HandshakeWarningSeconds = 8f;
-    private const float MicrophoneTestRecordingSeconds = 4f;
-    private const int MaximumMicrophoneTestFrames = 250;
 
     private static readonly Dictionary<IntPtr, SpookedNetworkPlayer> ObservedPlayers = new();
     private static readonly Dictionary<ulong, RemoteVoicePlayback> Playbacks = new();
@@ -45,7 +43,6 @@ internal static class ProximityVoiceChatRuntime
     private static readonly HashSet<ulong> HandshakeTimeoutWarnings = new();
     private static readonly HashSet<string> PacketRejectionWarnings = new();
     private static readonly HashSet<string> PacketExceptionWarnings = new();
-    private static readonly List<byte[]> MicrophoneTestFrames = new(MaximumMicrophoneTestFrames);
 
     private static ManualLogSource? _logger;
     private static ProximityVoiceChatConfig? _configuration;
@@ -72,9 +69,6 @@ internal static class ProximityVoiceChatRuntime
     private static string _lastCaptureStatus = string.Empty;
     private static bool _loggedFirstTransmit;
     private static bool _microphoneTestRequested;
-    private static float _microphoneTestVolume = 1f;
-    private static float _microphoneTestRecordUntil;
-    private static float _microphoneTestPeakRootMeanSquare;
     private static VoiceMicrophoneTestState _microphoneTestState;
 
     public static void Initialize(ManualLogSource logger, ProximityVoiceChatConfig configuration)
@@ -93,36 +87,32 @@ internal static class ProximityVoiceChatRuntime
         watcherObject.AddComponent<ProximityVoiceWatcher>();
     }
 
-    public static bool IsMicrophoneTestEnabled => _microphoneTestRequested;
-
-    public static float MicrophoneTestVolume => _microphoneTestVolume;
+    public static bool IsMicrophoneTestCapturing =>
+        _microphoneTestRequested || _microphoneTestState == VoiceMicrophoneTestState.Capturing;
 
     public static VoiceMicrophoneTestState MicrophoneTestState => _microphoneTestState;
 
-    public static void SetMicrophoneTestEnabled(bool enabled)
+    public static void ToggleMicrophoneTestCapture()
     {
         if (_shutdown)
         {
             return;
         }
-        if (enabled)
+        if (_microphoneTestRequested
+            || _microphoneTestState == VoiceMicrophoneTestState.Capturing)
         {
-            _microphoneTestRequested = true;
+            BeginMicrophoneTestDrain();
             return;
         }
-
-        StopMicrophoneTest(logCancellation: _microphoneTestState != VoiceMicrophoneTestState.Idle);
+        if (_microphoneTestState == VoiceMicrophoneTestState.Idle)
+        {
+            _microphoneTestRequested = true;
+        }
     }
 
-    public static void SetMicrophoneTestVolume(float volume)
+    public static void CancelMicrophoneTest()
     {
-        if (float.IsFinite(volume))
-        {
-            _microphoneTestVolume = Math.Clamp(
-                volume,
-                VoicePlayerVolumePolicy.MinimumVolume,
-                VoicePlayerVolumePolicy.MaximumVolume);
-        }
+        StopMicrophoneTest(logCancellation: _microphoneTestState != VoiceMicrophoneTestState.Idle);
     }
 
     public static void ObservePlayer(SpookedNetworkPlayer player)
@@ -338,7 +328,10 @@ internal static class ProximityVoiceChatRuntime
         }
 
         _peers = new VoicePeerDirectory(_logger!, _configuration!);
-        _capture = new OpusVoiceCapture(_logger!, _configuration!.EnableLogging.Value);
+        _capture = new OpusVoiceCapture(
+            _logger!,
+            _configuration!.EnableLogging.Value,
+            _configuration);
         _transport = new SteamVoiceTransport(
             _logger!,
             _configuration!.EnableLogging.Value,
@@ -516,83 +509,59 @@ internal static class ProximityVoiceChatRuntime
 
     private static bool TickMicrophoneTest(float now)
     {
-        if (!_microphoneTestRequested)
-        {
-            if (_microphoneTestState != VoiceMicrophoneTestState.Idle)
-            {
-                StopMicrophoneTest(logCancellation: false);
-            }
-            return false;
-        }
-
         if (_microphoneTestState == VoiceMicrophoneTestState.Idle)
         {
-            MicrophoneTestFrames.Clear();
-            _microphoneTestPeakRootMeanSquare = 0f;
-            _microphoneTestRecordUntil = now + MicrophoneTestRecordingSeconds;
-            _microphoneTestState = VoiceMicrophoneTestState.Recording;
-            _capture!.SetRecording(true);
-            _logger?.LogInfo(
-                $"Proximity voice microphone test recording started for {MicrophoneTestRecordingSeconds:F0} seconds");
-        }
-
-        if (_microphoneTestState == VoiceMicrophoneTestState.Recording)
-        {
-            _capture!.SetRecording(true);
-            var captureBudget = 6;
-            while (captureBudget-- > 0 && _capture.TryCapture(analyzeLevel: true, out var frame))
+            if (!_microphoneTestRequested)
             {
-                _microphoneTestPeakRootMeanSquare = Math.Max(
-                    _microphoneTestPeakRootMeanSquare,
-                    frame.RootMeanSquare);
-                if (MicrophoneTestFrames.Count < MaximumMicrophoneTestFrames)
-                {
-                    MicrophoneTestFrames.Add(frame.EncodedAudio);
-                }
-            }
-
-            if (now < _microphoneTestRecordUntil)
-            {
-                ReportCaptureStatus("microphone-test-recording");
-                return true;
-            }
-
-            _capture.SetRecording(false);
-            if (MicrophoneTestFrames.Count == 0)
-            {
-                _logger?.LogWarning(
-                    "Proximity voice microphone test captured no audio; check the selected system microphone");
-                StopMicrophoneTest(logCancellation: false);
-                return true;
+                return false;
             }
 
             try
             {
-                _microphoneTestPlayback = new LocalVoiceTestPlayback(
-                    MicrophoneTestFrames,
-                    _configuration!,
-                    _logger!);
-                _microphoneTestState = VoiceMicrophoneTestState.Playing;
+                _microphoneTestPlayback = new LocalVoiceTestPlayback(_configuration!, _logger!);
+                _microphoneTestState = VoiceMicrophoneTestState.Capturing;
+                _capture!.SetRecording(true);
                 _logger?.LogInfo(
-                    $"Proximity voice microphone test playback started: "
-                    + $"frames={MicrophoneTestFrames.Count}, peakRms={_microphoneTestPeakRootMeanSquare:F4}, "
-                    + $"volume={_microphoneTestVolume:F2}");
-                MicrophoneTestFrames.Clear();
+                    $"Proximity voice microphone test started with "
+                    + $"{LocalVoiceTestPlayback.PlaybackDelaySeconds:F0}s delayed playback");
             }
             catch (Exception exception)
             {
                 _logger?.LogWarning(
-                    $"Proximity voice microphone test could not start playback: "
+                    $"Proximity voice microphone test could not start: "
+                    + $"{exception.GetType().Name}: {exception.Message}");
+                StopMicrophoneTest(logCancellation: false);
+                return true;
+            }
+        }
+
+        if (_microphoneTestState == VoiceMicrophoneTestState.Capturing)
+        {
+            _capture!.SetRecording(true);
+            var captureBudget = 6;
+            while (captureBudget-- > 0 && _capture.TryCapture(analyzeLevel: false, out var frame))
+            {
+                _microphoneTestPlayback!.Enqueue(frame.EncodedAudio, now);
+            }
+            ReportCaptureStatus("microphone-test-capturing");
+            try
+            {
+                _microphoneTestPlayback!.Tick(now);
+            }
+            catch (Exception exception)
+            {
+                _logger?.LogWarning(
+                    $"Proximity voice microphone test playback failed: "
                     + $"{exception.GetType().Name}: {exception.Message}");
                 StopMicrophoneTest(logCancellation: false);
             }
             return true;
         }
 
-        ReportCaptureStatus("microphone-test-playback");
+        ReportCaptureStatus("microphone-test-draining");
         try
         {
-            if (_microphoneTestPlayback?.Tick(now, _microphoneTestVolume) != true)
+            if (_microphoneTestPlayback?.Tick(now) != true)
             {
                 return true;
             }
@@ -608,6 +577,20 @@ internal static class ProximityVoiceChatRuntime
         return true;
     }
 
+    private static void BeginMicrophoneTestDrain()
+    {
+        _microphoneTestRequested = false;
+        if (_microphoneTestState != VoiceMicrophoneTestState.Capturing)
+        {
+            return;
+        }
+
+        _capture?.SetRecording(false);
+        _microphoneTestPlayback?.CompleteCapture();
+        _microphoneTestState = VoiceMicrophoneTestState.Draining;
+        _logger?.LogInfo("Proximity voice microphone test capture stopped; draining delayed playback");
+    }
+
     private static void StopMicrophoneTest(bool logCancellation)
     {
         if (logCancellation)
@@ -617,9 +600,6 @@ internal static class ProximityVoiceChatRuntime
 
         _microphoneTestRequested = false;
         _microphoneTestState = VoiceMicrophoneTestState.Idle;
-        _microphoneTestRecordUntil = 0f;
-        _microphoneTestPeakRootMeanSquare = 0f;
-        MicrophoneTestFrames.Clear();
         _capture?.SetRecording(false);
         if (_microphoneTestPlayback is not null)
         {

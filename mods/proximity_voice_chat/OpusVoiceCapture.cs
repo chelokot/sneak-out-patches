@@ -18,6 +18,8 @@ internal sealed class OpusVoiceCapture : IDisposable
 
     private readonly ManualLogSource _logger;
     private readonly bool _loggingEnabled;
+    private readonly ProximityVoiceChatConfig _configuration;
+    private readonly VoiceGainProcessor _sendGainProcessor = new(nominalGain: 1f);
     private readonly OpusVoiceEncoder _encoder;
     private readonly Il2CppStructArray<float> _monoFrame = new(FrameSamples);
     private Il2CppStructArray<float>? _microphoneFrame;
@@ -41,10 +43,14 @@ internal sealed class OpusVoiceCapture : IDisposable
     private bool _warnedCaptureStall;
     private bool _warnedEncoderStall;
 
-    public OpusVoiceCapture(ManualLogSource logger, bool loggingEnabled)
+    public OpusVoiceCapture(
+        ManualLogSource logger,
+        bool loggingEnabled,
+        ProximityVoiceChatConfig configuration)
     {
         _logger = logger;
         _loggingEnabled = loggingEnabled;
+        _configuration = configuration;
         _encoder = new OpusVoiceEncoder(Bitrate);
     }
 
@@ -126,6 +132,7 @@ internal sealed class OpusVoiceCapture : IDisposable
         }
 
         var rootMeanSquare = (float)Math.Sqrt(sumSquares / FrameSamples);
+        _sendGainProcessor.Process(_monoFrame, _configuration.MicrophoneVolume.Value);
         _pcmFrames++;
         if (!_encoder.TryEncode(_monoFrame, FrameSamples, out var encodedFrame))
         {
@@ -155,7 +162,9 @@ internal sealed class OpusVoiceCapture : IDisposable
             _loggedFirstFrame = true;
             _logger.LogInfo(
                 $"Proximity voice captured first Opus frame: bytes={encodedFrame.Length}, "
-                + $"rms={rootMeanSquare:F4}, peak={peak:F4}");
+                + $"rms={rootMeanSquare:F4}, peak={peak:F4}, "
+                + $"sendVolume={_configuration.MicrophoneVolume.Value:F2}, "
+                + $"sendGain={_sendGainProcessor.CurrentGain:F2}");
         }
         return true;
     }
@@ -238,6 +247,7 @@ internal sealed class OpusVoiceCapture : IDisposable
         _microphoneFrame = null;
         _recording = false;
         _framesReadThisPoll = 0;
+        _nextStartAttemptAtMilliseconds = 0;
         if (_loggingEnabled)
         {
             _logger.LogInfo("Proximity voice Unity microphone stopped");
@@ -273,7 +283,9 @@ internal sealed class OpusVoiceCapture : IDisposable
             $"Proximity voice capture metrics: pcmFrames={_pcmFrames}, encodedFrames={_capturedFrames}, "
             + $"encoderFailures={_encoderFailures}, "
             + $"averageBytes={averageEncodedBytes}, averageRms={averageRootMeanSquare:F4}, "
-            + $"peak={_peakSample:F4}, microphonePosition={Microphone.GetPosition(_microphoneDevice)}");
+            + $"peak={_peakSample:F4}, sendVolume={_configuration.MicrophoneVolume.Value:F2}, "
+            + $"sendGain={_sendGainProcessor.CurrentGain:F2}, "
+            + $"microphonePosition={Microphone.GetPosition(_microphoneDevice)}");
         _nextDiagnosticAtMilliseconds = Environment.TickCount64 + 10000;
     }
 

@@ -22,6 +22,7 @@ internal sealed class ProximityVoiceChatConfig
         ConfigEntry<float> voiceActivationThreshold,
         ConfigEntry<float> voiceActivationHangoverSeconds,
         ConfigEntry<float> voiceActivationPreRollSeconds,
+        ConfigEntry<float> microphoneVolume,
         ConfigEntry<float> masterVolume,
         ConfigEntry<string> playerVolumes,
         ConfigEntry<bool> directionalVoice,
@@ -39,6 +40,7 @@ internal sealed class ProximityVoiceChatConfig
         VoiceActivationThreshold = voiceActivationThreshold;
         VoiceActivationHangoverSeconds = voiceActivationHangoverSeconds;
         VoiceActivationPreRollSeconds = voiceActivationPreRollSeconds;
+        MicrophoneVolume = microphoneVolume;
         MasterVolume = masterVolume;
         PlayerVolumes = playerVolumes;
         DirectionalVoice = directionalVoice;
@@ -57,6 +59,7 @@ internal sealed class ProximityVoiceChatConfig
     public ConfigEntry<float> VoiceActivationThreshold { get; }
     public ConfigEntry<float> VoiceActivationHangoverSeconds { get; }
     public ConfigEntry<float> VoiceActivationPreRollSeconds { get; }
+    public ConfigEntry<float> MicrophoneVolume { get; }
     public ConfigEntry<float> MasterVolume { get; }
     public ConfigEntry<string> PlayerVolumes { get; }
     public ConfigEntry<bool> DirectionalVoice { get; }
@@ -235,11 +238,20 @@ internal sealed class ProximityVoiceChatConfig
             "VoiceActivationPreRollSeconds",
             0.16f,
             new ConfigDescription("Buffered audio sent before voice activation opens.", new AcceptableValueRange<float>(0f, 0.5f)));
+        var microphoneVolume = config.Bind(
+            "Capture",
+            "MicrophoneVolume",
+            1f,
+            new ConfigDescription(
+                "Outgoing microphone volume applied before Opus encoding.",
+                new AcceptableValueRange<float>(0f, 5f)));
         var masterVolume = config.Bind(
             "Playback",
             "MasterVolume",
             1f,
-            new ConfigDescription("Default voice volume for players without a saved per-player override.", new AcceptableValueRange<float>(0f, 5f)));
+            new ConfigDescription(
+                "Default voice volume for players without a saved per-player override; the receive baseline is doubled.",
+                new AcceptableValueRange<float>(0f, 5f)));
         var playerVolumes = config.Bind(
             "Playback",
             "PlayerVolumes",
@@ -309,6 +321,7 @@ internal sealed class ProximityVoiceChatConfig
             voiceActivationThreshold,
             voiceActivationHangoverSeconds,
             voiceActivationPreRollSeconds,
+            microphoneVolume,
             masterVolume,
             playerVolumes,
             directionalVoice,

@@ -27,11 +27,12 @@ internal static class ProximityVoiceSettingsUi
     private static BindingSettingsRow? _bindingRow;
     private static ToggleSettingsRow? _stopWhenUnfocusedRow;
     private static ToggleSettingsRow? _directionalVoiceRow;
-    private static ToggleSettingsRow? _microphoneTestRow;
-    private static SliderSettingsRow? _microphoneTestVolumeRow;
+    private static ActionSettingsRow? _microphoneTestRow;
+    private static SliderSettingsRow? _ownVoiceVolumeRow;
     private static SliderSettingsRow? _sensitivityRow;
     private static UnityAction? _bindingClickAction;
     private static UnityAction? _bindingResetAction;
+    private static UnityAction? _microphoneTestClickAction;
     private static bool _updating;
     private static bool _recordingBinding;
     private static float _recordingReadyAt;
@@ -85,21 +86,21 @@ internal static class ProximityVoiceSettingsUi
                 toggleTemplate,
                 view._audioPanel.transform,
                 "ProximityVoiceDirectionalPanel");
-            _microphoneTestRow = CreateToggleRow(
-                toggleTemplate,
-                view._audioPanel.transform,
-                "ProximityVoiceMicrophoneTestPanel");
-            _microphoneTestVolumeRow = CreateSliderRow(
+            _ownVoiceVolumeRow = CreateSliderRow(
                 sliderTemplate,
                 view._audioPanel.transform,
-                "ProximityVoiceMicrophoneTestVolumePanel");
+                "ProximityVoiceOwnVolumePanel");
+            _microphoneTestRow = CreateActionRow(
+                bindingTemplate,
+                view._audioPanel.transform,
+                "ProximityVoiceMicrophoneTestPanel");
             _sensitivityRow = CreateSliderRow(
                 sliderTemplate,
                 view._audioPanel.transform,
                 "ProximityVoiceSensitivityPanel");
 
             ConfigureSlider(
-                _microphoneTestVolumeRow.Slider,
+                _ownVoiceVolumeRow.Slider,
                 VoicePlayerVolumePolicy.MinimumVolume,
                 VoicePlayerVolumePolicy.MaximumVolume,
                 wholeNumbers: false);
@@ -133,7 +134,7 @@ internal static class ProximityVoiceSettingsUi
             if (_modeRow?.Root.activeInHierarchy != true)
             {
                 CancelBindingRecording();
-                ProximityVoiceChatRuntime.SetMicrophoneTestEnabled(false);
+                ProximityVoiceChatRuntime.CancelMicrophoneTest();
                 return;
             }
             if (!_updating)
@@ -188,9 +189,8 @@ internal static class ProximityVoiceSettingsUi
         var mode = (VoiceTransmissionMode)Mathf.Clamp(_modeRow!.Dropdown.value, 0, 2);
         var stopWhenUnfocused = _stopWhenUnfocusedRow!.Toggle.isOn;
         var directionalVoice = _directionalVoiceRow!.Toggle.isOn;
-        var microphoneTestEnabled = _microphoneTestRow!.Toggle.isOn;
-        var microphoneTestVolume = Mathf.Clamp(
-            _microphoneTestVolumeRow!.Slider.value,
+        var ownVoiceVolume = Mathf.Clamp(
+            _ownVoiceVolumeRow!.Slider.value,
             VoicePlayerVolumePolicy.MinimumVolume,
             VoicePlayerVolumePolicy.MaximumVolume);
         var sensitivity = Mathf.Clamp01(_sensitivityRow!.Slider.value / 100f);
@@ -212,13 +212,9 @@ internal static class ProximityVoiceSettingsUi
         {
             configuration.DirectionalVoice.Value = directionalVoice;
         }
-        if (!Mathf.Approximately(ProximityVoiceChatRuntime.MicrophoneTestVolume, microphoneTestVolume))
+        if (!Mathf.Approximately(configuration.MicrophoneVolume.Value, ownVoiceVolume))
         {
-            ProximityVoiceChatRuntime.SetMicrophoneTestVolume(microphoneTestVolume);
-        }
-        if (ProximityVoiceChatRuntime.IsMicrophoneTestEnabled != microphoneTestEnabled)
-        {
-            ProximityVoiceChatRuntime.SetMicrophoneTestEnabled(microphoneTestEnabled);
+            configuration.MicrophoneVolume.Value = ownVoiceVolume;
         }
         foreach (var playerRow in PlayerVolumeRows.Values)
         {
@@ -257,10 +253,9 @@ internal static class ProximityVoiceSettingsUi
             RefreshDropdown(_modeRow!, (int)mode);
             RefreshToggle(_stopWhenUnfocusedRow!, _configuration.StopWhenGameIsUnfocused.Value);
             RefreshToggle(_directionalVoiceRow!, _configuration.DirectionalVoice.Value);
-            RefreshToggle(_microphoneTestRow!, ProximityVoiceChatRuntime.IsMicrophoneTestEnabled);
             RefreshSlider(
-                _microphoneTestVolumeRow!,
-                ProximityVoiceChatRuntime.MicrophoneTestVolume,
+                _ownVoiceVolumeRow!,
+                _configuration.MicrophoneVolume.Value,
                 forceSliderValues);
             RefreshSlider(_sensitivityRow!, sensitivity, forceSliderValues);
             foreach (var playerRow in PlayerVolumeRows.Values)
@@ -282,18 +277,22 @@ internal static class ProximityVoiceSettingsUi
             SetTextIfChanged(_bindingRow.ResetLabel, "Reset");
             SetTextIfChanged(_stopWhenUnfocusedRow!.Title, "Stop when game is unfocused");
             SetTextIfChanged(_directionalVoiceRow!.Title, "Directional voice");
+            SetTextIfChanged(_ownVoiceVolumeRow!.Title, "My voice volume");
             SetTextIfChanged(
-                _microphoneTestRow!.Title,
-                ProximityVoiceChatRuntime.MicrophoneTestState switch
-                {
-                    VoiceMicrophoneTestState.Recording => "Microphone test (recording 4 seconds)",
-                    VoiceMicrophoneTestState.Playing => "Microphone test (playing)",
-                    _ => "Microphone test",
-                });
-            SetTextIfChanged(_microphoneTestVolumeRow!.Title, "Microphone test volume");
+                _ownVoiceVolumeRow.Value,
+                $"{Mathf.RoundToInt(_configuration.MicrophoneVolume.Value * 100f)}%");
+            SetTextIfChanged(_microphoneTestRow!.Title, "Microphone test (1 second delay)");
+            var microphoneTestState = ProximityVoiceChatRuntime.MicrophoneTestState;
             SetTextIfChanged(
-                _microphoneTestVolumeRow.Value,
-                $"{Mathf.RoundToInt(ProximityVoiceChatRuntime.MicrophoneTestVolume * 100f)}%");
+                _microphoneTestRow.Value,
+                microphoneTestState == VoiceMicrophoneTestState.Draining
+                    ? "Finishing..."
+                    : ProximityVoiceChatRuntime.IsMicrophoneTestCapturing
+                        ? "Stop test"
+                        : "Start test");
+            _microphoneTestRow.Button.interactable =
+                _configuration.EnableMod.Value
+                && microphoneTestState != VoiceMicrophoneTestState.Draining;
             SetTextIfChanged(_sensitivityRow!.Title, "Microphone sensitivity");
             SetTextIfChanged(_sensitivityRow.Value, $"{Mathf.RoundToInt(sensitivity)}%");
 
@@ -390,6 +389,31 @@ internal static class ProximityVoiceSettingsUi
         trigger.onClick.AddListener(_bindingClickAction);
         reset.onClick.AddListener(_bindingResetAction);
         return new BindingSettingsRow(root, trigger, reset, title, value, resetLabel);
+    }
+
+    private static ActionSettingsRow CreateActionRow(GameObject template, Transform parent, string name)
+    {
+        var root = UnityEngine.Object.Instantiate(template, parent, false);
+        root.name = name;
+        root.transform.SetAsLastSibling();
+
+        var bindingUi = root.GetComponentInChildren<BindingUI>(true)
+            ?? throw new InvalidOperationException($"{name} has no stock action row");
+        bindingUi.enabled = false;
+        var title = root.transform.Find("RebindUIPrefab/ActionNameText")?.GetComponent<TMP_Text>()
+            ?? throw new InvalidOperationException($"{name} has no action label");
+        var button = root.transform.Find("RebindUIPrefab/TriggerRebindButton")?.GetComponent<Button>()
+            ?? throw new InvalidOperationException($"{name} has no action button");
+        var value = button.GetComponentInChildren<TMP_Text>(true)
+            ?? throw new InvalidOperationException($"{name} has no action button label");
+        var reset = root.transform.Find("RebindUIPrefab/ResetToDefaultButton")?.gameObject
+            ?? throw new InvalidOperationException($"{name} has no secondary stock button");
+
+        reset.SetActive(false);
+        button.onClick = new Button.ButtonClickedEvent();
+        _microphoneTestClickAction = (UnityAction)ProximityVoiceChatRuntime.ToggleMicrophoneTestCapture;
+        button.onClick.AddListener(_microphoneTestClickAction);
+        return new ActionSettingsRow(root, button, title, value);
     }
 
     private static SliderSettingsRow CreateSliderRow(GameObject template, Transform parent, string name)
@@ -681,8 +705,8 @@ internal static class ProximityVoiceSettingsUi
             && BindingRowIsAvailable(_bindingRow)
             && ToggleRowIsAvailable(_stopWhenUnfocusedRow)
             && ToggleRowIsAvailable(_directionalVoiceRow)
-            && ToggleRowIsAvailable(_microphoneTestRow)
-            && SliderRowIsAvailable(_microphoneTestVolumeRow)
+            && ActionRowIsAvailable(_microphoneTestRow)
+            && SliderRowIsAvailable(_ownVoiceVolumeRow)
             && SliderRowIsAvailable(_sensitivityRow);
     }
 
@@ -709,6 +733,15 @@ internal static class ProximityVoiceSettingsUi
         return row is not null && row.PointerIsValid();
     }
 
+    private static bool ActionRowIsAvailable(ActionSettingsRow? row)
+    {
+        return row is not null
+            && row.Root is not null
+            && row.Root.Pointer != IntPtr.Zero
+            && row.Button is not null
+            && row.Button.Pointer != IntPtr.Zero;
+    }
+
     private static bool SliderRowIsAvailable(SliderSettingsRow? row)
     {
         return row is not null
@@ -731,8 +764,14 @@ internal static class ProximityVoiceSettingsUi
                 _bindingRow.Reset.onClick.RemoveListener(_bindingResetAction);
             }
         }
+        if (_microphoneTestRow is not null
+            && ActionRowIsAvailable(_microphoneTestRow)
+            && _microphoneTestClickAction is not null)
+        {
+            _microphoneTestRow.Button.onClick.RemoveListener(_microphoneTestClickAction);
+        }
         CancelBindingRecording();
-        ProximityVoiceChatRuntime.SetMicrophoneTestEnabled(false);
+        ProximityVoiceChatRuntime.CancelMicrophoneTest();
         PlayerVolumeRows.Clear();
         _view = null;
         _sliderTemplate = null;
@@ -742,10 +781,11 @@ internal static class ProximityVoiceSettingsUi
         _stopWhenUnfocusedRow = null;
         _directionalVoiceRow = null;
         _microphoneTestRow = null;
-        _microphoneTestVolumeRow = null;
+        _ownVoiceVolumeRow = null;
         _sensitivityRow = null;
         _bindingClickAction = null;
         _bindingResetAction = null;
+        _microphoneTestClickAction = null;
         _updating = false;
         _nextPartyRowRefreshAt = 0f;
         _diagnosticOpenAt = -1f;
@@ -755,6 +795,8 @@ internal static class ProximityVoiceSettingsUi
     private sealed record ToggleSettingsRow(GameObject Root, Toggle Toggle, TMP_Text Title);
 
     private sealed record DropdownSettingsRow(GameObject Root, TMP_Dropdown Dropdown, TMP_Text Title);
+
+    private sealed record ActionSettingsRow(GameObject Root, Button Button, TMP_Text Title, TMP_Text Value);
 
     private sealed record BindingSettingsRow(
         GameObject Root,

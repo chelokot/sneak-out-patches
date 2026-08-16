@@ -91,11 +91,17 @@ incompatibleCodecPacket[6] = 0;
 Require(!VoiceProtocol.TryDecode(incompatibleCodecPacket, out _), "incompatible voice codec was accepted");
 
 Require(
-    Math.Abs(VoiceGainPolicy.CalculatePeakLimitedGain(0.1f, 1f) - 3.5f) < 0.001f,
-    "clean speech did not receive the nominal voice gain");
+    Math.Abs(VoiceGainPolicy.CalculatePeakLimitedGain(0.1f, 1f) - 7f) < 0.001f,
+    "100% receive volume did not apply the doubled nominal voice gain");
+Require(
+    Math.Abs(VoiceGainPolicy.CalculatePeakLimitedGain(0f, 5f) - 35f) < 0.001f,
+    "500% receive volume did not preserve the doubled slider mapping");
 Require(
     Math.Abs(VoiceGainPolicy.CalculatePeakLimitedGain(0.5f, 5f) - 1.9f) < 0.001f,
     "loud speech gain was not limited below clipping");
+Require(
+    Math.Abs(VoiceGainPolicy.CalculatePeakLimitedGain(0.1f, 2f, 1f) - 2f) < 0.001f,
+    "outgoing microphone volume did not use a unity base gain");
 Require(
     VoiceGainPolicy.CalculatePeakLimitedGain(0.5f, 0f) == 0f,
     "muted voice received non-zero gain");

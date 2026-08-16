@@ -6,8 +6,14 @@ internal sealed class VoiceGainProcessor
 {
     private const float ReleasePerFrame = 0.08f;
 
+    private readonly float _nominalGain;
     private float _gain = 1f;
     private bool _initialized;
+
+    public VoiceGainProcessor(float nominalGain = VoiceGainPolicy.NominalVoiceGain)
+    {
+        _nominalGain = Math.Max(0f, nominalGain);
+    }
 
     public float LastInputPeak { get; private set; }
 
@@ -22,7 +28,10 @@ internal sealed class VoiceGainProcessor
         }
 
         LastInputPeak = peak;
-        var peakLimitedGain = VoiceGainPolicy.CalculatePeakLimitedGain(peak, requestedGain);
+        var peakLimitedGain = VoiceGainPolicy.CalculatePeakLimitedGain(
+            peak,
+            requestedGain,
+            _nominalGain);
         _gain = !_initialized || peakLimitedGain < _gain
             ? peakLimitedGain
             : Math.Min(peakLimitedGain, _gain + ReleasePerFrame);

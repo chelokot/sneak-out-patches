@@ -21,18 +21,23 @@ external voice server, account, native codec, or microphone recording file is cr
   and ends are not clipped.
 - `AlwaysOn` exists but is not the privacy-preserving default.
 - `Stop when game is unfocused` is enabled by default and can be changed in Audio settings.
-- `Microphone test` records four seconds without transmitting, releases the microphone, then
-  replays the sample through the same Opus decoder, gain stage, and Unity audio output used for
-  remote voices. Its separate 0–500% slider makes party-free loudness comparisons possible.
+- `My voice volume` applies a persistent 0–500% peak-safe gain before Opus encoding, changing the
+  level sent to every other player without affecting voice-activation detection.
+- The `Microphone test` Start/Stop button continuously replays encoded capture with a one-second
+  delay through the same Opus decoder, receive gain, and Unity audio output used for remote voices.
+  It never transmits test audio and drains the final delayed second after Stop is pressed. Headphones
+  prevent the delayed monitor from being picked up by the microphone again.
 - Audio settings shows a separate 0–500% volume slider for every remote, non-bot party member.
-  The local player is never listed, and overrides persist by SteamID64 across reconnects.
+  The local player is never listed, and overrides persist by SteamID64 across reconnects. Receive
+  gain is doubled relative to the earlier baseline: 100% is the old 200%, and 500% is the old 1000%.
 - `Directional voice` is enabled by default. Turning it off centers every remote voice equally in
   the left and right channels while retaining normal route-distance volume and wall/door muffling.
 - `MutedSteamIds` is a persistent local deny-list.
 - Enabled state and focus behavior use stock toggle rows, voice mode uses a stock dropdown,
-  push-to-talk uses the stock key-binding row, and per-player volume/sensitivity use stock sliders
-  inside the game's Audio settings scroll. The normal rounded panels, hover outline, mouse, and
-  controller navigation are kept. Audible distance is fixed at 20 metres.
+  push-to-talk uses the stock key-binding row, microphone testing uses a stock action button, and
+  outgoing/per-player volume and sensitivity use stock sliders inside the game's Audio settings
+  scroll. The normal rounded panels, hover outline, mouse, and controller navigation are kept.
+  Audible distance is fixed at 20 metres.
 
 ## Living and ghost channels
 
@@ -85,8 +90,8 @@ instead of accumulating latency. Teardown remains reliable.
 
 Each remote speaker owns:
 
-- a peak-safe gain stage driven by that speaker's SteamID64 volume override, falling back to the
-  configured default when no override has been saved
+- a doubled peak-safe receive baseline driven by that speaker's SteamID64 volume override, falling
+  back to the configured default when no override has been saved
 - an adaptive packet-jitter buffer based on arrival/capture delta variation
 - late/duplicate packet rejection and bounded loss recovery
 - Steam voice decompression into a three-second circular PCM clip

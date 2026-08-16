@@ -8,34 +8,33 @@ namespace SneakOut.ProximityVoiceChat;
 
 internal sealed class LocalVoiceTestPlayback : IDisposable
 {
+    public const float PlaybackDelaySeconds = 1f;
+
     private const float FrameDurationSeconds =
         OpusVoiceCapture.FrameSamples / (float)OpusVoiceCapture.SampleRate;
+    private const int MaximumBufferedFrames = 300;
+    private const int TestOutputDelayMilliseconds = 40;
+    private const int MaximumTestOutputDelayMilliseconds = 120;
 
     private readonly ManualLogSource _logger;
-    private readonly Queue<byte[]> _encodedFrames;
+    private readonly Queue<ScheduledVoiceFrame> _encodedFrames = new();
     private readonly VoiceGainProcessor _gainProcessor = new();
     private readonly Photon.Voice.Unity.Logger _photonLogger;
     private readonly UnityAudioOut _audioOutput;
     private readonly OpusVoiceDecoder _decoder;
     private readonly GameObject _host;
-    private readonly float _drainDelaySeconds;
-    private float _requestedVolume = 1f;
-    private float _nextDecodeAt = -1f;
+    private float _lastScheduledPlayAt = -1f;
     private float _drainedAt = -1f;
     private float _maximumInputPeak;
     private float _maximumOutputPeak;
     private long _decodedFrames;
     private long _decodeFailures;
+    private bool _captureCompleted;
     private bool _disposed;
 
-    public LocalVoiceTestPlayback(
-        IReadOnlyCollection<byte[]> encodedFrames,
-        ProximityVoiceChatConfig configuration,
-        ManualLogSource logger)
+    public LocalVoiceTestPlayback(ProximityVoiceChatConfig configuration, ManualLogSource logger)
     {
         _logger = logger;
-        _encodedFrames = new Queue<byte[]>(encodedFrames);
-
         _host = new GameObject("ProximityVoice-MicrophoneTest");
         _host.hideFlags = HideFlags.HideAndDontSave;
         var audioSource = _host.AddComponent<AudioSource>();
@@ -45,21 +44,13 @@ internal sealed class LocalVoiceTestPlayback : IDisposable
         audioSource.dopplerLevel = 0f;
         audioSource.volume = 1f;
 
-        var maximumDelayMilliseconds = Mathf.RoundToInt(Math.Max(
-            configuration.JitterBufferMilliseconds.Value,
-            configuration.MaximumJitterMilliseconds.Value));
-        var targetDelayMilliseconds = Mathf.RoundToInt(Math.Clamp(
-            configuration.JitterBufferMilliseconds.Value,
-            40,
-            maximumDelayMilliseconds));
         var playDelay = new AudioOutDelayControl.PlayDelayConfig
         {
-            Low = targetDelayMilliseconds,
-            High = Math.Min(maximumDelayMilliseconds, targetDelayMilliseconds + 40),
-            Max = maximumDelayMilliseconds,
+            Low = TestOutputDelayMilliseconds,
+            High = TestOutputDelayMilliseconds + 20,
+            Max = MaximumTestOutputDelayMilliseconds,
             SpeedUpPerc = 5,
         };
-        _drainDelaySeconds = maximumDelayMilliseconds / 1000f + 0.5f;
         _photonLogger = new Photon.Voice.Unity.Logger(
             configuration.EnableLogging.Value
                 ? Photon.Voice.LogLevel.Info
@@ -74,37 +65,56 @@ internal sealed class LocalVoiceTestPlayback : IDisposable
         _decoder = new OpusVoiceDecoder(OnDecodedFrame);
     }
 
-    public bool Tick(float nowSeconds, float requestedVolume)
+    public void Enqueue(byte[] encodedFrame, float capturedAt)
+    {
+        if (_disposed || _captureCompleted || encodedFrame.Length == 0)
+        {
+            return;
+        }
+        if (_encodedFrames.Count >= MaximumBufferedFrames)
+        {
+            _encodedFrames.Dequeue();
+            _logger.LogWarning("Proximity voice microphone test dropped its oldest delayed frame");
+        }
+        var delayedCaptureTime = capturedAt + PlaybackDelaySeconds;
+        var playAt = delayedCaptureTime;
+        if (_lastScheduledPlayAt >= 0f)
+        {
+            var continuousPlayAt = _lastScheduledPlayAt + FrameDurationSeconds;
+            playAt = delayedCaptureTime - continuousPlayAt > 0.25f
+                ? delayedCaptureTime
+                : continuousPlayAt;
+        }
+        _lastScheduledPlayAt = playAt;
+        _encodedFrames.Enqueue(new ScheduledVoiceFrame(encodedFrame, playAt));
+    }
+
+    public void CompleteCapture()
+    {
+        _captureCompleted = true;
+    }
+
+    public bool Tick(float nowSeconds)
     {
         if (_disposed)
         {
             return true;
         }
 
-        _requestedVolume = Math.Clamp(
-            requestedVolume,
-            VoicePlayerVolumePolicy.MinimumVolume,
-            VoicePlayerVolumePolicy.MaximumVolume);
         _audioOutput.Service();
-        if (_nextDecodeAt < 0f)
-        {
-            _nextDecodeAt = nowSeconds;
-        }
-
         var decodeBudget = 8;
         while (decodeBudget-- > 0
-               && _encodedFrames.TryPeek(out var encodedFrame)
-               && nowSeconds + 0.001f >= _nextDecodeAt)
+               && _encodedFrames.TryPeek(out var frame)
+               && nowSeconds + 0.001f >= frame.PlayAt)
         {
             _encodedFrames.Dequeue();
-            if (!_decoder.TryDecode(encodedFrame, missingFramesBefore: 0))
+            if (!_decoder.TryDecode(frame.EncodedAudio, missingFramesBefore: 0))
             {
                 _decodeFailures++;
             }
-            _nextDecodeAt += FrameDurationSeconds;
         }
 
-        if (_encodedFrames.Count != 0)
+        if (!_captureCompleted || _encodedFrames.Count != 0)
         {
             return false;
         }
@@ -114,9 +124,9 @@ internal sealed class LocalVoiceTestPlayback : IDisposable
             _logger.LogInfo(
                 $"Proximity voice microphone test playback metrics: decodedFrames={_decodedFrames}, "
                 + $"decodeFailures={_decodeFailures}, inputPeak={_maximumInputPeak:F4}, "
-                + $"outputPeak={_maximumOutputPeak:F4}, volume={_requestedVolume:F2}");
+                + $"outputPeak={_maximumOutputPeak:F4}, receiveVolume=1.00");
         }
-        return nowSeconds - _drainedAt >= _drainDelaySeconds;
+        return nowSeconds - _drainedAt >= MaximumTestOutputDelayMilliseconds / 1000f + 0.5f;
     }
 
     private void OnDecodedFrame(Il2CppArrayBase<float> samples)
@@ -126,7 +136,7 @@ internal sealed class LocalVoiceTestPlayback : IDisposable
             return;
         }
 
-        _gainProcessor.Process(samples, _requestedVolume);
+        _gainProcessor.Process(samples, requestedGain: 1f);
         _maximumInputPeak = Math.Max(_maximumInputPeak, _gainProcessor.LastInputPeak);
         var outputPeak = 0f;
         for (var index = 0; index < samples.Length; index++)
@@ -156,4 +166,6 @@ internal sealed class LocalVoiceTestPlayback : IDisposable
         UnityEngine.Object.Destroy(_host);
         _encodedFrames.Clear();
     }
+
+    private readonly record struct ScheduledVoiceFrame(byte[] EncodedAudio, float PlayAt);
 }

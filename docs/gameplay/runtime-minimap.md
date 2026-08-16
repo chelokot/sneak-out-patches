@@ -12,7 +12,7 @@ The default display contains:
 - cyan point markers for teleporting magic wardrobes;
 - yellow point markers for the coin-operated item rollers;
 - zoom-aware perimeter guidance: colored strips for off-screen task rooms and colored dots for off-screen wardrobes and item rollers;
-- one local-player arrow with world position and facing;
+- one local-player arrow with world position and facing for both living players and ghosts;
 - a `Tab` key binding, configurable for toggle or hold behavior with the in-game key recorder;
 - a stock-styled Map tab in the settings menu.
 
@@ -39,7 +39,7 @@ No additional camera is created. This matters on Map02, where a second live rend
 1. `SpookedNetworkPlayer.Spawned` and `Init` capture the local input-authority player.
 2. A persistent watcher notices an active scene change and discards the previous generated texture.
 3. Five seconds after a `Map*` scene becomes active, it collects that scene's room trigger volumes and creates the floor-plan texture.
-4. Each frame updates the local marker, selected zoom window, and any off-screen task-room or point-of-interest guidance inside the fixed camera-aligned floor plan.
+4. Each frame updates the living or ghost local marker, selected zoom window, and any off-screen task-room or point-of-interest guidance inside the fixed camera-aligned floor plan.
 5. `Despawned`, non-map scenes, disabled configuration, or repeated exceptions hide the panel safely.
 
 ## Configuration

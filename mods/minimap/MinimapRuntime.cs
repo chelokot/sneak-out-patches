@@ -1116,7 +1116,7 @@ internal static class MinimapRuntime
                 || _localPlayer.Pointer == IntPtr.Zero
                 || !_localPlayer.HasInputAuthority
                 || _localPlayer.IsBot
-                || _localPlayer.GamePlayerState != GamePlayerState.Alive)
+                || _localPlayer.GamePlayerState == GamePlayerState.None)
             {
                 return false;
             }

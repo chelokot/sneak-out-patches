@@ -42,8 +42,7 @@ internal sealed class PortalMapSelectionState
     {
         // Keep disabled maps visible in the party configurator without allowing
         // them into a matchmaking map pool.
-        return sceneType is not SceneType.Map04
-            and not SceneType.Map_East01;
+        return sceneType is not SceneType.Map04;
     }
 
     public PortalMapSelectionState Snapshot()

@@ -7,16 +7,20 @@ internal sealed class LockerStunFixConfig
     private LockerStunFixConfig(
         ConfigEntry<bool> enableMod,
         ConfigEntry<bool> highlightStunZone,
+        ConfigEntry<bool> highlightInteractionZone,
         ConfigEntry<bool> enableLogging)
     {
         EnableMod = enableMod;
         HighlightStunZone = highlightStunZone;
+        HighlightInteractionZone = highlightInteractionZone;
         EnableLogging = enableLogging;
     }
 
     public ConfigEntry<bool> EnableMod { get; }
 
     public ConfigEntry<bool> HighlightStunZone { get; }
+
+    public ConfigEntry<bool> HighlightInteractionZone { get; }
 
     public ConfigEntry<bool> EnableLogging { get; }
 
@@ -31,13 +35,18 @@ internal sealed class LockerStunFixConfig
             "visuals",
             "HighlightStunZone",
             true,
-            "Show the exact forward-offset Boo overlap boundary and facing arrow when an eligible penguin exits a locker.");
+            "Always show the native Boo sphere's floor-level cross-section and facing arrow on every regular locker.");
+        var highlightInteractionZone = configFile.Bind(
+            "visuals",
+            "HighlightInteractionZone",
+            true,
+            "Always show an amber floor area sampled from the native locker CanInteract predicate.");
         var enableLogging = configFile.Bind(
             "general",
             "EnableLogging",
             true,
             "Log locker opener attribution and every Boo allow/suppress decision without player audio or other payload data.");
 
-        return new LockerStunFixConfig(enableMod, highlightStunZone, enableLogging);
+        return new LockerStunFixConfig(enableMod, highlightStunZone, highlightInteractionZone, enableLogging);
     }
 }

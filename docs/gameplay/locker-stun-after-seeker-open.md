@@ -22,18 +22,51 @@ the stun and Boo cooldown consumption. The plugin does not manufacture a stun:
 when vanilla runs, its own `PenguinBoo` equipped-skill check remains
 authoritative.
 
-On an unsuppressed exit, an equipped and ready Boo also displays a short cyan
-boundary ring for the native overlap query. The client checks a sphere with a
-`1.25` metre radius centered `1.0` metre in front of the locker and `0.75`
-metres above its origin. This is directional placement, not a radius centered
-on the locker: at the query-center height, a point one metre directly beside
-the locker is about `1.414` metres from the sphere center and therefore outside
-the query. The ring uses the forward-offset center and radius directly, and a
-line and arrow connect the locker origin to the front of the volume so that its
-facing is unambiguous. The visual does not replace the overlap query, select
-targets, apply a buff, or consume the skill. (`Physics.OverlapSphere` tests
-collider intersection rather than player-center points.) `HighlightStunZone`
+Every live regular locker displays a persistent cyan floor-level cross-section
+of the native Boo overlap query, regardless of occupant, equipped skills, or
+cooldown. The marker is anchored to the same serialized
+`Interactable.Transform` that the game's `Locker.HandleBooSkill` reads; that
+anchor is not necessarily the locker GameObject's root transform.
+
+The client checks a sphere with a `1.25` metre radius centered `1.0` metre in
+front of the locker and `0.75` metres above its origin. Rendering the sphere's
+widest circle would place that circle `0.75` metres in the air and, under the
+isometric camera, misleadingly project it over positions beside the locker.
+Instead, the marker shows the sphere's intersection with the horizontal plane
+through the locker origin. For a level locker this produces a `1.0` metre
+radius centered `1.0` metre forward: it is tangent at the locker origin and has
+no lateral reach at the locker's side plane. A line and arrow make its facing
+unambiguous.
+
+`HandleBooSkill` does not raycast or clip its query against walls. The marker is
+a floor-position guide; the native `Physics.OverlapSphere` still tests collider
+intersection and applies its player eligibility filters. `HighlightStunZone`
 can disable the marker without disabling the opener-attribution fix.
+
+Each locker also displays a translucent amber interaction area. This is not a
+radius invented from the locker mesh: the plugin samples floor positions at a
+maximum spacing of `0.15` metres and passes each position through the native
+`Interactable.CanInteract` implementation. That predicate raises the candidate
+position by `0.5` metres, measures to `Locker._collider.ClosestPoint`, applies
+the live `HostDistanceToInteract` outer limit and
+`InteractDistanceWithoutRaycast` close-range limit, and performs the game's
+raycast checks between those limits. As a result, walls and neighboring
+interactables can cut cells out of the displayed area. The shipped values are
+`2.2` metres for the outer limit and `0.5` metres for the automatically
+accepted close range.
+
+The regular locker collider is `0.76` metres deep and centered `0.01` metres
+forward, so its front face is `0.39` metres forward of the interaction anchor.
+With a clear raycast directly in front, the outer interaction edge is therefore
+`0.39 + 2.2 = 2.59` metres from the anchor. The cyan floor cross-section ends at
+`1.0 + 1.0 = 2.0` metres, making the clear forward interaction reach `0.59`
+metres longer than the floor-position stun footprint.
+
+The amber area represents where the geometric interaction check accepts a
+player. Entering or opening can still be unavailable because of player role,
+locker occupancy, or current interaction state; those are action-availability
+conditions rather than positions. `HighlightInteractionZone` controls this
+marker independently of the cyan stun marker.
 
 Runtime diagnostics emit one `boo-decision` line for every evaluation, including
 the exiting player, whether Boo was detected, the allow/suppress result, and the

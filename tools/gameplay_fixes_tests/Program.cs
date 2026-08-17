@@ -199,6 +199,18 @@ RequireClose(lockerStunCenter.Y, 2.75f, "locker stun-zone center lost its native
 RequireClose(lockerStunCenter.Z, -3f, "locker stun-zone center lost its native forward offset");
 RequireClose(LockerStunZonePolicy.Radius, 1.25f, "locker stun-zone radius diverged from Physics.OverlapSphere");
 Require(
+    LockerStunZonePolicy.TryResolveHorizontalCrossSection(
+        new LockerStunZonePoint(0f, 0f, 0f),
+        new LockerStunZonePoint(0f, 0f, 1f),
+        0f,
+        out var lockerFloorCenter,
+        out var lockerFloorRadius),
+    "locker stun-zone rejected its floor-level cross-section");
+RequireClose(lockerFloorCenter.X, 0f, "locker floor marker drifted sideways");
+RequireClose(lockerFloorCenter.Y, 0f, "locker floor marker was not on the anchor plane");
+RequireClose(lockerFloorCenter.Z, 1f, "locker floor marker lost its native forward offset");
+RequireClose(lockerFloorRadius, 1f, "locker floor marker projected the airborne equator onto the floor");
+Require(
     LockerStunZonePolicy.IsPointInsideQuery(
         new LockerStunZonePoint(0f, 0f, 0f),
         new LockerStunZonePoint(0f, 0f, 1f),

@@ -40,7 +40,7 @@ internal sealed class LockerStunFixConfig
             "visuals",
             "HighlightInteractionZone",
             true,
-            "Always show an amber floor area sampled from the native locker CanInteract predicate.");
+            "Always show the amber floor area accepted by the local locker prompt resolver.");
         var enableLogging = configFile.Bind(
             "general",
             "EnableLogging",

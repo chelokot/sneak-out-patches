@@ -1,4 +1,6 @@
 using Gameplay.Interactions;
+using Gameplay.Player;
+using Gameplay.Player.Components;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using UnityEngine;
 
@@ -6,9 +8,10 @@ namespace SneakOut.LockerStunFix;
 
 internal static class LockerInteractionZoneIndicator
 {
-    private const int SyntheticPlayerId = int.MinValue;
     private const float TargetCellSize = 0.15f;
     private const float FloorClearance = 0.012f;
+    private const float PlayerInteractionHeight = 0.5f;
+    private const float RaycastExtension = 0.06f;
     private const int MaximumCellsPerAxis = 64;
     private static readonly Color InteractionColor = new(1f, 0.68f, 0.12f, 0.28f);
     private static readonly Dictionary<IntPtr, GameObject> IndicatorsByLocker = new();
@@ -59,14 +62,31 @@ internal static class LockerInteractionZoneIndicator
                 return false;
             }
 
-            // Interactable.CanInteract rejects candidates beyond the host
-            // distance. LocalDistanceToInteract is not the outer bound of
-            // this predicate and would clip otherwise valid raycast-tested
-            // positions out of the visualization.
-            var maximumDistance = gameplaySettings.HostDistanceToInteract;
+            var maximumDistance = gameplaySettings.LocalDistanceToInteract;
             if (!float.IsFinite(maximumDistance) || maximumDistance <= 0f || maximumDistance > 20f)
             {
-                failure = $"invalid host interaction distance {maximumDistance}";
+                failure = $"invalid local interaction distance {maximumDistance}";
+                return false;
+            }
+
+            var closeRange = gameplaySettings.InteractDistanceWithoutRaycast;
+            if (!float.IsFinite(closeRange) || closeRange < 0f || closeRange > maximumDistance)
+            {
+                failure = $"invalid interaction no-raycast distance {closeRange}";
+                return false;
+            }
+
+            if (!TryResolveLocalInteractionLayerMask(out var interactionLayerMask))
+            {
+                failure = "local player interaction component is unavailable";
+                return false;
+            }
+
+            var colliderObject = lockerCollider.gameObject;
+            if (colliderObject is null
+                || (interactionLayerMask & (1 << colliderObject.layer)) == 0)
+            {
+                failure = "locker collider is excluded by the local interaction layer mask";
                 return false;
             }
 
@@ -102,7 +122,13 @@ internal static class LockerInteractionZoneIndicator
                         (cellMinimumX + cellMaximumX) * 0.5f,
                         sampleHeight,
                         (cellMinimumZ + cellMaximumZ) * 0.5f);
-                    if (!locker.CanInteract(SyntheticPlayerId, samplePosition))
+                    if (!IsLocallySelectable(
+                            locker,
+                            lockerCollider,
+                            samplePosition,
+                            maximumDistance,
+                            closeRange,
+                            interactionLayerMask))
                     {
                         continue;
                     }
@@ -121,7 +147,7 @@ internal static class LockerInteractionZoneIndicator
 
             if (vertices.Count == 0)
             {
-                failure = "native CanInteract accepted no sampled floor positions";
+                failure = "local interaction resolver accepted no sampled floor positions";
                 return false;
             }
 
@@ -153,6 +179,72 @@ internal static class LockerInteractionZoneIndicator
             failure = $"{exception.GetType().Name}: {exception.Message}";
             return false;
         }
+    }
+
+    private static bool TryResolveLocalInteractionLayerMask(out int layerMask)
+    {
+        layerMask = 0;
+        foreach (var player in Resources.FindObjectsOfTypeAll<SpookedNetworkPlayer>())
+        {
+            if (player is null || player.Pointer == IntPtr.Zero || !player.HasInputAuthority)
+            {
+                continue;
+            }
+
+            var interactiveComponent = player.EntityInteractiveComponent;
+            if (interactiveComponent is null || interactiveComponent.Pointer == IntPtr.Zero)
+            {
+                continue;
+            }
+
+            layerMask = ~(int)interactiveComponent._ignoreLayerMask;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsLocallySelectable(
+        Locker locker,
+        Collider lockerCollider,
+        Vector3 floorPosition,
+        float localDistance,
+        float closeRange,
+        int layerMask)
+    {
+        // ResolveSelectedInteractiveComponent performs this closest-point test
+        // from the player's interaction height after FindInteractables has
+        // admitted colliders inside LocalDistanceToInteract.
+        var rayOrigin = floorPosition + Vector3.up * PlayerInteractionHeight;
+        var closestPoint = lockerCollider.ClosestPoint(rayOrigin);
+        var toLocker = closestPoint - rayOrigin;
+        var distance = toLocker.magnitude;
+        if (distance > localDistance)
+        {
+            return false;
+        }
+
+        if (distance < closeRange || distance <= 0.0001f)
+        {
+            return true;
+        }
+
+        if (!Physics.Raycast(
+                rayOrigin,
+                toLocker / distance,
+                out var hit,
+                distance + RaycastExtension,
+                layerMask,
+                QueryTriggerInteraction.UseGlobal))
+        {
+            return false;
+        }
+
+        var hitObject = hit.collider?.gameObject;
+        var lockerObject = locker.gameObject;
+        return hitObject is not null
+            && lockerObject is not null
+            && hitObject == lockerObject;
     }
 
     private static int ResolveCellCount(float length)

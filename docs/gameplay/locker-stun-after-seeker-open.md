@@ -44,29 +44,31 @@ intersection and applies its player eligibility filters. `HighlightStunZone`
 can disable the marker without disabling the opener-attribution fix.
 
 Each locker also displays a translucent amber interaction area. This is not a
-radius invented from the locker mesh: the plugin samples floor positions at a
-maximum spacing of `0.15` metres and passes each position through the native
-`Interactable.CanInteract` implementation. That predicate raises the candidate
-position by `0.5` metres, measures to `Locker._collider.ClosestPoint`, applies
-the live `HostDistanceToInteract` outer limit and
-`InteractDistanceWithoutRaycast` close-range limit, and performs the game's
-raycast checks between those limits. As a result, walls and neighboring
-interactables can cut cells out of the displayed area. The shipped values are
-`2.2` metres for the outer limit and `0.5` metres for the automatically
-accepted close range.
+radius invented from the locker mesh and it does not use the host's later
+`Interactable.CanInteract` validation. The plugin samples floor positions at a
+maximum spacing of `0.15` metres and recreates the client prompt resolver's
+positional checks. `FindInteractables` first admits colliders within the live
+`LocalDistanceToInteract`; `ResolveSelectedInteractiveComponent` then raises
+the candidate position by `0.5` metres, measures to
+`Locker._collider.ClosestPoint`, applies the
+`InteractDistanceWithoutRaycast` close-range limit, and otherwise raycasts with
+the local player's interaction mask. The ray must hit that same locker
+GameObject. As a result, walls and neighboring interactables can cut cells out
+of the displayed area. The shipped values are `1.0` metre for the local
+discovery limit and `0.5` metres for the automatically accepted close range.
 
 The regular locker collider is `0.76` metres deep and centered `0.01` metres
 forward, so its front face is `0.39` metres forward of the interaction anchor.
 With a clear raycast directly in front, the outer interaction edge is therefore
-`0.39 + 2.2 = 2.59` metres from the anchor. The cyan floor cross-section ends at
-`1.0 + 1.0 = 2.0` metres, making the clear forward interaction reach `0.59`
-metres longer than the floor-position stun footprint.
+`0.39 + 1.0 = 1.39` metres from the anchor. The cyan floor cross-section ends at
+`1.0 + 1.0 = 2.0` metres, so the floor-position stun footprint reaches `0.61`
+metres farther forward than the clear local interaction area.
 
-The amber area represents where the geometric interaction check accepts a
-player. Entering or opening can still be unavailable because of player role,
-locker occupancy, or current interaction state; those are action-availability
-conditions rather than positions. `HighlightInteractionZone` controls this
-marker independently of the cyan stun marker.
+The amber area represents where this locker can become a local prompt candidate.
+Another overlapping candidate can still win the resolver's selection, and
+entering or opening can be unavailable because of player role, held items,
+locker occupancy, or current interaction state. `HighlightInteractionZone`
+controls this marker independently of the cyan stun marker.
 
 Runtime diagnostics emit one `boo-decision` line for every evaluation, including
 the exiting player, whether Boo was detected, the allow/suppress result, and the
@@ -80,3 +82,5 @@ Relevant client 1.1.10 RVAs:
 - `Locker.Open(int, bool)`: `0x6D67E0`
 - `Locker.TryToOpen(int)`: `0x6D6A10`
 - `Locker+<ComeOut>d__27.MoveNext()`: `0x6E1B30`
+- `EntityInteractiveComponent.FindInteractables()`: `0x671390`
+- `EntityInteractiveComponent.ResolveSelectedInteractiveComponent(int)`: `0x6791E0`

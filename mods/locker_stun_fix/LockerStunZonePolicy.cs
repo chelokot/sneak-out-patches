@@ -4,73 +4,66 @@ internal readonly record struct LockerStunZonePoint(float X, float Y, float Z);
 
 internal static class LockerStunZonePolicy
 {
-    // Locker.HandleBooSkill constructs this exact Physics.OverlapSphere query
-    // from the serialized Interactable.Transform in the supported client. Keep
-    // the visual tied to that anchor rather than to the locker GameObject's
-    // inherited transform; those transforms differ on some map prefabs.
-    public const float ForwardOffset = 1f;
-    public const float HeightOffset = 0.75f;
-    public const float Radius = 1.25f;
+    public const float OpeningDistance = 1f;
+    public const float BalanceMargin = 0.2f;
+    public const float StunDistance = OpeningDistance + BalanceMargin;
+    public const float PlayerInteractionHeight = 0.5f;
 
-    public static bool TryResolveCenter(
-        LockerStunZonePoint origin,
-        LockerStunZonePoint forward,
-        out LockerStunZonePoint center)
+    public static bool IsWithinOpeningDistance(
+        LockerStunZonePoint playerInteractionPoint,
+        LockerStunZonePoint closestLockerPoint)
     {
-        center = default;
-        if (!IsFinite(origin) || !IsFinite(forward))
+        return IsWithinDistance(
+            playerInteractionPoint,
+            closestLockerPoint,
+            OpeningDistance);
+    }
+
+    public static bool IsWithinStunDistance(
+        LockerStunZonePoint playerInteractionPoint,
+        LockerStunZonePoint closestLockerPoint)
+    {
+        return IsWithinDistance(
+            playerInteractionPoint,
+            closestLockerPoint,
+            StunDistance);
+    }
+
+    private static bool IsWithinDistance(
+        LockerStunZonePoint playerInteractionPoint,
+        LockerStunZonePoint closestLockerPoint,
+        float distance)
+    {
+        if (!IsFinite(playerInteractionPoint) || !IsFinite(closestLockerPoint))
         {
             return false;
         }
 
-        center = new LockerStunZonePoint(
-            origin.X + forward.X * ForwardOffset,
-            origin.Y + forward.Y * ForwardOffset + HeightOffset,
-            origin.Z + forward.Z * ForwardOffset);
-        return IsFinite(center);
+        var deltaX = playerInteractionPoint.X - closestLockerPoint.X;
+        var deltaY = playerInteractionPoint.Y - closestLockerPoint.Y;
+        var deltaZ = playerInteractionPoint.Z - closestLockerPoint.Z;
+        return deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ
+            <= distance * distance;
     }
 
-    public static bool IsPointInsideQuery(
-        LockerStunZonePoint origin,
-        LockerStunZonePoint forward,
-        LockerStunZonePoint point)
-    {
-        if (!TryResolveCenter(origin, forward, out var center) || !IsFinite(point))
-        {
-            return false;
-        }
-
-        var deltaX = point.X - center.X;
-        var deltaY = point.Y - center.Y;
-        var deltaZ = point.Z - center.Z;
-        return deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ <= Radius * Radius;
-    }
-
-    public static bool TryResolveHorizontalCrossSection(
-        LockerStunZonePoint origin,
-        LockerStunZonePoint forward,
-        float planeHeight,
-        out LockerStunZonePoint center,
+    public static bool TryResolveBroadPhaseRadius(
+        LockerStunZonePoint boundsExtents,
         out float radius)
     {
-        center = default;
         radius = 0f;
-        if (!float.IsFinite(planeHeight)
-            || !TryResolveCenter(origin, forward, out var sphereCenter))
+        if (!IsFinite(boundsExtents)
+            || boundsExtents.X < 0f
+            || boundsExtents.Y < 0f
+            || boundsExtents.Z < 0f)
         {
             return false;
         }
 
-        var heightFromCenter = planeHeight - sphereCenter.Y;
-        var squaredRadius = Radius * Radius - heightFromCenter * heightFromCenter;
-        if (!float.IsFinite(squaredRadius) || squaredRadius < 0f)
-        {
-            return false;
-        }
-
-        center = new LockerStunZonePoint(sphereCenter.X, planeHeight, sphereCenter.Z);
-        radius = MathF.Sqrt(squaredRadius);
-        return IsFinite(center) && float.IsFinite(radius);
+        radius = MathF.Sqrt(
+            boundsExtents.X * boundsExtents.X
+            + boundsExtents.Y * boundsExtents.Y
+            + boundsExtents.Z * boundsExtents.Z) + StunDistance;
+        return float.IsFinite(radius) && radius > 0f;
     }
 
     private static bool IsFinite(LockerStunZonePoint point)

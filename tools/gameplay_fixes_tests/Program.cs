@@ -159,81 +159,46 @@ Require(
     !ChairReleasePolicy.ShouldOverrideBlockedRelease(true, true, 7, 7, false, false),
     "unrelated stock None result was treated as a forward-detector block");
 
-var lockerPolicy = new LockerBooPolicy<int>();
 Require(
-    lockerPolicy.ObserveOpen(1, 10, 10, false, false, "Open") == LockerOpenObservation.IgnoredOccupant,
-    "a penguin opening their own locker was misclassified as an external opener");
+    LockerStunZonePolicy.IsWithinOpeningDistance(
+        new LockerStunZonePoint(1f, 0f, 0f),
+        new LockerStunZonePoint(0f, 0f, 0f)),
+    "the opening-distance boundary was excluded");
 Require(
-    lockerPolicy.ConsumeForExit(1, 10, out _) == LockerBooDecision.AllowVanillaNoExternalOpen,
-    "a self-opened locker suppressed vanilla Boo");
+    LockerStunZonePolicy.IsWithinStunDistance(
+        new LockerStunZonePoint(1f, 0f, 0f),
+        new LockerStunZonePoint(0f, 0f, 0f)),
+    "a valid opening position was excluded from the balanced Boo zone");
 Require(
-    lockerPolicy.ObserveOpen(2, 20, 10, false, false, "Open") == LockerOpenObservation.RecordedExternalOpener,
-    "a hunter opening an occupied locker was not recorded");
+    LockerStunZonePolicy.IsWithinStunDistance(
+        new LockerStunZonePoint(-1.2f, 0f, 0f),
+        new LockerStunZonePoint(0f, 0f, 0f)),
+    "the balanced Boo margin was not symmetric beside the locker");
 Require(
-    lockerPolicy.ConsumeForExit(2, 10, out var forcedOpen) == LockerBooDecision.SuppressExternalOpen
-    && forcedOpen.OpenerPlayerId == 20 && forcedOpen.OccupantPlayerId == 10,
-    "a hunter-opened locker still allowed Boo");
+    !LockerStunZonePolicy.IsWithinStunDistance(
+        new LockerStunZonePoint(1.201f, 0f, 0f),
+        new LockerStunZonePoint(0f, 0f, 0f)),
+    "the balanced Boo zone exceeded its 1.2 metre closest-point distance");
 Require(
-    lockerPolicy.ConsumeForExit(2, 10, out _) == LockerBooDecision.AllowVanillaNoExternalOpen,
-    "one hunter open suppressed more than one exit");
+    LockerStunZonePolicy.IsWithinStunDistance(
+        new LockerStunZonePoint(0.6f, 0f, 0.6f),
+        new LockerStunZonePoint(0f, 0f, 0f)),
+    "the rounded corner used a square distance test");
 Require(
-    lockerPolicy.ObserveOpen(3, 20, 10, true, false, "Open") == LockerOpenObservation.IgnoredUnavailable,
-    "an already-open locker created a stale external-open marker");
+    LockerStunZonePolicy.TryResolveBroadPhaseRadius(
+        new LockerStunZonePoint(3f, 4f, 0f),
+        out var lockerBroadPhaseRadius),
+    "finite locker bounds did not produce a broad-phase radius");
+RequireClose(lockerBroadPhaseRadius, 6.2f, "locker broad phase could clip the balanced zone");
+RequireClose(
+    LockerStunZonePolicy.StunDistance - LockerStunZonePolicy.OpeningDistance,
+    0.2f,
+    "balanced Boo margin changed");
 Require(
-    lockerPolicy.ObserveOpen(4, 20, 10, false, true, "Open") == LockerOpenObservation.IgnoredUnavailable,
-    "a rejected in-progress open created a false marker");
-lockerPolicy.ObserveOpen(5, 20, 10, false, false, "TryToOpen");
-Require(
-    lockerPolicy.ConsumeForExit(5, 11, out _) == LockerBooDecision.AllowVanillaDifferentOccupant,
-    "an external-open marker suppressed a different occupant");
-Require(lockerPolicy.Clear(5), "hide/close boundary did not clear the locker cycle");
-
-Require(
-    LockerStunZonePolicy.TryResolveCenter(
-        new LockerStunZonePoint(10f, 2f, -4f),
-        new LockerStunZonePoint(0f, 0f, 1f),
-        out var lockerStunCenter),
-    "locker stun-zone center rejected finite transform data");
-RequireClose(lockerStunCenter.X, 10f, "locker stun-zone center drifted sideways");
-RequireClose(lockerStunCenter.Y, 2.75f, "locker stun-zone center lost its native height offset");
-RequireClose(lockerStunCenter.Z, -3f, "locker stun-zone center lost its native forward offset");
-RequireClose(LockerStunZonePolicy.Radius, 1.25f, "locker stun-zone radius diverged from Physics.OverlapSphere");
-Require(
-    LockerStunZonePolicy.TryResolveHorizontalCrossSection(
-        new LockerStunZonePoint(0f, 0f, 0f),
-        new LockerStunZonePoint(0f, 0f, 1f),
-        0f,
-        out var lockerFloorCenter,
-        out var lockerFloorRadius),
-    "locker stun-zone rejected its floor-level cross-section");
-RequireClose(lockerFloorCenter.X, 0f, "locker floor marker drifted sideways");
-RequireClose(lockerFloorCenter.Y, 0f, "locker floor marker was not on the anchor plane");
-RequireClose(lockerFloorCenter.Z, 1f, "locker floor marker lost its native forward offset");
-RequireClose(lockerFloorRadius, 1f, "locker floor marker projected the airborne equator onto the floor");
-Require(
-    LockerStunZonePolicy.IsPointInsideQuery(
-        new LockerStunZonePoint(0f, 0f, 0f),
-        new LockerStunZonePoint(0f, 0f, 1f),
-        new LockerStunZonePoint(0f, 0.75f, 1f)),
-    "the space directly in front of the locker was omitted from the stun query");
-Require(
-    !LockerStunZonePolicy.IsPointInsideQuery(
-        new LockerStunZonePoint(0f, 0f, 0f),
-        new LockerStunZonePoint(0f, 0f, 1f),
-        new LockerStunZonePoint(1f, 0.75f, 0f)),
-    "a one-metre position beside the locker was treated as part of a centered stun radius");
-Require(
-    !LockerStunZonePolicy.IsPointInsideQuery(
-        new LockerStunZonePoint(0f, 0f, 0f),
-        new LockerStunZonePoint(0f, 0f, 1f),
-        new LockerStunZonePoint(-1f, 0.75f, 0f)),
-    "the opposite side of the locker was treated as part of a centered stun radius");
-Require(
-    !LockerStunZonePolicy.TryResolveCenter(
+    !LockerStunZonePolicy.TryResolveBroadPhaseRadius(
         new LockerStunZonePoint(float.NaN, 0f, 0f),
-        new LockerStunZonePoint(0f, 0f, 1f),
         out _),
-    "locker stun-zone center accepted non-finite transform data");
+    "locker broad phase accepted non-finite bounds");
 
 var russianForward = NativeMovementPolicy.Resolve(true, true, false, false, false, false);
 Require(

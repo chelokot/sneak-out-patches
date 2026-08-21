@@ -30,12 +30,12 @@ internal sealed class LockerStunFixConfig
             "general",
             "EnableMod",
             true,
-            "Prevent a penguin from stunning nearby seekers when a seeker already opened its locker.");
+            "Use a balanced Boo zone extending 1.2 metres from the locker collider on every side.");
         var highlightStunZone = configFile.Bind(
             "visuals",
             "HighlightStunZone",
             true,
-            "Always show the native Boo sphere's floor-level cross-section and facing arrow on every regular locker.");
+            "Always show the balanced Boo zone as a cyan rounded rectangle around every regular locker.");
         var highlightInteractionZone = configFile.Bind(
             "visuals",
             "HighlightInteractionZone",
@@ -45,7 +45,7 @@ internal sealed class LockerStunFixConfig
             "general",
             "EnableLogging",
             true,
-            "Log locker opener attribution and every Boo allow/suppress decision without player audio or other payload data.");
+            "Log each balanced Boo spatial query without player audio or unrelated payload data.");
 
         return new LockerStunFixConfig(enableMod, highlightStunZone, highlightInteractionZone, enableLogging);
     }

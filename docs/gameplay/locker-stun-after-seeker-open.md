@@ -1,86 +1,55 @@
-# Locker Boo Eligibility
+# Locker Boo Balance
 
-`Locker.IsOpen` cannot identify who opened a locker. In client 1.1.10,
-`Locker.ComeOut(int)` creates a coroutine whose first step calls
-`Locker.Open(playerId, false)`, marks the locker open, clears the occupant, and
-only then calls `Locker.HandleBooSkill(int)`. Consequently both a voluntary
-penguin exit and a hunter-forced exit are open by the time Boo is evaluated.
+Client 1.1.10 gives locker opening and Boo different spatial shapes. The local
+interaction resolver discovers a locker when the player's interaction-height
+point is within `1.0` metre of `Locker._collider`. For a regular `BoxCollider`,
+that closest-point rule produces a rounded rectangle around the locker rather
+than a circle centered on its transform.
 
-The stable distinction exists at the earlier `Open`/`TryToOpen` event:
+The stock Boo query does not share that shape. `Locker.HandleBooSkill(int)` uses
+a `1.25` metre `Physics.OverlapSphere` centered `1.0` metre forward and `0.75`
+metres above the serialized interaction transform. Its sideways reach at the
+locker plane can therefore omit a hunter who was close enough to open the
+locker from its side.
 
-- `PlayerCurrentlyUsing == playerId`: the occupant is opening their own locker
-  as part of `ComeOut`; vanilla Boo handling must run;
-- `PlayerCurrentlyUsing != playerId`: another player is opening an occupied
-  locker; the next matching occupant exit must not run Boo;
-- no occupant, a mismatched occupant, or an unknown call: preserve vanilla
-  behavior rather than suppressing a legitimate stun.
+`Locker Stun Fix` replaces only that spatial query. While vanilla
+`HandleBooSkill` is running, the plugin:
 
-`Locker Stun Fix` records the opener and occupant per native locker instance.
-The marker is consumed only by the matching occupant's `HandleBooSkill` and is
-cleared on close/hide boundaries. Suppressing the entire handler prevents both
-the stun and Boo cooldown consumption. The plugin does not manufacture a stun:
-when vanilla runs, its own `PenguinBoo` equipped-skill check remains
-authoritative.
+1. performs a conservative broad-phase overlap around the complete locker
+   collider;
+2. resolves every candidate player's network position at the same `+0.5`
+   metre interaction height used by the local prompt resolver;
+3. measures from that point to `Locker._collider.ClosestPoint`;
+4. retains candidates at or below `1.2` metres.
 
-Every live regular locker displays a persistent cyan floor-level cross-section
-of the native Boo overlap query, regardless of occupant, equipped skills, or
-cooldown. The marker is anchored to the same serialized
-`Interactable.Transform` that the game's `Locker.HandleBooSkill` reads; that
-anchor is not necessarily the locker GameObject's root transform.
+The resulting Boo zone is the opening-distance rounded rectangle with a true
+`0.2` metre margin on every edge and corner. Any hunter position satisfying the
+`1.0` metre opening-distance test also satisfies the `1.2` metre Boo test.
 
-The client checks a sphere with a `1.25` metre radius centered `1.0` metre in
-front of the locker and `0.75` metres above its origin. Rendering the sphere's
-widest circle would place that circle `0.75` metres in the air and, under the
-isometric camera, misleadingly project it over positions beside the locker.
-Instead, the marker shows the sphere's intersection with the horizontal plane
-through the locker origin. For a level locker this produces a `1.0` metre
-radius centered `1.0` metre forward: it is tangent at the locker origin and has
-no lateral reach at the locker's side plane. A line and arrow make its facing
-unambiguous.
+The plugin no longer suppresses Boo when another player opens an occupied
+locker. Vanilla remains authoritative for the equipped `PenguinBoo` check,
+target role and life-state filters, stun dispatch, and cooldown consumption.
+Like stock Boo, this spatial test does not add wall occlusion.
 
-`HandleBooSkill` does not raycast or clip its query against walls. The marker is
-a floor-position guide; the native `Physics.OverlapSphere` still tests collider
-intersection and applies its player eligibility filters. `HighlightStunZone`
-can disable the marker without disabling the opener-attribution fix.
+Every regular locker displays two persistent floor guides:
 
-Each locker also displays a translucent amber interaction area. This is not a
-radius invented from the locker mesh and it does not use the host's later
-`Interactable.CanInteract` validation. The plugin samples floor positions at a
-maximum spacing of `0.15` metres and recreates the client prompt resolver's
-positional checks. `FindInteractables` first admits colliders within the live
-`LocalDistanceToInteract`; `ResolveSelectedInteractiveComponent` then raises
-the candidate position by `0.5` metres, measures to
-`Locker._collider.ClosestPoint`, applies the
-`InteractDistanceWithoutRaycast` close-range limit, and otherwise raycasts with
-the local player's interaction mask. The ray must hit that same locker
-GameObject. As a result, walls and neighboring interactables can cut cells out
-of the displayed area. The shipped values are `1.0` metre for the local
-discovery limit and `0.5` metres for the automatically accepted close range.
+- cyan outlines the balanced `1.2` metre rounded-rectangle Boo zone;
+- amber samples the client prompt resolver at a maximum `0.15` metre spacing.
 
-The regular locker collider is `0.76` metres deep and centered `0.01` metres
-forward, so its front face is `0.39` metres forward of the interaction anchor.
-With a clear raycast directly in front, the outer interaction edge is therefore
-`0.39 + 1.0 = 1.39` metres from the anchor. The cyan floor cross-section ends at
-`1.0 + 1.0 = 2.0` metres, so the floor-position stun footprint reaches `0.61`
-metres farther forward than the clear local interaction area.
+The amber resolver visualization uses the live `LocalDistanceToInteract`, the
+`InteractDistanceWithoutRaycast` close-range rule, and the local player's
+interaction raycast mask. Walls, neighboring interactables, or another selected
+candidate can therefore make the visible amber region smaller than its raw
+`1.0` metre rounded rectangle. The cyan outline deliberately represents Boo's
+non-occluded spatial rule.
 
-The amber area represents where this locker can become a local prompt candidate.
-Another overlapping candidate can still win the resolver's selection, and
-entering or opening can be unavailable because of player role, held items,
-locker occupancy, or current interaction state. `HighlightInteractionZone`
-controls this marker independently of the cyan stun marker.
-
-Runtime diagnostics emit one `boo-decision` line for every evaluation, including
-the exiting player, whether Boo was detected, the allow/suppress result, and the
-recorded opener source. This localizes future signature or ordering changes
-without logging voice data or unrelated player payloads.
+`HighlightStunZone` and `HighlightInteractionZone` control the two guides
+independently without disabling the balance change.
 
 Relevant client 1.1.10 RVAs:
 
-- `Locker.ComeOut(int)`: `0x6D5DF0`
 - `Locker.HandleBooSkill(int)`: `0x6D6220`
-- `Locker.Open(int, bool)`: `0x6D67E0`
-- `Locker.TryToOpen(int)`: `0x6D6A10`
-- `Locker+<ComeOut>d__27.MoveNext()`: `0x6E1B30`
 - `EntityInteractiveComponent.FindInteractables()`: `0x671390`
 - `EntityInteractiveComponent.ResolveSelectedInteractiveComponent(int)`: `0x6791E0`
+- `Physics.OverlapSphere(Vector3, float, int, QueryTriggerInteraction)`:
+  `0x38DC080`

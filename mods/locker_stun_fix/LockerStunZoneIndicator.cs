@@ -6,12 +6,10 @@ namespace SneakOut.LockerStunFix;
 
 internal static class LockerStunZoneIndicator
 {
-    private const int SegmentCount = 72;
+    private const int SegmentsPerCorner = 18;
     private const float FloorClearance = 0.025f;
     private const float ZoneLineWidth = 0.055f;
-    private const float DirectionLineWidth = 0.035f;
     private static readonly Color ZoneColor = new(0.2f, 0.95f, 1f, 0.92f);
-    private static readonly Color DirectionColor = new(0.75f, 1f, 1f, 0.8f);
     private static readonly Dictionary<IntPtr, GameObject> IndicatorsByLocker = new();
 
     private static Material? _lineMaterial;
@@ -39,27 +37,30 @@ internal static class LockerStunZoneIndicator
                 IndicatorsByLocker.Remove(locker.Pointer);
             }
 
-            // Locker.HandleBooSkill reads Interactable.Transform, not the
-            // MonoBehaviour's inherited transform. Some locker prefabs use a
-            // distinct serialized anchor, so using locker.transform moves and
-            // rotates the visualization away from the native physics query.
             var queryTransform = locker.Transform;
             if (queryTransform is null || !queryTransform)
             {
-                failure = "locker stun-query transform is unavailable";
+                failure = "locker interaction transform is unavailable";
                 return false;
             }
 
-            var origin = queryTransform.position;
-            var forward = queryTransform.forward;
-            if (!LockerStunZonePolicy.TryResolveHorizontalCrossSection(
-                    new LockerStunZonePoint(origin.x, origin.y, origin.z),
-                    new LockerStunZonePoint(forward.x, forward.y, forward.z),
-                    origin.y,
-                    out var resolvedCenter,
-                    out var resolvedRadius))
+            var lockerCollider = locker._collider;
+            if (lockerCollider is null || !lockerCollider)
             {
-                failure = "locker transform produced no finite floor-level stun cross-section";
+                failure = "locker interaction collider is unavailable";
+                return false;
+            }
+
+            if (!TryResolveHorizontalBox(
+                    lockerCollider,
+                    queryTransform.position.y + FloorClearance,
+                    out var center,
+                    out var firstAxis,
+                    out var secondAxis,
+                    out var firstHalfExtent,
+                    out var secondHalfExtent))
+            {
+                failure = "locker collider produced no finite horizontal outline";
                 return false;
             }
 
@@ -70,30 +71,24 @@ internal static class LockerStunZoneIndicator
                 return false;
             }
 
-            // Render the native sphere's slice through the locker anchor plane,
-            // not its widest circle 0.75 m in the air. The latter projects onto
-            // the floor in the isometric camera and falsely suggests side reach.
-            var center = new Vector3(
-                resolvedCenter.X,
-                resolvedCenter.Y + FloorClearance,
-                resolvedCenter.Z);
             var indicatorObject = new GameObject("LockerBooStunZone")
             {
                 hideFlags = HideFlags.HideAndDontSave
             };
             indicatorObject.transform.SetParent(queryTransform, false);
-            AddCircle(
+            AddRoundedRectangle(
                 indicatorObject,
-                "LockerBooStunZoneFloorCrossSection",
+                "LockerBooStunRoundedRectangle",
                 material,
                 center,
-                Vector3.right,
-                Vector3.forward,
-                resolvedRadius,
+                firstAxis,
+                secondAxis,
+                firstHalfExtent,
+                secondHalfExtent,
+                LockerStunZonePolicy.StunDistance,
                 ZoneLineWidth,
                 ZoneColor);
 
-            AddDirectionMarker(indicatorObject, origin, forward, center, material);
             IndicatorsByLocker[locker.Pointer] = indicatorObject;
             created = true;
             return true;
@@ -105,72 +100,102 @@ internal static class LockerStunZoneIndicator
         }
     }
 
-    private static void AddCircle(
+    private static bool TryResolveHorizontalBox(
+        Collider collider,
+        float height,
+        out Vector3 center,
+        out Vector3 firstAxis,
+        out Vector3 secondAxis,
+        out float firstHalfExtent,
+        out float secondHalfExtent)
+    {
+        center = default;
+        firstAxis = Vector3.right;
+        secondAxis = Vector3.forward;
+        firstHalfExtent = 0f;
+        secondHalfExtent = 0f;
+        if (!float.IsFinite(height))
+        {
+            return false;
+        }
+
+        if (collider.TryCast<BoxCollider>() is { } boxCollider)
+        {
+            var boxTransform = boxCollider.transform;
+            var scale = boxTransform.lossyScale;
+            center = boxTransform.TransformPoint(boxCollider.center);
+            center.y = height;
+            firstAxis = Vector3.ProjectOnPlane(boxTransform.right, Vector3.up);
+            secondAxis = Vector3.ProjectOnPlane(boxTransform.forward, Vector3.up);
+            firstHalfExtent = boxCollider.size.x * 0.5f * Mathf.Abs(scale.x);
+            secondHalfExtent = boxCollider.size.z * 0.5f * Mathf.Abs(scale.z);
+        }
+        else
+        {
+            var bounds = collider.bounds;
+            center = new Vector3(bounds.center.x, height, bounds.center.z);
+            firstHalfExtent = bounds.extents.x;
+            secondHalfExtent = bounds.extents.z;
+        }
+
+        var firstLength = firstAxis.magnitude;
+        var secondLength = secondAxis.magnitude;
+        if (!IsFinite(center)
+            || !float.IsFinite(firstHalfExtent)
+            || !float.IsFinite(secondHalfExtent)
+            || firstHalfExtent < 0f
+            || secondHalfExtent < 0f
+            || firstLength < 0.0001f
+            || secondLength < 0.0001f)
+        {
+            return false;
+        }
+
+        firstAxis /= firstLength;
+        secondAxis /= secondLength;
+        return true;
+    }
+
+    private static void AddRoundedRectangle(
         GameObject parent,
         string name,
         Material material,
         Vector3 center,
         Vector3 firstAxis,
         Vector3 secondAxis,
+        float firstHalfExtent,
+        float secondHalfExtent,
         float radius,
         float width,
         Color color)
     {
-        var line = AddLine(parent, name, material, SegmentCount, width, color, loop: true);
-        for (var index = 0; index < SegmentCount; index++)
+        var positionCount = SegmentsPerCorner * 4;
+        var line = AddLine(parent, name, material, positionCount, width, color, loop: true);
+        for (var cornerIndex = 0; cornerIndex < 4; cornerIndex++)
         {
-            var angle = 2f * MathF.PI * index / SegmentCount;
-            line.SetPosition(
-                index,
-                center + (firstAxis * MathF.Cos(angle) + secondAxis * MathF.Sin(angle))
-                * radius);
+            var firstSign = cornerIndex is 0 or 3 ? 1f : -1f;
+            var secondSign = cornerIndex is 0 or 1 ? 1f : -1f;
+            var cornerCenter = center
+                + firstAxis * (firstHalfExtent * firstSign)
+                + secondAxis * (secondHalfExtent * secondSign);
+            var startingAngle = cornerIndex * MathF.PI * 0.5f;
+            for (var segmentIndex = 0; segmentIndex < SegmentsPerCorner; segmentIndex++)
+            {
+                var progress = segmentIndex / (SegmentsPerCorner - 1f);
+                var angle = startingAngle + progress * MathF.PI * 0.5f;
+                var position = cornerCenter
+                    + firstAxis * (MathF.Cos(angle) * radius)
+                    + secondAxis * (MathF.Sin(angle) * radius);
+                line.SetPosition(cornerIndex * SegmentsPerCorner + segmentIndex, position);
+            }
         }
     }
 
-    private static void AddDirectionMarker(
-        GameObject indicatorObject,
-        Vector3 origin,
-        Vector3 nativeForward,
-        Vector3 center,
-        Material material)
+    private static bool IsFinite(Vector3 point)
     {
-        var planarLength = MathF.Sqrt(
-            nativeForward.x * nativeForward.x + nativeForward.z * nativeForward.z);
-        if (!float.IsFinite(planarLength) || planarLength < 0.0001f)
-        {
-            return;
-        }
-
-        var forward = new Vector3(
-            nativeForward.x / planarLength,
-            0f,
-            nativeForward.z / planarLength);
-        var side = new Vector3(-forward.z, 0f, forward.x);
-        var markerOrigin = new Vector3(origin.x, center.y, origin.z) + forward * 0.12f;
-        var tip = center + forward * 0.4f;
-
-        var shaft = AddLine(
-            indicatorObject,
-            "LockerBooDirectionShaft",
-            material,
-            2,
-            DirectionLineWidth,
-            DirectionColor,
-            loop: false);
-        shaft.SetPosition(0, markerOrigin);
-        shaft.SetPosition(1, tip);
-
-        var arrow = AddLine(
-            indicatorObject,
-            "LockerBooDirectionArrow",
-            material,
-            3,
-            DirectionLineWidth,
-            DirectionColor,
-            loop: false);
-        arrow.SetPosition(0, tip - forward * 0.2f + side * 0.13f);
-        arrow.SetPosition(1, tip);
-        arrow.SetPosition(2, tip - forward * 0.2f - side * 0.13f);
+        return float.IsFinite(point.x)
+            && float.IsFinite(point.y)
+            && float.IsFinite(point.z);
     }
 
     private static LineRenderer AddLine(

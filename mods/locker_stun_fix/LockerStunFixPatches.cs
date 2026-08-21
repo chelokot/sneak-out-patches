@@ -1,58 +1,50 @@
 using Gameplay.Interactions;
 using HarmonyLib;
+using Il2CppInterop.Runtime.InteropTypes.Arrays;
+using UnityEngine;
 
 namespace SneakOut.LockerStunFix;
-
-[HarmonyPatch(typeof(Locker), nameof(Locker.TryToOpen))]
-internal static class LockerTryToOpenPatch
-{
-    private static void Prefix(Locker __instance, int playerId)
-    {
-        LockerStunFixRuntime.ObserveOpen(__instance, playerId, nameof(Locker.TryToOpen));
-    }
-}
-
-[HarmonyPatch(typeof(Locker), nameof(Locker.Open))]
-internal static class LockerOpenPatch
-{
-    private static void Prefix(Locker __instance, int playerId)
-    {
-        LockerStunFixRuntime.ObserveOpen(__instance, playerId, nameof(Locker.Open));
-    }
-}
-
-[HarmonyPatch(typeof(Locker), nameof(Locker.Close))]
-internal static class LockerClosePatch
-{
-    private static void Prefix(Locker __instance)
-    {
-        LockerStunFixRuntime.ClearCycle(__instance, nameof(Locker.Close));
-    }
-}
 
 [HarmonyPatch(typeof(Locker), nameof(Locker.HandleBooSkill))]
 internal static class LockerHandleBooSkillPatch
 {
-    private static bool Prefix(Locker __instance, int playerId)
+    [HarmonyPrefix]
+    private static void Prefix(Locker __instance, out bool __state)
     {
-        return LockerStunFixRuntime.ShouldApplyLockerStun(__instance, playerId);
+        __state = LockerStunFixRuntime.TryBeginBalancedBooQuery(__instance);
+    }
+
+    [HarmonyFinalizer]
+    private static Exception? Finalizer(Exception? __exception, bool __state)
+    {
+        LockerStunFixRuntime.EndBalancedBooQuery(__state);
+        return __exception;
     }
 }
 
-[HarmonyPatch(typeof(Locker), nameof(Locker.Hide))]
-internal static class LockerHidePatch
-{
-    private static void Prefix(Locker __instance)
+[HarmonyPatch(
+    typeof(Physics),
+    nameof(Physics.OverlapSphere),
+    new[]
     {
-        LockerStunFixRuntime.ClearCycle(__instance, nameof(Locker.Hide));
+        typeof(Vector3),
+        typeof(float),
+        typeof(int),
+        typeof(QueryTriggerInteraction)
+    })]
+internal static class LockerBooOverlapSpherePatch
+{
+    [HarmonyPrefix]
+    private static void Prefix(ref Vector3 __0, ref float __1, out bool __state)
+    {
+        __state = LockerStunFixRuntime.TryPrepareBalancedBooOverlap(ref __0, ref __1);
     }
-}
 
-[HarmonyPatch(typeof(Locker), nameof(Locker.HideFast))]
-internal static class LockerHideFastPatch
-{
-    private static void Prefix(Locker __instance)
+    [HarmonyPostfix]
+    private static void Postfix(
+        bool __state,
+        ref Il2CppReferenceArray<Collider> __result)
     {
-        LockerStunFixRuntime.ClearCycle(__instance, nameof(Locker.HideFast));
+        LockerStunFixRuntime.FilterBalancedBooOverlap(__state, ref __result);
     }
 }

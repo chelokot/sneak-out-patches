@@ -129,6 +129,23 @@ internal static class PortalModeSelectorRuntime
         }
     }
 
+    public static void ObserveStockPortalOpen(PortalPlayView view)
+    {
+        try
+        {
+            var canvas = view._canvasObject;
+            _logger?.LogInfo(
+                "Stock portal view Open completed: "
+                + $"viewActive={view.isActiveAndEnabled}, "
+                + $"canvasActiveSelf={canvas?.activeSelf ?? false}, "
+                + $"canvasActiveInHierarchy={canvas?.activeInHierarchy ?? false}");
+        }
+        catch (Exception exception)
+        {
+            LogError("Stock portal view Open probe failed", exception);
+        }
+    }
+
     private static bool TryEnsureControls(PortalPlayView view)
     {
         if (view.Pointer == IntPtr.Zero || view._playButton is null)

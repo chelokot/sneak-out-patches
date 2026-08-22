@@ -37,6 +37,16 @@ internal static class PortalPlayViewOnPlayPatch
     }
 }
 
+[HarmonyPatch(typeof(PortalPlayView), nameof(PortalPlayView.Open))]
+internal static class PortalPlayViewOpenProbePatch
+{
+    [HarmonyPostfix]
+    private static void Postfix(PortalPlayView __instance)
+    {
+        PortalModeSelectorRuntime.ObserveStockPortalOpen(__instance);
+    }
+}
+
 [HarmonyPatch(typeof(SceneSpawner), nameof(SceneSpawner.Spawn))]
 internal static class SceneSpawnerSpawnPatch
 {

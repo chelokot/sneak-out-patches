@@ -107,6 +107,38 @@ Even exploratory fixes should be:
 
 A debugging shortcut that pollutes the final architecture is still a bad fix.
 
+## Live game log discovery and preservation
+
+First try the Flatpak/Flathub Steam root:
+
+`~/.var/app/com.valvesoftware.Steam/.local/share/Steam`
+
+If that root does not exist, find the active Steam installation or library instead.
+Do not assume a fixed home directory or container-to-host mount. Steam app id `2410490`
+can be used to locate the app manifest and Proton prefix. From the resolved Steam
+library root, use these stable relative paths:
+
+- BepInEx log: `steamapps/common/Sneak Out/BepInEx/LogOutput.log`
+- BepInEx error log: `steamapps/common/Sneak Out/BepInEx/ErrorLog.log`
+- Proton Unity log: `steamapps/compatdata/2410490/pfx/drive_c/users/steamuser/AppData/LocalLow/Kinguin Studios/Sneak Out/Player.log`
+
+For native Windows, Unity's log is normally under
+`%USERPROFILE%/AppData/LocalLow/Kinguin Studios/Sneak Out/Player.log`. Account for any
+host-filesystem prefix exposed to the current container only after resolving the real
+Steam root; the prefix is environment-specific, while the Steam-relative paths above
+remain the same.
+
+Always preserve the evidence before reading any log contents:
+
+1. Locate the live files without opening, grepping, tailing, or otherwise inspecting
+   their contents.
+2. Create a new timestamped directory under `/tmp`, then copy every available current
+   log into it. Never reuse or overwrite an earlier snapshot.
+3. Run all investigation commands against the snapshot, not the live files. This is
+   mandatory because a later game launch truncates or replaces the live logs.
+4. If more evidence is needed from a game that is still running, create another new
+   snapshot and investigate that copy; never switch to reading the live log directly.
+
 ## Installer and repository tooling
 
 - The maintained installer is Rust-only under `installer-rs/`. Do not add JavaScript,

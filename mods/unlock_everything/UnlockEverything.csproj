@@ -46,7 +46,4 @@
     </Reference>
   </ItemGroup>
 
-  <ItemGroup>
-    <EmbeddedResource Include="../mummy_unlock/Assets/mummy_character_icon.png" Link="Assets/mummy_character_icon.png" LogicalName="SneakOut.UnlockEverything.Assets.mummy_character_icon.png" />
-  </ItemGroup>
 </Project>

@@ -70,7 +70,7 @@
   {
     "option_id": "mummy-unlock",
     "label": "Mummy Unlock",
-    "details": "Makes Mummy available as a selectable hunter.",
+    "details": "Restores Mummy as a complete selectable hunter with portraits, perks, and corrected sarcophagus behavior.",
     "category": "gameplay",
     "default_enabled": false,
     "stable": false,
@@ -80,7 +80,7 @@
   {
     "option_id": "unlock-everything",
     "label": "Unlock Everything",
-    "details": "Unlocks supported characters, emotes, and skill cards, and lets you buy and keep every cosmetic for 1,000 Gold.",
+    "details": "Unlocks emotes and skill cards, and lets you buy and keep every cosmetic for 1,000 Gold without changing hunter ownership.",
     "category": "progression",
     "default_enabled": true,
     "stable": true,

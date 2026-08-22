@@ -2,7 +2,7 @@ using Gameplay.Player.Components;
 using Gameplay.Skills;
 using UnityEngine;
 
-namespace SneakOut.UnlockEverything;
+namespace SneakOut.MummyUnlock;
 
 internal static class MummySarcophagusTeleportRuntime
 {
@@ -295,7 +295,7 @@ internal static class MummySarcophagusTeleportRuntime
             ? Types.CharacterAnimations.WardrobeHide
             : Types.CharacterAnimations.LockerStepOut;
         animatorComponent.SetTrigger(trigger);
-        UnlockEverythingRuntime.LogOperational(
+        MummyUnlockRuntime.LogInfo(
             $"Mummy sarcophagus presentation started: player={internalId}, interaction={interactionType}, trigger={trigger}, borrowedController={AnimatorControllerLeases.ContainsKey(internalId)}");
         ApplyPlayerPose(interactive, startPosition, startRotation);
     }
@@ -313,7 +313,7 @@ internal static class MummySarcophagusTeleportRuntime
         ActiveExits.Remove(internalId);
         if (!TrySnapPlayer(interactive, motion.TargetPosition))
         {
-            UnlockEverythingRuntime.LogOperational(
+            MummyUnlockRuntime.LogInfo(
                 $"Mummy sarcophagus exit could not finalize player {internalId} at the destination");
         }
 
@@ -332,7 +332,7 @@ internal static class MummySarcophagusTeleportRuntime
         var animator = animatorComponent._animator;
         if (animator is null || animator.Pointer == IntPtr.Zero)
         {
-            UnlockEverythingRuntime.LogOperational(
+            MummyUnlockRuntime.LogInfo(
                 $"Mummy sarcophagus could not borrow a wardrobe controller for player {internalId}: animator unavailable");
             return false;
         }
@@ -340,7 +340,7 @@ internal static class MummySarcophagusTeleportRuntime
         var wardrobeController = ResolveWardrobeAnimatorController();
         if (wardrobeController is null || wardrobeController.Pointer == IntPtr.Zero)
         {
-            UnlockEverythingRuntime.LogOperational(
+            MummyUnlockRuntime.LogInfo(
                 $"Mummy sarcophagus could not borrow a wardrobe controller for player {internalId}: '{WardrobeAnimatorControllerName}' was not loaded");
             return false;
         }
@@ -396,7 +396,7 @@ internal static class MummySarcophagusTeleportRuntime
         lease.Animator.runtimeAnimatorController = lease.OriginalController;
         lease.Animator.Rebind();
         lease.Animator.Update(0f);
-        UnlockEverythingRuntime.LogOperational(
+        MummyUnlockRuntime.LogInfo(
             $"Mummy sarcophagus restored the native animator controller for player {internalId}");
     }
 
@@ -406,7 +406,7 @@ internal static class MummySarcophagusTeleportRuntime
         var player = registry?[internalId];
         return player is not null
             && player.Pointer != IntPtr.Zero
-            && player.CharacterType == MummyPerkShopRuntime.MummyCharacterType;
+            && player.CharacterType == MummyUnlockRuntime.MummyCharacterType;
     }
 
     private static bool TryGetInteractiveComponent(

@@ -5,7 +5,7 @@ using HarmonyLib;
 using UnityEngine;
 using UnityEngine.AI;
 
-namespace SneakOut.UnlockEverything;
+namespace SneakOut.MummyUnlock;
 
 [HarmonyPatch(typeof(MummySarcophagusManager), nameof(MummySarcophagusManager.AddNew))]
 internal static class MummySarcophagusPlacementPatch
@@ -48,7 +48,7 @@ internal static class MummySarcophagusPlacementPatch
         }
         catch (Exception exception)
         {
-            UnlockEverythingRuntime.LogError("Preparing upright Mummy sarcophagus placement failed", exception);
+            MummyUnlockRuntime.LogError("Preparing upright Mummy sarcophagus placement failed", exception);
         }
     }
 
@@ -100,7 +100,7 @@ internal static class MummySarcophagusPlacementPatch
         }
         catch (Exception exception)
         {
-            UnlockEverythingRuntime.LogError("Applying upright Mummy sarcophagus placement failed", exception);
+            MummyUnlockRuntime.LogError("Applying upright Mummy sarcophagus placement failed", exception);
         }
     }
 }
@@ -141,7 +141,7 @@ internal static class SarcophagusComeOutTeleportOrderingPatch
         }
         catch (Exception exception)
         {
-            UnlockEverythingRuntime.LogError("Preparing Mummy sarcophagus teleport failed", exception);
+            MummyUnlockRuntime.LogError("Preparing Mummy sarcophagus teleport failed", exception);
         }
     }
 }
@@ -157,7 +157,7 @@ internal static class SarcophagusVisibilityReleaseOrderingPatch
         }
         catch (Exception exception)
         {
-            UnlockEverythingRuntime.LogError("Checking Mummy sarcophagus visibility ordering failed", exception);
+            MummyUnlockRuntime.LogError("Checking Mummy sarcophagus visibility ordering failed", exception);
             return true;
         }
     }
@@ -185,7 +185,7 @@ internal static class InteractWithSarcophagusTeleportOrderingPatch
         }
         catch (Exception exception)
         {
-            UnlockEverythingRuntime.LogError("Starting ordered Mummy sarcophagus exit failed", exception);
+            MummyUnlockRuntime.LogError("Starting ordered Mummy sarcophagus exit failed", exception);
         }
 
         return true;
@@ -208,7 +208,7 @@ internal static class InteractWithSarcophagusTeleportOrderingPatch
         }
         catch (Exception exception)
         {
-            UnlockEverythingRuntime.LogError("Finalizing ordered Mummy sarcophagus exit failed", exception);
+            MummyUnlockRuntime.LogError("Finalizing ordered Mummy sarcophagus exit failed", exception);
         }
     }
 }
@@ -224,7 +224,7 @@ internal static class MummySarcophagusFixedPresentationPatch
         }
         catch (Exception exception)
         {
-            UnlockEverythingRuntime.LogError("Applying fixed Mummy sarcophagus presentation failed", exception);
+            MummyUnlockRuntime.LogError("Applying fixed Mummy sarcophagus presentation failed", exception);
         }
     }
 }
@@ -240,7 +240,7 @@ internal static class MummySarcophagusRenderPresentationPatch
         }
         catch (Exception exception)
         {
-            UnlockEverythingRuntime.LogError("Applying rendered Mummy sarcophagus presentation failed", exception);
+            MummyUnlockRuntime.LogError("Applying rendered Mummy sarcophagus presentation failed", exception);
         }
     }
 }

@@ -12,7 +12,7 @@ namespace SneakOut.MummyUnlock;
 
 internal static class MummyUnlockRuntime
 {
-    private static readonly CharacterType MummyCharacterType = CharacterType.murderer_mummy;
+    internal const CharacterType MummyCharacterType = CharacterType.murderer_mummy;
 
     private static ManualLogSource? _logger;
     private static Harmony? _harmony;
@@ -20,14 +20,31 @@ internal static class MummyUnlockRuntime
     public static void Initialize(ManualLogSource logger)
     {
         _logger = logger;
+        MummyPerkStore.Initialize();
         MummySarcophagusVisualRuntime.Initialize(logger);
         _harmony ??= new Harmony(MummyUnlockPlugin.PluginGuid);
         _harmony.PatchAll();
     }
 
+    internal static void LogInfo(string message)
+    {
+        _logger?.LogInfo(message);
+    }
+
+    internal static void LogError(string message, Exception exception)
+    {
+        _logger?.LogError($"{message}: {exception}");
+    }
+
     public static void EnsureAvailableSeekersContainMummy(SeekerSelectionViewModel viewModel)
     {
         viewModel.AvailableSeekers = AppendCharacter(viewModel.AvailableSeekers, MummyCharacterType);
+    }
+
+    public static void EnsureOwnedSeekersContainMummy(PlayerNewMetaInventory inventory)
+    {
+        inventory.OwnedSeekers = AppendCharacter(inventory.OwnedSeekers, MummyCharacterType);
+        MummyPerkStore.CaptureProfile(inventory._clientCache);
     }
 
     public static bool TryGetMummyAvatar(SpookedNetworkPlayer networkPlayer, out AvatarType avatarType)

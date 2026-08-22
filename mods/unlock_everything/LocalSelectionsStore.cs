@@ -132,60 +132,6 @@ internal static class LocalSelectionsStore
         }
     }
 
-    internal static void SaveRuntimeCharacterSkills(string characterKey, SimplifiedWebPlayerSkills skills)
-    {
-        lock (Sync)
-        {
-            var profileSelections = GetOrCreateProfileSelections(UnlockEverythingStub.GetProfileStorageKey());
-            if (!profileSelections.Characters.TryGetValue(characterKey, out var selection))
-            {
-                selection = new PersistedCharacterSelection();
-                profileSelections.Characters[characterKey] = selection;
-            }
-
-            selection.ActiveSkill = PersistedSkillType(skills.ActiveSkill);
-            selection.PassiveSkill1 = PersistedSkillType(skills.PassiveSkill1);
-            selection.PassiveSkill2 = PersistedSkillType(skills.PassiveSkill2);
-            selection.PassiveSkill3 = PersistedSkillType(skills.PassiveSkill3);
-            selection.PassiveSkill4 = PersistedSkillType(skills.PassiveSkill4);
-
-            Save();
-        }
-    }
-
-    internal static bool TryGetRuntimeCharacterSkills(string characterKey, out SimplifiedWebPlayerSkills skills)
-    {
-        lock (Sync)
-        {
-            skills = default;
-            var profileSelections = GetExistingProfileSelections();
-            if (profileSelections is null
-                || !profileSelections.Characters.TryGetValue(characterKey, out var selection))
-            {
-                return false;
-            }
-
-            skills.ActiveSkill = RuntimePlayerSkill(selection.ActiveSkill);
-            skills.PassiveSkill1 = RuntimePlayerSkill(selection.PassiveSkill1);
-            skills.PassiveSkill2 = RuntimePlayerSkill(selection.PassiveSkill2);
-            skills.PassiveSkill3 = RuntimePlayerSkill(selection.PassiveSkill3);
-            skills.PassiveSkill4 = RuntimePlayerSkill(selection.PassiveSkill4);
-            return true;
-        }
-    }
-
-    private static int? PersistedSkillType(PlayerSkill skill)
-    {
-        return skill.SkillType == SkillType.None ? null : (int)skill.SkillType;
-    }
-
-    private static PlayerSkill RuntimePlayerSkill(int? persistedSkillType)
-    {
-        return persistedSkillType.HasValue && persistedSkillType.Value != (int)SkillType.None
-            ? new PlayerSkill((SkillType)persistedSkillType.Value, 5)
-            : default;
-    }
-
     public static void ApplySelections(WebPlayer player)
     {
         lock (Sync)

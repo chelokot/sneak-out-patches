@@ -6,7 +6,7 @@
 
 The mod only needs to provide:
 
-1. unlocks and maxed meta data
+1. unlocked cosmetic/skill-card data without changing hunter ownership
 2. local apply instead of dead backend requests
 3. persistence load on startup
 4. persistence save after a successful local apply
@@ -30,6 +30,8 @@ Expected hooks:
 - product/meta expansion only when a screen enumerates from product lists
 
 This layer must not perform equip side effects.
+
+Hunter ownership is explicitly outside this mod. `OwnedSeekers`, missing character records, and character products must remain untouched in normal profile mode. Mummy availability belongs to `mummy-unlock`.
 
 ### 2. Apply
 

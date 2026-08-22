@@ -1,7 +1,7 @@
 using HarmonyLib;
 using UI;
 
-namespace SneakOut.UnlockEverything;
+namespace SneakOut.MummyUnlock;
 
 [HarmonyPatch(typeof(PlayerInGameRecord), nameof(PlayerInGameRecord.Refresh))]
 internal static class MummyPlayerInGameRecordRefreshPatch
@@ -10,11 +10,11 @@ internal static class MummyPlayerInGameRecordRefreshPatch
     {
         try
         {
-            MummyPerkShopRuntime.ApplyPlayerListIcon(__instance, playerId);
+            MummyAbilityIconRuntime.ApplyToPlayerList(__instance, playerId);
         }
         catch (Exception exception)
         {
-            UnlockEverythingRuntime.LogError("Applying Mummy player-list icon failed", exception);
+            MummyUnlockRuntime.LogError("Applying Mummy player-list icon failed", exception);
         }
     }
 }

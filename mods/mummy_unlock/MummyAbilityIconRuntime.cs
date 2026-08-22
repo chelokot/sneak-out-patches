@@ -1,6 +1,7 @@
 using System.Reflection;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using Types;
+using UI;
 using UI.Views;
 using UI.Views.Lobby;
 using UnityEngine;
@@ -98,6 +99,24 @@ internal static class MummyAbilityIconRuntime
 
         var image = secondSkill ? playerActionsView._secondSkillSprite : playerActionsView._firstSkillSprite;
         ApplySprite(image, sprite);
+    }
+
+    public static void ApplyToPlayerList(PlayerInGameRecord record, int playerId)
+    {
+        if (record?._networkPlayerRegistry is null || record._avatarImage is null)
+        {
+            return;
+        }
+
+        var player = record._networkPlayerRegistry[playerId];
+        if (player is null
+            || player.Pointer == IntPtr.Zero
+            || player.CharacterType != MummyUnlockRuntime.MummyCharacterType)
+        {
+            return;
+        }
+
+        ApplySprite(record._avatarImage, GetCharacterSprite());
     }
 
     private static void ApplySprite(Image? image, Sprite sprite)

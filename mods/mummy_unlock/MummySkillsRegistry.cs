@@ -3,17 +3,15 @@ using RuntimeCharacterType = Types.CharacterType;
 using SimplifiedSkillsRuntime = Types.Structs.SimplifiedWebPlayerSkills;
 using TreeSkillSlotTypeRuntime = Types.TreeSkillSlotType;
 
-namespace SneakOut.UnlockEverything;
+namespace SneakOut.MummyUnlock;
 
 /// <summary>
 /// Supplies character-skill entries that the retail CharactersSkills value does not contain.
 /// Persistence is already partitioned by profile; the runtime character key is the seventh
 /// registry coordinate beneath that profile.
 /// </summary>
-internal static class ExtendedCharactersSkillsRegistry
+internal static class MummySkillsRegistry
 {
-    internal const string MummyStorageKey = "runtime:12";
-
     internal static bool TryGetSkills(
         RuntimeCharacterType characterType,
         out SimplifiedSkillsRuntime skills)
@@ -24,7 +22,7 @@ internal static class ExtendedCharactersSkillsRegistry
             return false;
         }
 
-        LocalSelectionsStore.TryGetRuntimeCharacterSkills(MummyStorageKey, out skills);
+        MummyPerkStore.TryGetSkills(out skills);
         NormalizeMummySkills(ref skills);
         return true;
     }
@@ -39,7 +37,7 @@ internal static class ExtendedCharactersSkillsRegistry
         }
 
         NormalizeMummySkills(ref skills);
-        LocalSelectionsStore.SaveRuntimeCharacterSkills(MummyStorageKey, skills);
+        MummyPerkStore.SaveSkills(skills);
         return true;
     }
 
@@ -114,45 +112,18 @@ internal static class ExtendedCharactersSkillsRegistry
         SkillType skillType,
         RuntimeCharacterType requestedCharacterType)
     {
-        if (requestedCharacterType != MummyPerkShopRuntime.MummyCharacterType)
+        if (requestedCharacterType != MummyPerkShopRuntime.MummyCharacterType
+            || !MummyPerkStore.IsAllowedPassive(skillType))
         {
             return requestedCharacterType;
         }
 
-        return skillType switch
-        {
-            SkillType.ReaperHelloThere
-                or SkillType.ReaperDontStop
-                or SkillType.ReaperConnection
-                or SkillType.ReaperOtherWorld
-                or SkillType.ReaperTooGoodForYou => MummyPerkShopRuntime.ReaperCharacterType,
-            SkillType.ScarecrowBigPockets
-                or SkillType.ScarecrowFlyingFriend
-                or SkillType.ScarecrowNewSneakers
-                or SkillType.ScarecrowWaitForMe
-                or SkillType.ScarecrowShySeeker => RuntimeCharacterType.murderer_scarecrow,
-            SkillType.DraculaBolt
-                or SkillType.DraculaBatman
-                or SkillType.DraculaBloodBoost
-                or SkillType.DraculaBloodSense
-                or SkillType.DraculaNowhereToHide => RuntimeCharacterType.murderer_dracula,
-            SkillType.ButcherToxicBoost
-                or SkillType.ButcherSharpHook
-                or SkillType.ButcherStunLover
-                or SkillType.ButcherClosePresence
-                or SkillType.ButcherGraveCurse => RuntimeCharacterType.murderer_butcher,
-            SkillType.ClownBigPockets
-                or SkillType.ClownBigHammer
-                or SkillType.ClownJoker
-                or SkillType.ClownTheFunIsOver => RuntimeCharacterType.murderer_clown,
-            _ => MummyPerkShopRuntime.ReaperCharacterType
-        };
+        return MummyPerkShopRuntime.ReaperCharacterType;
     }
 
     private static bool CanHandle(RuntimeCharacterType characterType)
     {
-        return UnlockEverythingRuntime.UsePersistentSelections
-            && characterType == MummyPerkShopRuntime.MummyCharacterType;
+        return characterType == MummyPerkShopRuntime.MummyCharacterType;
     }
 
     private static void NormalizeMummySkills(ref SimplifiedSkillsRuntime skills)
@@ -168,7 +139,7 @@ internal static class ExtendedCharactersSkillsRegistry
 
     private static void NormalizeTier(ref Types.Structs.PlayerSkill skill)
     {
-        if (skill.SkillType == SkillType.None)
+        if (skill.SkillType == SkillType.None || !MummyPerkStore.IsAllowedPassive(skill.SkillType))
         {
             skill = default;
             return;

@@ -8,7 +8,7 @@ public sealed class MummyUnlockPlugin : BasePlugin
 {
     public const string PluginGuid = "chelokot.sneakout.mummy-unlock";
     public const string PluginName = "Mummy Unlock";
-    public const string PluginVersion = "0.1.0";
+    public const string PluginVersion = "0.2.0";
 
     public override void Load()
     {

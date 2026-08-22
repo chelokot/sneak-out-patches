@@ -29,7 +29,7 @@ These are narrow runtime replacements for old binary patches or scene edits.
 - `minimap`
 - `globe-launch`
 
-These stay separate because each one owns a single gameplay or lobby concern and has a clear rollback boundary. `minimap` is enabled by default and remains local-player-only; it does not publish or reveal network-player positions. `globe-launch` changes only the lobby globe after the sixth distinct participant's third hit while all six remain registered by the vanilla interaction set, sends its child Rigidbody and referenced vanilla particles along a wide leftward horizontal curve toward each client's local camera, cleans up the launched globe, removes the empty stand from the raycastable interaction layer, and leaves the stock spin path intact until launch.
+These stay separate because each one owns a single gameplay or lobby concern and has a clear rollback boundary. `mummy-unlock` owns every Mummy-specific availability, UI, perk, persistence, network-fallback, and sarcophagus patch; progression mods must not duplicate those paths. `minimap` is enabled by default and remains local-player-only; it does not publish or reveal network-player positions. `globe-launch` changes only the lobby globe after the sixth distinct participant's third hit while all six remain registered by the vanilla interaction set, sends its child Rigidbody and referenced vanilla particles along a wide leftward horizontal curve toward each client's local camera, cleans up the launched globe, removes the empty stand from the raycastable interaction layer, and leaves the stock spin path intact until launch.
 
 ### Progression
 
@@ -43,6 +43,8 @@ This is the broadest mod in the repo. It touches:
 - live sync
 
 It keeps one install identity because those layers share profile state and must be enabled or rolled back together. Its implementation is split by responsibility into profile, skill, cosmetic, web-service, and live-player-sync modules.
+
+It does not unlock hunters. Normal profiles keep their real character list and character products, while the opt-in local stub synthesizes only the base Penguin/Reaper pair needed for a playable fallback.
 
 ## Sandbox and debug groups
 

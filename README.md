@@ -44,7 +44,7 @@ not Developer ID signed or notarized; if necessary, Control-click it and choose
 | Id | Name | Default | Description |
 | --- | --- | :---: | --- |
 | `portal-mode-selector` | Portal Mode Selector | Yes | Lets you choose Classic or Crown maps from the portal while keeping unfinished maps unavailable. |
-| `mummy-unlock` | Mummy Unlock | Yes | Makes Mummy available as a selectable hunter. |
+| `mummy-unlock` | Mummy Unlock | No | Restores Mummy as a complete selectable hunter with portraits, perks, and corrected sarcophagus behavior. |
 | `alternate-skill-hotkey` | Alternate Skill Hotkey | No | Lets you press Left Alt to use your character's unequipped alternate active skill. |
 | `prop-buff` | Prop Buff | Yes | Lets you change your prop with the mouse wheel while remaining stationary. |
 | `first-person-experiment` | First Person Experiment | No | Adds an experimental first-person mode with mouse look, immersive hiding and task views, a top-center stamina bar, and hold-X cursor release. |
@@ -73,7 +73,7 @@ not Developer ID signed or notarized; if necessary, Control-click it and choose
 
 | Id | Name | Default | Description |
 | --- | --- | :---: | --- |
-| `unlock-everything` | Unlock Everything | Yes | Unlocks supported characters, emotes, and skill cards, and lets you buy and keep every cosmetic for 1,000 Gold. |
+| `unlock-everything` | Unlock Everything | Yes | Unlocks emotes and skill cards, and lets you buy and keep every cosmetic for 1,000 Gold without changing hunter ownership. |
 
 ### Debug
 

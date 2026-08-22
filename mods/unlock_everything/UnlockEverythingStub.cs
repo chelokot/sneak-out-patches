@@ -212,7 +212,7 @@ internal static class UnlockEverythingStub
                 player.Consumables ??= new PlayerConsumables();
                 player.Skins = EnsurePlayerSkins(player.Skins);
                 player.Descriptions = EnsureDescriptions(player.Descriptions);
-                player.Characters = EnsureCharacters(player.Characters);
+                player.Characters = NormalizeExistingCharacters(player.Characters);
             }
 
             if (UnlockEverythingRuntime.UsePersistentSelections && clientCache.UserWebPlayer is not null)
@@ -293,7 +293,7 @@ internal static class UnlockEverythingStub
         lock (Sync)
         {
             player.BaseData ??= CreateBaseData();
-            player.Characters = EnsureCharacters(player.Characters);
+            player.Characters = NormalizeExistingCharacters(player.Characters);
         }
     }
 
@@ -349,7 +349,7 @@ internal static class UnlockEverythingStub
         player.Boosters = new PlayerBoosters();
         player.Emotions = CreatePlayerEmotions();
         player.BoostTickets = new PlayerBoostTickets();
-        player.Characters = CreateCharacters();
+        player.Characters = CreateDefaultCharacters();
         player.Ownership = CreateOwnership();
         player.Descriptions = new Il2CppCollections.List<DescriptionType>();
         return player;
@@ -573,18 +573,13 @@ internal static class UnlockEverythingStub
         return ownership;
     }
 
-    private static Il2CppCollections.List<Character> CreateCharacters()
+    private static Il2CppCollections.List<Character> CreateDefaultCharacters()
     {
         var characters = new Il2CppCollections.List<Character>();
         var characterId = 1;
 
-        foreach (var characterType in System.Enum.GetValues<CharacterType>())
+        foreach (var characterType in new[] { CharacterType.Penguin, CharacterType.Reaper })
         {
-            if (characterType is CharacterType.None or CharacterType.Seeker)
-            {
-                continue;
-            }
-
             var character = new Character();
             character.CharacterId = characterId++;
             character.Type = characterType;
@@ -1092,16 +1087,14 @@ internal static class UnlockEverythingStub
         return mergedDescriptions;
     }
 
-    private static Il2CppCollections.List<Character> EnsureCharacters(Il2CppCollections.List<Character>? characters)
+    private static Il2CppCollections.List<Character> NormalizeExistingCharacters(Il2CppCollections.List<Character>? characters)
     {
         if (characters is null || characters.Count == 0)
         {
-            return CreateCharacters();
+            return CreateDefaultCharacters();
         }
 
-        var existingCharacters = new Dictionary<CharacterType, Character>();
-        var mergedCharacters = new Il2CppCollections.List<Character>();
-        var nextCharacterId = 1;
+        var normalizedCharacters = new Il2CppCollections.List<Character>();
 
         foreach (var character in characters)
         {
@@ -1110,38 +1103,11 @@ internal static class UnlockEverythingStub
                 continue;
             }
 
-            existingCharacters[character.Type] = character;
-            if (character.CharacterId >= nextCharacterId)
-            {
-                nextCharacterId = character.CharacterId + 1;
-            }
+            EnsureCharacterDefaults(character);
+            normalizedCharacters.Add(character);
         }
 
-        foreach (var characterType in System.Enum.GetValues<CharacterType>())
-        {
-            if (characterType is CharacterType.None or CharacterType.Seeker)
-            {
-                continue;
-            }
-
-            if (existingCharacters.TryGetValue(characterType, out var character))
-            {
-                EnsureCharacterDefaults(character);
-                mergedCharacters.Add(character);
-                continue;
-            }
-
-            var createdCharacter = new Character();
-            createdCharacter.CharacterId = nextCharacterId++;
-            createdCharacter.Type = characterType;
-            createdCharacter.CharacterSkin = CharacterSkin.None;
-            createdCharacter.Description = DescriptionType.none;
-            createdCharacter.SkinParts = new SkinParts();
-            EnsureCharacterDefaults(createdCharacter);
-            mergedCharacters.Add(createdCharacter);
-        }
-
-        return mergedCharacters;
+        return normalizedCharacters;
     }
 
     private static Avatar CreateAvatar(AvatarType avatarType, int id)
@@ -1182,7 +1148,7 @@ internal static class UnlockEverythingStub
         products.ConsumableProducts = new Il2CppCollections.List<ConsumableProduct>();
         products.SkinPartProducts = new Il2CppCollections.List<SkinPartProduct>();
         products.TicketProducts = new Il2CppCollections.List<BoostTicketProduct>();
-        products.CharacterProducts = CreateCharacterProducts();
+        products.CharacterProducts = new Il2CppCollections.List<CharacterProduct>();
         products.Emotions = new Il2CppCollections.List<Emote>();
         products.Avatars = CreatePlayerAvatars().Avatars;
         products.AvatarFrames = CreatePlayerAvatarFrames().AvatarFrames;
@@ -1353,28 +1319,6 @@ internal static class UnlockEverythingStub
     private static int GetSkinPartProductId(SkinPartType skinPartType)
     {
         return 130_000 + (int)skinPartType;
-    }
-
-    private static Il2CppCollections.List<CharacterProduct> CreateCharacterProducts()
-    {
-        var products = new Il2CppCollections.List<CharacterProduct>();
-        var productId = 100;
-        var freePrice = new ProductPrice(
-            new Resource(ResourceType.Gold, 0),
-            new Resource(ResourceType.None, 0),
-            new Resource(ResourceType.None, 0));
-
-        foreach (var characterType in System.Enum.GetValues<CharacterType>())
-        {
-            if (characterType is CharacterType.None or CharacterType.Penguin or CharacterType.Ghost or CharacterType.Seeker)
-            {
-                continue;
-            }
-
-            products.Add(new CharacterProduct(productId++, characterType, freePrice));
-        }
-
-        return products;
     }
 
     private static SeasonPass CreateSeasonPass()

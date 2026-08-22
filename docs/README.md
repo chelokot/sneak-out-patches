@@ -42,7 +42,7 @@
 - `gameplay/locker-stun-after-seeker-open.md`
   Why `IsOpen` cannot distinguish a normal exit from a seeker-forced exit, and how the stun fix tracks the actual opener event.
 - `gameplay/mummy-unlock-research.md`
-  Runtime facts and entry points for restoring Mummy as a selectable hunter.
+  Runtime facts, implementation boundary, perk persistence, and sarcophagus compatibility for Mummy.
 
 ## patching history
 

@@ -486,36 +486,67 @@ var unlockEverythingSkillSelectionsSource = File.ReadAllText(Path.Combine(
     "mods",
     "unlock_everything",
     "UnlockEverythingSkillSelections.cs"));
+var unlockEverythingStubSource = File.ReadAllText(Path.Combine(
+    repositoryRoot.FullName,
+    "mods",
+    "unlock_everything",
+    "UnlockEverythingStub.cs"));
+var unlockEverythingDirectory = Path.Combine(repositoryRoot.FullName, "mods", "unlock_everything");
+var unlockEverythingSources = string.Join(
+    "\n",
+    Directory.GetFiles(unlockEverythingDirectory, "*.cs")
+        .OrderBy(path => path, StringComparer.Ordinal)
+        .Select(File.ReadAllText));
+var mummyUnlockPatchesSource = File.ReadAllText(Path.Combine(
+    repositoryRoot.FullName,
+    "mods",
+    "mummy_unlock",
+    "MummyUnlockPatches.cs"));
+var mummyAbilityIconRuntimeSource = File.ReadAllText(Path.Combine(
+    repositoryRoot.FullName,
+    "mods",
+    "mummy_unlock",
+    "MummyAbilityIconRuntime.cs"));
 var mummyPerkShopRuntimeSource = File.ReadAllText(Path.Combine(
     repositoryRoot.FullName,
     "mods",
-    "unlock_everything",
+    "mummy_unlock",
     "MummyPerkShopRuntime.cs"));
+var mummyPerkRuntimeSource = File.ReadAllText(Path.Combine(
+    repositoryRoot.FullName,
+    "mods",
+    "mummy_unlock",
+    "MummyPerkRuntime.cs"));
+var mummyPerkStoreSource = File.ReadAllText(Path.Combine(
+    repositoryRoot.FullName,
+    "mods",
+    "mummy_unlock",
+    "MummyPerkStore.cs"));
 var mummyPlayerListIconPatchesSource = File.ReadAllText(Path.Combine(
     repositoryRoot.FullName,
     "mods",
-    "unlock_everything",
+    "mummy_unlock",
     "MummyPlayerListIconPatches.cs"));
 var mummySarcophagusTeleportRuntimeSource = File.ReadAllText(Path.Combine(
     repositoryRoot.FullName,
     "mods",
-    "unlock_everything",
+    "mummy_unlock",
     "MummySarcophagusTeleportRuntime.cs"));
 var mummySarcophagusTeleportPatchesSource = File.ReadAllText(Path.Combine(
     repositoryRoot.FullName,
     "mods",
-    "unlock_everything",
+    "mummy_unlock",
     "MummySarcophagusTeleportPatches.cs"));
 var localSelectionsStoreSource = File.ReadAllText(Path.Combine(
     repositoryRoot.FullName,
     "mods",
     "unlock_everything",
     "LocalSelectionsStore.cs"));
-var extendedCharactersSkillsRegistrySource = File.ReadAllText(Path.Combine(
+var mummySkillsRegistrySource = File.ReadAllText(Path.Combine(
     repositoryRoot.FullName,
     "mods",
-    "unlock_everything",
-    "ExtendedCharactersSkillsRegistry.cs"));
+    "mummy_unlock",
+    "MummySkillsRegistry.cs"));
 var titleLocalizationPatchesSource = File.ReadAllText(Path.Combine(
     repositoryRoot.FullName,
     "mods",
@@ -570,76 +601,83 @@ Require(
     && clientConfirmedPostfixIndex > clientConfirmedOverlayIndex,
     "the profile overlay must run before ClientCache.OnClientConfirmed notifies inventory subscribers");
 Require(
-    unlockEverythingProfilePatchesSource.Contains(
+    !unlockEverythingProfilePatchesSource.Contains(
         "HarmonyPatch(typeof(PlayerNewMetaInventory), nameof(PlayerNewMetaInventory.LoadOwnedSeekers))",
         StringComparison.Ordinal)
-    && unlockEverythingProfilePatchesSource.Contains("RuntimeCharacterType.murderer_ripper", StringComparison.Ordinal)
-    && unlockEverythingProfilePatchesSource.Contains("RuntimeCharacterType.murderer_scarecrow", StringComparison.Ordinal)
-    && unlockEverythingProfilePatchesSource.Contains("RuntimeCharacterType.murderer_dracula", StringComparison.Ordinal)
-    && unlockEverythingProfilePatchesSource.Contains("RuntimeCharacterType.murderer_butcher", StringComparison.Ordinal)
-    && unlockEverythingProfilePatchesSource.Contains("RuntimeCharacterType.murderer_clown", StringComparison.Ordinal)
-    && unlockEverythingProfilePatchesSource.Contains("RuntimeCharacterType.murderer_mummy", StringComparison.Ordinal),
-    "the perk-shop inventory must include all supported hunters and the synthetic Mummy entry");
+    && !unlockEverythingSources.Contains("Mummy", StringComparison.OrdinalIgnoreCase)
+    && !unlockEverythingSources.Contains("OwnedSeekers", StringComparison.Ordinal)
+    && !unlockEverythingStubSource.Contains("System.Enum.GetValues<CharacterType>()", StringComparison.Ordinal)
+    && unlockEverythingStubSource.Contains(
+        "new[] { CharacterType.Penguin, CharacterType.Reaper }",
+        StringComparison.Ordinal)
+    && unlockEverythingStubSource.Contains(
+        "products.CharacterProducts = new Il2CppCollections.List<CharacterProduct>()",
+        StringComparison.Ordinal),
+    "Unlock Everything must preserve real hunter ownership and synthesize only the base fallback pair when no profile exists");
 Require(
-    mummyPerkShopRuntimeSource.Contains("SkillTree = reaperPassiveTree.SkillTree", StringComparison.Ordinal)
+    mummyUnlockPatchesSource.Contains(
+        "HarmonyPatch(typeof(PlayerNewMetaInventory), nameof(PlayerNewMetaInventory.LoadOwnedSeekers))",
+        StringComparison.Ordinal)
+    && mummyUnlockPatchesSource.Contains(
+        "HarmonyPatch(typeof(SeekerSelectionViewModel), nameof(SeekerSelectionViewModel.Init))",
+        StringComparison.Ordinal)
+    && mummyUnlockPatchesSource.Contains(
+        "HarmonyPatch(typeof(SeekerSelectionView), nameof(SeekerSelectionView.ManagerAwake))",
+        StringComparison.Ordinal)
+    && mummyPerkShopRuntimeSource.Contains("SkillTree = reaperPassiveTree.SkillTree", StringComparison.Ordinal)
     && mummyPerkShopRuntimeSource.Contains("emptyTree.Rows = Array.Empty<ListWrapper>()", StringComparison.Ordinal)
     && mummyPerkShopRuntimeSource.Contains("ApplyCarouselIcons", StringComparison.Ordinal)
-    && mummyPerkShopRuntimeSource.Contains("MummyCharacterIcon", StringComparison.Ordinal)
-    && unlockEverythingSkillPatchesSource.Contains(
+    && mummyAbilityIconRuntimeSource.Contains("MummyCharacterIcon", StringComparison.Ordinal)
+    && mummyUnlockPatchesSource.Contains(
         "HarmonyPatch(typeof(CharactersSkillsRuntime), \"GetSkillsForCharacterType\")",
         StringComparison.Ordinal)
-    && unlockEverythingSkillPatchesSource.Contains(
+    && mummyUnlockPatchesSource.Contains(
         "HarmonyPatch(typeof(CharactersSkillsRuntime), \"SaveSkillsForCharacterType\")",
         StringComparison.Ordinal)
-    && unlockEverythingSkillPatchesSource.Contains(
+    && mummyUnlockPatchesSource.Contains(
         "HarmonyPatch(typeof(MainBoostersView), nameof(MainBoostersView.GetDescriptionParams))",
         StringComparison.Ordinal)
-    && unlockEverythingSkillPatchesSource.Contains(
-        "HarmonyPatch(typeof(SpookedSkillSettingsRuntime), nameof(SpookedSkillSettingsRuntime.GetTitle))",
+    && mummyUnlockPatchesSource.Contains(
+        "HarmonyPatch(typeof(SpookedSkillSettings), nameof(SpookedSkillSettings.GetTitle))",
         StringComparison.Ordinal)
-    && unlockEverythingSkillPatchesSource.Contains(
-        "HarmonyPatch(typeof(SpookedSkillSettingsRuntime), nameof(SpookedSkillSettingsRuntime.GetDescriptionKey))",
+    && mummyUnlockPatchesSource.Contains(
+        "HarmonyPatch(typeof(SpookedSkillSettings), nameof(SpookedSkillSettings.GetDescriptionKey))",
         StringComparison.Ordinal)
-    && unlockEverythingSkillPatchesSource.Contains(
-        "HarmonyPatch(typeof(SpookedSkillSettingsRuntime), nameof(SpookedSkillSettingsRuntime.GetAllModifiers))",
+    && mummyUnlockPatchesSource.Contains(
+        "HarmonyPatch(typeof(SpookedSkillSettings), nameof(SpookedSkillSettings.GetAllModifiers))",
         StringComparison.Ordinal)
-    && extendedCharactersSkillsRegistrySource.Contains("GetDefinitionCharacter", StringComparison.Ordinal)
-    && extendedCharactersSkillsRegistrySource.Contains(
-        "_ => MummyPerkShopRuntime.ReaperCharacterType",
-        StringComparison.Ordinal)
-    && unlockEverythingSkillPatchesSource.Contains("MainBoostersView._ShiftCharactersPanel_d__115", StringComparison.Ordinal)
+    && mummySkillsRegistrySource.Contains("GetDefinitionCharacter", StringComparison.Ordinal)
+    && mummySkillsRegistrySource.Contains("return MummyPerkShopRuntime.ReaperCharacterType", StringComparison.Ordinal)
+    && mummyUnlockPatchesSource.Contains("MainBoostersView._ShiftCharactersPanel_d__115", StringComparison.Ordinal)
     && !mummyPerkShopRuntimeSource.Contains("BeginEquippedSkillsAlias", StringComparison.Ordinal)
     && !mummyPerkShopRuntimeSource.Contains("ApplyEquippedPassiveSkills", StringComparison.Ordinal)
-    && !unlockEverythingSkillPatchesSource.Contains(
-        "HarmonyPatch(typeof(MainBoostersView), nameof(MainBoostersView.SetEquippedSkills))",
-        StringComparison.Ordinal)
-    && !unlockEverythingSkillPatchesSource.Contains(
+    && !mummyUnlockPatchesSource.Contains(
         "HarmonyPatch(typeof(MainBoostersView), nameof(MainBoostersView.SetSkillInfo))",
         StringComparison.Ordinal)
-    && extendedCharactersSkillsRegistrySource.Contains("MummyStorageKey = \"runtime:12\"", StringComparison.Ordinal)
-    && extendedCharactersSkillsRegistrySource.Contains("TryGetSkills", StringComparison.Ordinal)
-    && extendedCharactersSkillsRegistrySource.Contains("TrySaveSkills", StringComparison.Ordinal)
-    && extendedCharactersSkillsRegistrySource.Contains("skills.ActiveSkill = default", StringComparison.Ordinal)
-    && extendedCharactersSkillsRegistrySource.Contains("skills.PassiveSkill4 = default", StringComparison.Ordinal)
-    && localSelectionsStoreSource.Contains("SaveRuntimeCharacterSkills", StringComparison.Ordinal)
-    && localSelectionsStoreSource.Contains("TryGetRuntimeCharacterSkills", StringComparison.Ordinal)
-    && unlockEverythingSkillSelectionsSource.Contains(
-        "ExtendedCharactersSkillsRegistry.TryGetSkillFromSlot",
+    && mummySkillsRegistrySource.Contains("TryGetSkills", StringComparison.Ordinal)
+    && mummySkillsRegistrySource.Contains("TrySaveSkills", StringComparison.Ordinal)
+    && mummySkillsRegistrySource.Contains("skills.ActiveSkill = default", StringComparison.Ordinal)
+    && mummySkillsRegistrySource.Contains("skills.PassiveSkill4 = default", StringComparison.Ordinal)
+    && mummyPerkStoreSource.Contains("chelokot.sneakout.mummy-unlock.json", StringComparison.Ordinal)
+    && mummyPerkStoreSource.Contains("chelokot.sneakout.persistent-selections.json", StringComparison.Ordinal)
+    && mummyPerkStoreSource.Contains("LegacyMummyCharacterKey = \"runtime:12\"", StringComparison.Ordinal)
+    && mummyPerkRuntimeSource.Contains("GetSyntheticCard", StringComparison.Ordinal)
+    && mummyPerkRuntimeSource.Contains("TryHaveSkillEquipped", StringComparison.Ordinal)
+    && mummyPerkRuntimeSource.Contains("GetModifierDirectly", StringComparison.Ordinal)
+    && mummyUnlockPatchesSource.Contains("HarmonyPriority(Priority.First)", StringComparison.Ordinal)
+    && mummyUnlockPatchesSource.Contains(
+        "HarmonyPatch(typeof(MainBoostersViewModel), \"TreeSkillEquipped\")",
         StringComparison.Ordinal)
-    && unlockEverythingSkillSelectionsSource.Contains(
-        "ExtendedCharactersSkillsRegistry.TryHaveSkillEquipped",
-        StringComparison.Ordinal)
-    && !unlockEverythingSkillPatchesSource.Contains("__instance.RipperSkills", StringComparison.Ordinal)
-    && !unlockEverythingSkillSelectionsSource.Contains("LocalSelectionsStore.IsMummyPassiveSkillEquipped", StringComparison.Ordinal)
-    && !unlockEverythingSkillSelectionsSource.Contains(
-        "? MummyPerkShopRuntime.ReaperCharacterType",
-        StringComparison.Ordinal),
-    "Mummy must borrow Reaper's perk catalog while using an independent seventh skill-registry entry");
+    && !localSelectionsStoreSource.Contains("SaveRuntimeCharacterSkills", StringComparison.Ordinal)
+    && !localSelectionsStoreSource.Contains("TryGetRuntimeCharacterSkills", StringComparison.Ordinal)
+    && !unlockEverythingSkillSelectionsSource.Contains("Mummy", StringComparison.OrdinalIgnoreCase)
+    && !unlockEverythingSkillPatchesSource.Contains("Mummy", StringComparison.OrdinalIgnoreCase),
+    "Mummy Unlock must own the borrowed Reaper catalog, independent registry, selection persistence, and gameplay modifiers without Unlock Everything coupling");
 Require(
     mummyPlayerListIconPatchesSource.Contains(
         "HarmonyPatch(typeof(PlayerInGameRecord), nameof(PlayerInGameRecord.Refresh))",
         StringComparison.Ordinal)
-    && mummyPerkShopRuntimeSource.Contains("ApplyPlayerListIcon", StringComparison.Ordinal)
+    && mummyPlayerListIconPatchesSource.Contains("MummyAbilityIconRuntime.ApplyToPlayerList", StringComparison.Ordinal)
     && mummySarcophagusTeleportRuntimeSource.Contains(
         "Types.CharacterAnimations.WardrobeHide",
         StringComparison.Ordinal)

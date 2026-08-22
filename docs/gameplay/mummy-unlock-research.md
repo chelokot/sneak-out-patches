@@ -39,31 +39,30 @@ Raw retail file patching already proved fragile for UI work. For Mummy, a runtim
 - testing whether `AvailableSeekers` must also be patched separately
 - testing whether the shop also needs its own list update
 
-## Current research mod
+## Current implementation
 
-A dedicated BepInEx research mod now exists at:
+A dedicated BepInEx mod owns the complete Mummy compatibility boundary at:
 
 - `mods/mummy_unlock/`
 
-The current version is diagnostic rather than enabling. It logs:
+It owns:
 
-- `OwnedSeekers` after `LoadOwnedSeekers()`
-- `AvailableSeekers` after `SeekerSelectionViewModel.Init()`
-- `CharacterShopView._charactersToBuy` when the shop opens
-- `DoIOwnThisItem(murderer_mummy)` when that ownership check is reached
+- Mummy ownership and selector availability
+- selector, character-shop, perk-store, HUD, and player-list portraits
+- the character-shop description and missing localization
+- an independent three-slot passive registry backed by a Mummy-only JSON store
+- the borrowed Reaper passive catalog, descriptions, modifiers, and tier-five cards
+- sarcophagus visuals, placement, interaction anchors, teleport ordering, and wardrobe-style animations
+- the network-avatar fallback required by the retail schema
 
-## Most likely implementation path
+Mummy perk selections are stored in `chelokot.sneakout.mummy-unlock.json`, partitioned by profile. On first load, the mod imports existing `runtime:12` selections from Unlock Everything's legacy persistence file so the ownership migration does not discard equipped perks.
 
-The current best candidate path is:
+## Ownership boundary
 
-1. patch `LoadOwnedSeekers()` postfix to append `murderer_mummy`
-2. patch `SeekerSelectionViewModel.Init()` postfix to append `murderer_mummy` if still missing
-3. patch `CharacterShopView` only if the normal character selection flow still hides Mummy
-4. test whether `ConfirmSeekerCharacter(CharacterType)` accepts `murderer_mummy` without additional ownership or validation hooks
+`Mummy Unlock` is the only assembly allowed to mention `murderer_mummy` or patch Mummy-specific gameplay. `Unlock Everything` no longer changes `OwnedSeekers`, creates character products, or synthesizes missing paid hunters. It continues to max skill cards and unlock cosmetics for characters the real profile already owns.
 
-## Open questions
+The only characters synthesized by Unlock Everything are Penguin and Reaper when its explicitly enabled local-stub mode has no usable profile at all. They are the base playable pair needed to keep that emergency fallback structurally valid; normal profile overlay mode preserves the server's character list exactly.
 
-- Is Mummy absent from `OwnedSeekers`, or only removed later from `AvailableSeekers`?
-- Does `CharacterShopView` still include Mummy in `_charactersToBuy`?
-- Does `DoIOwnThisItem(murderer_mummy)` return `false` even after selection UI injection?
-- Is there any later server or client validation that rejects `ConfirmSeekerCharacter(murderer_mummy)`?
+## Runtime limitation
+
+The retail `CharactersSkills` network value has fields for six stock character registries and no Mummy field. Mummy therefore keeps its passive selection locally. The local input-authority player resolves equipped-state and modifier lookups from the Mummy registry while Reaper remains the source of the shared modifier curves.

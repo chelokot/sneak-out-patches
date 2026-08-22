@@ -168,7 +168,7 @@ internal static class NetworkHostSelectorRuntime
         if (_localOnlySession)
         {
             if (!TryResolvePartyCreator(
-                    participants.Select(participant => (participant.Raw, participant.UserId)),
+                    participants.Select(participant => participant.Raw),
                     localRaw,
                     out var leader))
             {
@@ -238,7 +238,7 @@ internal static class NetworkHostSelectorRuntime
         }
 
         var leaderResolved = TryResolvePartyCreator(
-            participants.Select(participant => (participant.Raw, participant.UserId)),
+            participants.Select(participant => participant.Raw),
             runner.LocalPlayer.RawEncoded,
             out var leader);
         var party = PgosLobby.Instance;
@@ -261,16 +261,15 @@ internal static class NetworkHostSelectorRuntime
         }
 
         var properties = runner.SessionInfo.Properties;
-        // The local participant inherently runs this plugin; it must not wait for its own
-        // round-trip through Photon custom properties. In a bot-only test lobby there is no
-        // remote participant to synchronize with, so the state is fully local and immediately
-        // ready. This also fixes the nonsensical "MODS 0/1" status.
+        // Every participant advertises its current PlayerRef. Requiring the exact set prevents
+        // a matching count made up of missing or stale player slots from arming the override.
         var compatible = _localOnlySession
-            || properties is not null && participants.All(participant =>
-                participant.Raw == runner.LocalPlayer.RawEncoded
-                || TryReadPeer(properties, participant.Raw, out var peer)
-                && string.Equals(peer.UserId, participant.UserId, StringComparison.Ordinal)
-                && string.Equals(peer.Membership, _coordinatorMembership, StringComparison.Ordinal));
+            || properties is not null
+            && TryReadString(properties, HostSelectionProtocol.PropertyPeers, out var registry)
+            && HostSelectionProtocol.HasExactPeerSet(
+                registry,
+                participants.Select(participant => participant.Raw),
+                _coordinatorMembership);
         if (compatible != _coordinatorCompatible)
         {
             _coordinatorCompatible = compatible;
@@ -286,11 +285,6 @@ internal static class NetworkHostSelectorRuntime
         {
             foreach (var participant in participants)
             {
-                if (participant.Raw == runner.LocalPlayer.RawEncoded)
-                {
-                    continue;
-                }
-
                 if (!TryReadPeer(properties, participant.Raw, out var peer))
                 {
                     commonCapabilities = 0;
@@ -314,9 +308,7 @@ internal static class NetworkHostSelectorRuntime
             && !string.IsNullOrWhiteSpace(_coordinatorTargetUserId)
             && properties is not null
             && participants.All(participant =>
-                participant.Raw == runner.LocalPlayer.RawEncoded
-                || TryReadPeer(properties, participant.Raw, out var peer)
-                && string.Equals(peer.UserId, participant.UserId, StringComparison.Ordinal)
+                TryReadPeer(properties, participant.Raw, out var peer)
                 && string.Equals(peer.Membership, _coordinatorMembership, StringComparison.Ordinal)
                 && peer.AcknowledgedRevision == _coordinatorRevision);
         LogTransition(
@@ -505,27 +497,26 @@ internal static class NetworkHostSelectorRuntime
     {
         var localRaw = runner.LocalPlayer.RawEncoded;
         var local = participants.FirstOrDefault(participant => participant.Raw == localRaw);
-        if (local is null || string.IsNullOrWhiteSpace(local.UserId))
+        if (local is null)
         {
-            var reason = local is null
-                ? "local-participant-missing"
-                : "local-user-id-missing";
             LogTransition(
                 ref _lastPeerPublicationLog,
-                $"TX PEER blocked reason={reason} localRaw={localRaw} "
+                $"TX PEER blocked reason=local-participant-missing localRaw={localRaw} "
                 + $"participants=[{FormatParticipants(participants)}]");
             return;
         }
 
         var properties = runner.SessionInfo.Properties;
         var localCapabilities = GetLocalCapabilities();
-        var registry = properties is not null
+        var publishedRegistry = properties is not null
             && TryReadString(properties, HostSelectionProtocol.PropertyPeers, out var currentRegistry)
                 ? currentRegistry
                 : string.Empty;
+        var registry = HostSelectionProtocol.RetainCurrentPeers(
+            publishedRegistry,
+            participants.Select(participant => participant.Raw));
         var existingAck = -1;
         if (HostSelectionProtocol.TryGetPeer(registry, localRaw, out var existing)
-            && string.Equals(existing.UserId, local.UserId, StringComparison.Ordinal)
             && string.Equals(existing.Membership, membership, StringComparison.Ordinal)
             && existing.Capabilities == localCapabilities)
         {
@@ -534,24 +525,23 @@ internal static class NetworkHostSelectorRuntime
         var value = HostSelectionProtocol.UpsertPeer(
             registry,
             localRaw,
-            local.UserId,
             membership,
             localCapabilities,
             Math.Max(existingAck, acknowledgedRevision));
         var effectiveAck = Math.Max(existingAck, acknowledgedRevision);
         var messageType = effectiveAck >= 0 ? "ACK" : "HELLO";
-        if (string.Equals(value, registry, StringComparison.Ordinal))
+        if (string.Equals(value, publishedRegistry, StringComparison.Ordinal))
         {
             LogTransition(
                 ref _lastPeerPublicationLog,
-                $"TX {messageType} current localRaw={localRaw} userId={FormatValue(local.UserId)} "
-                + $"membership={membership} capabilities={localCapabilities} "
+                $"TX {messageType} current localRaw={localRaw} membership={membership} "
+                + $"capabilities={localCapabilities} "
                 + $"acknowledgedRevision={effectiveAck}");
             return;
         }
         LogInfo(
-            $"TX {messageType} requested localRaw={localRaw} userId={FormatValue(local.UserId)} "
-            + $"membership={membership} capabilities={localCapabilities} "
+            $"TX {messageType} requested localRaw={localRaw} membership={membership} "
+            + $"capabilities={localCapabilities} "
             + $"acknowledgedRevision={effectiveAck}");
         var accepted = UpdateProperty(runner, HostSelectionProtocol.PropertyPeers, value);
         LogInfo(
@@ -639,13 +629,11 @@ internal static class NetworkHostSelectorRuntime
                 }
 
                 var playerRef = player.PlayerRef;
-                var userId = GetPlayerUserId(runner, playerRef);
                 var name = string.IsNullOrWhiteSpace(player.Nickname)
                     ? $"PLAYER {playerRef.PlayerId}"
                     : player.Nickname;
                 observedParticipants.Add(new LeaderHostParticipant(
                     playerRef.RawEncoded,
-                    userId,
                     name,
                     playerRef.IsRealPlayer,
                     player.IsBot));
@@ -663,24 +651,6 @@ internal static class NetworkHostSelectorRuntime
         return LeaderHostParticipantPolicy.CreateSnapshot(observedParticipants);
     }
 
-    private static string GetPlayerUserId(NetworkRunner runner, PlayerRef playerRef)
-    {
-        try
-        {
-            // In Client/Server mode Fusion only exposes PlayerRef-to-user-id lookups to the
-            // server. Every peer can still read its own authenticated user id directly.
-            if (playerRef == runner.LocalPlayer)
-            {
-                return runner.UserId ?? string.Empty;
-            }
-            return runner.GetPlayerUserId(playerRef) ?? string.Empty;
-        }
-        catch
-        {
-            return string.Empty;
-        }
-    }
-
     private static string ComputeMembership(IEnumerable<LeaderHostParticipant> participants)
     {
         return HostSelectionProtocol.ComputeMembershipSignature(
@@ -688,7 +658,7 @@ internal static class NetworkHostSelectorRuntime
     }
 
     private static bool TryResolvePartyCreator(
-        IEnumerable<(int PlayerRaw, string UserId)> participants,
+        IEnumerable<int> participantPlayerRaws,
         int creatorPlayerRaw,
         out LeaderHostTarget target)
     {
@@ -700,7 +670,7 @@ internal static class NetworkHostSelectorRuntime
         }
 
         return LeaderHostPolicy.TryResolve(
-            participants,
+            participantPlayerRaws,
             creatorPlayerRaw,
             party.TeamLeaderId ?? string.Empty,
             out target);
@@ -866,7 +836,7 @@ internal static class NetworkHostSelectorRuntime
         if (participants.Count == 1 && participants[0].Raw == runner.LocalPlayer.RawEncoded)
         {
             if (!TryResolvePartyCreator(
-                    participants.Select(participant => (participant.Raw, participant.UserId)),
+                    participants.Select(participant => participant.Raw),
                     runner.LocalPlayer.RawEncoded,
                     out var leader))
             {
@@ -1000,30 +970,21 @@ internal static class NetworkHostSelectorRuntime
             "; ",
             participants.Select(participant =>
             {
-                var prefix = $"raw={participant.Raw},name={FormatValue(participant.Name)},"
-                    + $"userId={FormatValue(participant.UserId)}";
-                if (participant.Raw == runner.LocalPlayer.RawEncoded)
-                {
-                    return $"{prefix},status=local-implicit,capabilities={GetLocalCapabilities()}";
-                }
+                var prefix = $"raw={participant.Raw},name={FormatValue(participant.Name)}";
                 if (properties is null || !TryReadPeer(properties, participant.Raw, out var peer))
                 {
                     return $"{prefix},status=missing";
                 }
 
-                var identityMatches = string.Equals(
-                    peer.UserId,
-                    participant.UserId,
-                    StringComparison.Ordinal);
                 var membershipMatches = string.Equals(
                     peer.Membership,
                     membership,
                     StringComparison.Ordinal);
                 var revisionMatches = peer.AcknowledgedRevision == expectedRevision;
-                return $"{prefix},status=received,peerUserId={FormatValue(peer.UserId)},"
-                    + $"peerMembership={peer.Membership},capabilities={peer.Capabilities},"
+                return $"{prefix},status=received,peerMembership={peer.Membership},"
+                    + $"capabilities={peer.Capabilities},"
                     + $"ack={peer.AcknowledgedRevision},"
-                    + $"identityMatch={identityMatches},membershipMatch={membershipMatches},"
+                    + $"membershipMatch={membershipMatches},"
                     + $"revisionMatch={revisionMatches}";
             }));
     }
@@ -1034,7 +995,6 @@ internal static class NetworkHostSelectorRuntime
             "; ",
             participants.Select(participant =>
                 $"raw={participant.Raw},name={FormatValue(participant.Name)},"
-                + $"fusionUserId={FormatValue(participant.UserId)},"
                 + $"real={participant.IsRealPlayer},bot={participant.IsBot}"));
     }
 

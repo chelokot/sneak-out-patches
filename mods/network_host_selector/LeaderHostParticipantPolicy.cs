@@ -2,7 +2,6 @@ namespace SneakOut.NetworkHostSelector;
 
 internal sealed record LeaderHostParticipant(
     int Raw,
-    string UserId,
     string Name,
     bool IsRealPlayer,
     bool IsBot);

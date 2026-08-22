@@ -6,14 +6,15 @@ The stock client receives `matchId`, `hostId`, and `region`, then compares `host
 
 Safety protocol:
 
-- every real Fusion peer advertises the current protocol version and its membership-bound identity through room custom properties; clients use Fusion's directly readable local user id because resolving a user id from a `PlayerRef` is server-only in Client/Server mode;
+- every real Fusion peer advertises the current protocol version, its `PlayerRef`, and its current membership signature through room custom properties;
 - each peer also advertises enabled multiplayer feature capabilities; the coordinator publishes only the bitwise intersection supported by every current participant;
 - the participant snapshot comes from `SpookedNetworkPlayer` spawn/despawn callbacks and must match Fusion's scalar session player count before use, avoiding Fusion's mutable IL2CPP `ActivePlayers` iterator during joins;
-- the current lobby authority publishes the `PlayerRef` membership signature, revision, creator `PlayerRef` and exact Fusion user id as session custom properties; the signature deliberately excludes server-only identity data so every peer computes the same value;
+- the advertised `PlayerRef` set must exactly match the current real-player set, and every advertisement must carry the current membership signature; this rejects missing, extra, and stale entries without depending on Fusion user-id lookup behavior;
+- the current lobby authority publishes the `PlayerRef` membership signature, revision, creator `PlayerRef`, and exact party-leader social user id as session custom properties;
 - every real participant acknowledges the same revision through its own membership-bound room property;
 - Leader Host becomes ready only after all acknowledgements arrive;
 - lobby test bots are excluded from the quorum;
-- a join, leave, missing identity advertisement, identity mismatch, stale revision, or absent mod disarms the override;
+- a join, leave, missing or extra advertisement, membership mismatch, stale revision, or absent mod disarms the override;
 - a changed feature-capability intersection increments the handshake revision and requires fresh acknowledgements before dependent gameplay features arm;
 - public matchmaking always preserves the backend-assigned host, even when the private-party compatibility quorum is ready;
 - when disarmed, the mod leaves PLAY and the stock match-host choice untouched.

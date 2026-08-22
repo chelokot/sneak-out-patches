@@ -16,7 +16,7 @@ internal static class LeaderHostPolicy
     }
 
     public static bool TryResolve(
-        IEnumerable<(int PlayerRaw, string UserId)> participants,
+        IEnumerable<int> participantPlayerRaws,
         int leaderPlayerRaw,
         string leaderHostId,
         out LeaderHostTarget target)
@@ -27,15 +27,14 @@ internal static class LeaderHostPolicy
             return false;
         }
 
-        foreach (var participant in participants)
+        foreach (var playerRaw in participantPlayerRaws)
         {
-            if (participant.PlayerRaw != leaderPlayerRaw
-                || string.IsNullOrWhiteSpace(participant.UserId))
+            if (playerRaw != leaderPlayerRaw)
             {
                 continue;
             }
 
-            target = new LeaderHostTarget(participant.PlayerRaw, leaderHostId);
+            target = new LeaderHostTarget(playerRaw, leaderHostId);
             return true;
         }
 

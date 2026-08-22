@@ -328,7 +328,7 @@ Require(
 
 Require(
     LeaderHostPolicy.TryResolve(
-        new[] { (2, "steam-b"), (4, "steam-d") },
+        new[] { 2, 4 },
         4,
         "pgos-leader-d",
         out var leaderTarget),
@@ -337,7 +337,7 @@ Require(
     leaderTarget == new LeaderHostTarget(4, "pgos-leader-d"),
     "automatic Leader Host target did not use the exact party-leader identity");
 Require(
-    !LeaderHostPolicy.TryResolve(new[] { (4, "steam-d") }, 4, string.Empty, out _),
+    !LeaderHostPolicy.TryResolve(new[] { 4 }, 4, string.Empty, out _),
     "Leader Host accepted an empty party-leader identity");
 Require(
     !LeaderHostPolicy.ShouldOverrideAssignedHost(
@@ -383,18 +383,16 @@ Require(
 Require(
     HostSelectionProtocol.CreateHello(
         "AABBCCDD",
-        "steam-a",
         HostSelectionProtocol.UniformSeekerRandomCapability)
-        == "5|AABBCCDD|steam-a|1",
+        == "6|AABBCCDD|1",
     "Leader Host hello token changed unexpectedly");
 Require(
     HostSelectionProtocol.CreateAck(
         7,
         "AABBCCDD",
         4,
-        "steam-d",
         HostSelectionProtocol.UniformSeekerRandomCapability)
-        == "5|7|AABBCCDD|4|steam-d|1",
+        == "6|7|AABBCCDD|4|1",
     "Leader Host acknowledgement token changed unexpectedly");
 var expectedState = new HostSelectionState(
     7,
@@ -417,19 +415,17 @@ Require(
     "valid compact host-selection state was rejected");
 Require(decodedState == expectedState, "compact host-selection state did not round-trip");
 Require(
-    !HostSelectionProtocol.TryParseState("5|7|4||AABBCCDD|1|1|0", out _),
+    !HostSelectionProtocol.TryParseState("6|7|4||AABBCCDD|1|1|0", out _),
     "selected host state accepted an empty user id");
 var peerRegistry = HostSelectionProtocol.UpsertPeer(
     string.Empty,
     2,
-    "steam-b",
     "AABBCCDD",
     HostSelectionProtocol.UniformSeekerRandomCapability,
     -1);
 peerRegistry = HostSelectionProtocol.UpsertPeer(
     peerRegistry,
     4,
-    "steam-d",
     "AABBCCDD",
     0,
     7);
@@ -437,18 +433,38 @@ Require(
     HostSelectionProtocol.TryGetPeer(peerRegistry, 2, out var peerTwo)
     && peerTwo == new HostSelectionPeer(
         2,
-        "steam-b",
         "AABBCCDD",
         HostSelectionProtocol.UniformSeekerRandomCapability,
         -1),
     "compact peer registry lost the first participant");
 Require(
     HostSelectionProtocol.TryGetPeer(peerRegistry, 4, out var peerFour)
-    && peerFour == new HostSelectionPeer(4, "steam-d", "AABBCCDD", 0, 7),
+    && peerFour == new HostSelectionPeer(4, "AABBCCDD", 0, 7),
     "compact peer registry did not preserve acknowledgement state");
 Require(
-    !HostSelectionProtocol.TryGetPeer("4,4,c3RlYW0tZA==,AABBCCDD,0,7", 4, out _),
+    !HostSelectionProtocol.TryGetPeer("5,4,c3RlYW0tZA==,AABBCCDD,0,7", 4, out _),
     "Leader Host accepted a peer running the identity-coupled protocol");
+Require(
+    HostSelectionProtocol.HasExactPeerSet(peerRegistry, new[] { 4, 2 }, "AABBCCDD"),
+    "Leader Host rejected advertisements for the exact current player set");
+Require(
+    !HostSelectionProtocol.HasExactPeerSet(peerRegistry, new[] { 2, 4, 6 }, "AABBCCDD"),
+    "Leader Host accepted fewer advertisements than current players");
+var registryWithStalePeer = HostSelectionProtocol.UpsertPeer(
+    peerRegistry,
+    6,
+    "AABBCCDD",
+    0,
+    -1);
+Require(
+    !HostSelectionProtocol.HasExactPeerSet(registryWithStalePeer, new[] { 2, 4 }, "AABBCCDD"),
+    "Leader Host accepted a stale advertisement outside the current player set");
+Require(
+    HostSelectionProtocol.RetainCurrentPeers(registryWithStalePeer, new[] { 2, 4 }) == peerRegistry,
+    "Leader Host did not remove advertisements for departed player slots");
+Require(
+    !HostSelectionProtocol.HasExactPeerSet(peerRegistry, new[] { 2, 4 }, "DIFFERENT"),
+    "Leader Host accepted advertisements bound to stale lobby membership");
 var signatureA = HostSelectionProtocol.ComputeMembershipSignature(new[]
 {
     3,
@@ -471,11 +487,11 @@ Require(signatureA == signatureB, "Leader Host membership signature depends on e
 Require(signatureA != signatureDifferent, "Leader Host membership signature ignored a changed PlayerRef");
 var observedParticipantSnapshot = LeaderHostParticipantPolicy.CreateSnapshot(new[]
 {
-    new LeaderHostParticipant(4, "steam-d", "D", true, false),
-    new LeaderHostParticipant(2, "steam-b", "B", true, false),
-    new LeaderHostParticipant(4, "duplicate-d", "Duplicate D", true, false),
-    new LeaderHostParticipant(6, "bot", "Test Bot", true, true),
-    new LeaderHostParticipant(0, "none", "None", false, false),
+    new LeaderHostParticipant(4, "D", true, false),
+    new LeaderHostParticipant(2, "B", true, false),
+    new LeaderHostParticipant(4, "Duplicate D", true, false),
+    new LeaderHostParticipant(6, "Test Bot", true, true),
+    new LeaderHostParticipant(0, "None", false, false),
 });
 Require(
     observedParticipantSnapshot.Select(participant => participant.Raw).SequenceEqual(new[] { 2, 4 }),
@@ -792,9 +808,9 @@ Require(
     && !leaderHostRuntimeSource.Contains("Il2CppSystem.Collections.IEnumerator", StringComparison.Ordinal),
     "Leader Host reintroduced unsafe polling of Fusion's mutable IL2CPP player iterator");
 Require(
-    leaderHostRuntimeSource.Contains("playerRef == runner.LocalPlayer", StringComparison.Ordinal)
-    && leaderHostRuntimeSource.Contains("return runner.UserId ?? string.Empty", StringComparison.Ordinal),
-    "Leader Host must use Fusion's client-readable local user id instead of a server-only PlayerRef lookup");
+    !leaderHostRuntimeSource.Contains("GetPlayerUserId", StringComparison.Ordinal)
+    && !leaderHostRuntimeSource.Contains("runner.UserId", StringComparison.Ordinal),
+    "Leader Host compatibility advertisements must not depend on Fusion user identities");
 Require(
     !leaderHostRuntimeSource.Contains("LeaderHostStatus", StringComparison.Ordinal)
     && !leaderHostRuntimeSource.Contains("Instantiate(view._playButton", StringComparison.Ordinal),

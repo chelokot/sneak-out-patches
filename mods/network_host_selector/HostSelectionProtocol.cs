@@ -11,31 +11,29 @@ internal readonly record struct HostSelectionState(
 
 internal readonly record struct HostSelectionPeer(
     int PlayerRaw,
-    string UserId,
     string Membership,
     int Capabilities,
     int AcknowledgedRevision);
 
 internal static class HostSelectionProtocol
 {
-    public const int Version = 5;
+    public const int Version = 6;
     public const string PropertyState = "sohs_s";
     public const string PropertyPeers = "sohs_e";
     public const int UniformSeekerRandomCapability = 1 << 0;
 
-    public static string CreateHello(string membership, string userId, int capabilities)
+    public static string CreateHello(string membership, int capabilities)
     {
-        return $"{Version}|{membership}|{userId}|{capabilities}";
+        return $"{Version}|{membership}|{capabilities}";
     }
 
     public static string CreateAck(
         int revision,
         string membership,
         int targetPlayerRaw,
-        string targetUserId,
         int capabilities)
     {
-        return $"{Version}|{revision}|{membership}|{targetPlayerRaw}|{targetUserId}|{capabilities}";
+        return $"{Version}|{revision}|{membership}|{targetPlayerRaw}|{capabilities}";
     }
 
     public static string CreateState(
@@ -96,7 +94,6 @@ internal static class HostSelectionProtocol
     public static string UpsertPeer(
         string registry,
         int playerRaw,
-        string userId,
         string membership,
         int capabilities,
         int acknowledgedRevision)
@@ -104,27 +101,46 @@ internal static class HostSelectionProtocol
         var peers = ParsePeers(registry);
         peers[playerRaw] = new HostSelectionPeer(
             playerRaw,
-            userId,
             membership,
             capabilities,
             acknowledgedRevision);
-        return string.Join(
-            ";",
-            peers.Values
-                .OrderBy(peer => peer.PlayerRaw)
-                .Select(peer => string.Join(
-                    ",",
-                    Version,
-                    peer.PlayerRaw,
-                    EncodeToken(peer.UserId),
-                    peer.Membership,
-                    peer.Capabilities,
-                    peer.AcknowledgedRevision)));
+        return EncodePeers(peers.Values);
     }
 
     public static bool TryGetPeer(string registry, int playerRaw, out HostSelectionPeer peer)
     {
         return ParsePeers(registry).TryGetValue(playerRaw, out peer);
+    }
+
+    public static string RetainCurrentPeers(string registry, IEnumerable<int> playerRefs)
+    {
+        var currentPlayerRefs = playerRefs
+            .Where(playerRaw => playerRaw > 0)
+            .ToHashSet();
+        return EncodePeers(ParsePeers(registry).Values.Where(peer =>
+            currentPlayerRefs.Contains(peer.PlayerRaw)));
+    }
+
+    public static bool HasExactPeerSet(
+        string registry,
+        IEnumerable<int> playerRefs,
+        string membership)
+    {
+        if (string.IsNullOrWhiteSpace(membership))
+        {
+            return false;
+        }
+
+        var expectedPlayerRefs = playerRefs
+            .Where(playerRaw => playerRaw > 0)
+            .Distinct()
+            .ToArray();
+        var peers = ParsePeers(registry);
+        return expectedPlayerRefs.Length > 0
+            && peers.Count == expectedPlayerRefs.Length
+            && expectedPlayerRefs.All(playerRaw =>
+                peers.TryGetValue(playerRaw, out var peer)
+                && string.Equals(peer.Membership, membership, StringComparison.Ordinal));
     }
 
     public static string ComputeMembershipSignature(IEnumerable<int> playerRefs)
@@ -149,29 +165,41 @@ internal static class HostSelectionProtocol
         foreach (var encodedPeer in registry.Split(';', StringSplitOptions.RemoveEmptyEntries))
         {
             var fields = encodedPeer.Split(',');
-            if (fields.Length != 6
+            if (fields.Length != 5
                 || !int.TryParse(fields[0], out var version)
                 || version != Version
                 || !int.TryParse(fields[1], out var playerRaw)
                 || playerRaw <= 0
-                || !TryDecodeToken(fields[2], out var userId)
-                || string.IsNullOrWhiteSpace(userId)
-                || string.IsNullOrWhiteSpace(fields[3])
-                || !int.TryParse(fields[4], out var capabilities)
+                || string.IsNullOrWhiteSpace(fields[2])
+                || !int.TryParse(fields[3], out var capabilities)
                 || capabilities < 0
-                || !int.TryParse(fields[5], out var acknowledgedRevision)
+                || !int.TryParse(fields[4], out var acknowledgedRevision)
                 || acknowledgedRevision < -1)
             {
                 continue;
             }
             result[playerRaw] = new HostSelectionPeer(
                 playerRaw,
-                userId,
-                fields[3],
+                fields[2],
                 capabilities,
                 acknowledgedRevision);
         }
         return result;
+    }
+
+    private static string EncodePeers(IEnumerable<HostSelectionPeer> peers)
+    {
+        return string.Join(
+            ";",
+            peers
+                .OrderBy(peer => peer.PlayerRaw)
+                .Select(peer => string.Join(
+                    ",",
+                    Version,
+                    peer.PlayerRaw,
+                    peer.Membership,
+                    peer.Capabilities,
+                    peer.AcknowledgedRevision)));
     }
 
     private static string EncodeToken(string value)

@@ -526,6 +526,20 @@ internal static class PortalModeSelectorRuntime
             return;
         }
 
+        const string lobbyTypeKey = "lobby_type";
+        if (!args.SessionProperties.TryGetValue(lobbyTypeKey, out var lobbyType)
+            || lobbyType is null
+            || !lobbyType.IsString)
+        {
+            return;
+        }
+
+        string lobbyTypeValue = lobbyType ?? string.Empty;
+        if (!PortalModeSessionPolicy.ShouldPublishGameMode(lobbyTypeValue))
+        {
+            return;
+        }
+
         // This is the final authoritative value consumed by Photon. The client recreates its
         // GameState during the lobby-to-match transition, so changing only that earlier object is
         // insufficient for Crown sessions.

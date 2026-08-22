@@ -3,6 +3,7 @@ using SneakOut.KeyboardLayoutFix;
 using SneakOut.LockerStunFix;
 using SneakOut.MagicWardrobeHookFix;
 using SneakOut.NetworkHostSelector;
+using SneakOut.PortalModeSelector;
 using SneakOut.PumpkinRadiusIndicatorFix;
 using SneakOut.RipperCornerBlinkFix;
 using SneakOut.UnlockEverything;
@@ -368,6 +369,17 @@ Require(
 Require(
     LeaderHostHudText.Compose("Lobby", "Line One\nLine Two") == "Lobby   Host: Line One Line Two",
     "Leader Host allowed a player name to break the bottom HUD strip");
+Require(
+    PortalModeSessionPolicy.ShouldPublishGameMode("Game"),
+    "Portal mode was not published to a real match session");
+Require(
+    !PortalModeSessionPolicy.ShouldPublishGameMode("Lobby"),
+    "Portal mode leaked into party-lobby matchmaking filters");
+Require(
+    !PortalModeSessionPolicy.ShouldPublishGameMode(null)
+    && !PortalModeSessionPolicy.ShouldPublishGameMode(string.Empty)
+    && !PortalModeSessionPolicy.ShouldPublishGameMode("game"),
+    "Portal mode accepted an unknown or malformed lobby type");
 Require(
     HostSelectionProtocol.CreateHello(
         "AABBCCDD",
@@ -739,6 +751,11 @@ var leaderHostPatchesSource = File.ReadAllText(Path.Combine(
     "mods",
     "network_host_selector",
     "NetworkHostSelectorPatches.cs"));
+var portalModeRuntimeSource = File.ReadAllText(Path.Combine(
+    repositoryRoot.FullName,
+    "mods",
+    "portal_mode_selector",
+    "PortalModeSelectorRuntime.cs"));
 var uniformSeekerRuntimeSource = File.ReadAllText(Path.Combine(
     repositoryRoot.FullName,
     "mods",
@@ -762,6 +779,9 @@ Require(
     && !leaderHostRuntimeSource.Contains("AllowPortalPlay", StringComparison.Ordinal)
     && !leaderHostRuntimeSource.Contains("PLAY held", StringComparison.Ordinal),
     "Leader Host must fall back to stock matchmaking instead of swallowing PLAY");
+Require(
+    portalModeRuntimeSource.Contains("PortalModeSessionPolicy.ShouldPublishGameMode", StringComparison.Ordinal),
+    "Portal Mode Selector must keep game_mode out of party-lobby matchmaking");
 Require(
     leaderHostRuntimeSource.Contains("gameState.PrivateGameCheckbox", StringComparison.Ordinal)
     && leaderHostRuntimeSource.Contains("ShouldOverrideAssignedHost", StringComparison.Ordinal),

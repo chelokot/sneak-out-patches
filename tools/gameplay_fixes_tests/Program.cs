@@ -636,6 +636,15 @@ var clientConfirmedOverlayIndex = unlockEverythingProfilePatchesSource.IndexOf(
 var clientConfirmedPostfixIndex = unlockEverythingProfilePatchesSource.IndexOf(
     "private static void Postfix(ClientCache __instance)",
     StringComparison.Ordinal);
+var mummySkillCardPatchIndex = mummyUnlockPatchesSource.IndexOf(
+    "internal static class PlayerNewMetaInventoryGetMummySkillCardPatch",
+    StringComparison.Ordinal);
+var mummySkillCardNullGuardIndex = mummyUnlockPatchesSource.IndexOf(
+    "__result is null",
+    StringComparison.Ordinal);
+var mummySkillCardSynthesisIndex = mummyUnlockPatchesSource.IndexOf(
+    "__result = MummyPerkRuntime.GetSyntheticCard(skillType);",
+    StringComparison.Ordinal);
 Require(
     clientConfirmedPrefixIndex >= 0
     && clientConfirmedOverlayIndex > clientConfirmedPrefixIndex
@@ -714,6 +723,18 @@ Require(
     && !unlockEverythingSkillSelectionsSource.Contains("Mummy", StringComparison.OrdinalIgnoreCase)
     && !unlockEverythingSkillPatchesSource.Contains("Mummy", StringComparison.OrdinalIgnoreCase),
     "Mummy Unlock must own the borrowed Reaper catalog, independent registry, selection persistence, and gameplay modifiers without Unlock Everything coupling");
+Require(
+    !mummyUnlockPatchesSource.Contains(
+        "HarmonyPatch(typeof(PlayerNewMetaInventory), nameof(PlayerNewMetaInventory.DoIOwnThisItem))",
+        StringComparison.Ordinal)
+    && !mummyUnlockPatchesSource.Contains("Il2CppSystem.Enum itemType", StringComparison.Ordinal)
+    && !mummyUnlockPatchesSource.Contains("itemType.ToString()", StringComparison.Ordinal),
+    "Mummy Unlock must not intercept generic IL2CPP ownership lookups");
+Require(
+    mummySkillCardPatchIndex >= 0
+    && mummySkillCardNullGuardIndex > mummySkillCardPatchIndex
+    && mummySkillCardSynthesisIndex > mummySkillCardNullGuardIndex,
+    "Mummy Unlock must preserve real skill cards and synthesize only a missing Mummy card");
 Require(
     mummyPlayerListIconPatchesSource.Contains(
         "HarmonyPatch(typeof(PlayerInGameRecord), nameof(PlayerInGameRecord.Refresh))",

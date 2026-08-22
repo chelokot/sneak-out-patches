@@ -268,27 +268,11 @@ internal static class PlayerNewMetaInventoryGetMummySkillCardPatch
     [HarmonyPriority(Priority.Last)]
     private static void Postfix(SkillType skillType, ref SkillCard __result)
     {
-        if (MummyPerkShopRuntime.ShouldProvideMummySkillCard(skillType))
+        if (__result is null
+            && MummyPerkShopRuntime.ShouldProvideMummySkillCard(skillType))
         {
             __result = MummyPerkRuntime.GetSyntheticCard(skillType);
         }
-    }
-}
-
-[HarmonyPatch(typeof(PlayerNewMetaInventory), nameof(PlayerNewMetaInventory.DoIOwnThisItem))]
-internal static class PlayerNewMetaInventoryOwnsMummySkillPatch
-{
-    private static bool Prefix(Il2CppSystem.Enum itemType, ref bool __result)
-    {
-        if (itemType is null
-            || !System.Enum.TryParse(itemType.ToString(), out SkillType skillType)
-            || !MummyPerkShopRuntime.ShouldProvideMummySkillCard(skillType))
-        {
-            return true;
-        }
-
-        __result = true;
-        return false;
     }
 }
 

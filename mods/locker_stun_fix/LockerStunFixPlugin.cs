@@ -8,7 +8,7 @@ public sealed class LockerStunFixPlugin : BasePlugin
 {
     public const string PluginGuid = "chelokot.sneakout.locker-stun-fix";
     public const string PluginName = "Locker Stun Fix";
-    public const string PluginVersion = "0.5.0";
+    public const string PluginVersion = "0.5.1";
 
     public override void Load()
     {

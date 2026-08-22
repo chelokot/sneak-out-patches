@@ -31,7 +31,7 @@ internal static class LockerStunFixRuntime
         EnsureIndicatorWatcher();
     }
 
-    public static bool TryBeginBalancedBooQuery(Locker locker)
+    public static bool TryBeginBalancedBooQuery(Locker locker, int playerId)
     {
         if (_configuration?.EnableMod.Value != true
             || locker.Pointer == IntPtr.Zero)
@@ -39,6 +39,7 @@ internal static class LockerStunFixRuntime
             return false;
         }
 
+        LogTrace($"boo-handler entered locker=0x{locker.Pointer:X} player={playerId}");
         var lockerCollider = locker._collider;
         if (lockerCollider is null || !lockerCollider)
         {
@@ -64,6 +65,9 @@ internal static class LockerStunFixRuntime
             return;
         }
 
+        LogTrace(
+            $"boo-handler exited locker=0x{_balancedBooLockerPointer:X} "
+            + $"overlapReached={_balancedBooOverlapPrepared}");
         _balancedBooLockerCollider = null;
         _balancedBooLockerPointer = IntPtr.Zero;
         _balancedBooOverlapPrepared = false;

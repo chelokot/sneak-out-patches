@@ -9,9 +9,9 @@ namespace SneakOut.LockerStunFix;
 internal static class LockerHandleBooSkillPatch
 {
     [HarmonyPrefix]
-    private static void Prefix(Locker __instance, out bool __state)
+    private static void Prefix(Locker __instance, int playerId, out bool __state)
     {
-        __state = LockerStunFixRuntime.TryBeginBalancedBooQuery(__instance);
+        __state = LockerStunFixRuntime.TryBeginBalancedBooQuery(__instance, playerId);
     }
 
     [HarmonyFinalizer]
@@ -29,8 +29,7 @@ internal static class LockerHandleBooSkillPatch
     {
         typeof(Vector3),
         typeof(float),
-        typeof(int),
-        typeof(QueryTriggerInteraction)
+        typeof(int)
     })]
 internal static class LockerBooOverlapSpherePatch
 {

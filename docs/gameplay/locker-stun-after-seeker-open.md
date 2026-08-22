@@ -31,7 +31,7 @@ locker. Vanilla remains authoritative for the equipped `PenguinBoo` check,
 target role and life-state filters, stun dispatch, and cooldown consumption.
 Like stock Boo, this spatial test does not add wall occlusion.
 
-Every regular locker displays two persistent floor guides:
+The optional diagnostic overlay provides two persistent floor guides:
 
 - cyan outlines the balanced `1.2` metre rounded-rectangle Boo zone;
 - amber samples the client prompt resolver at a maximum `0.15` metre spacing.
@@ -43,13 +43,27 @@ candidate can therefore make the visible amber region smaller than its raw
 `1.0` metre rounded rectangle. The cyan outline deliberately represents Boo's
 non-occluded spatial rule.
 
-`HighlightStunZone` and `HighlightInteractionZone` control the two guides
-independently without disabling the balance change.
+Both guides are off by default. To enable or disable them, edit
+`BepInEx/config/chelokot.sneakout.locker-stun-fix.cfg` and set either option in
+the `[visuals]` section:
+
+```ini
+HighlightStunZone = true
+HighlightInteractionZone = true
+```
+
+Set a value to `false` to hide that guide. Restart the game after editing the
+file. These options are visual only; `EnableMod` controls the gameplay change.
+
+When patching the Boo query, target the three-argument
+`Physics.OverlapSphere(Vector3, float, int)` overload. `HandleBooSkill` calls
+that overload directly; patching the four-argument overload that also accepts
+`QueryTriggerInteraction` produces a valid patch that is never reached.
 
 Relevant client 1.1.10 RVAs:
 
 - `Locker.HandleBooSkill(int)`: `0x6D6220`
 - `EntityInteractiveComponent.FindInteractables()`: `0x671390`
 - `EntityInteractiveComponent.ResolveSelectedInteractiveComponent(int)`: `0x6791E0`
-- `Physics.OverlapSphere(Vector3, float, int, QueryTriggerInteraction)`:
+- `Physics.OverlapSphere(Vector3, float, int)`:
   `0x38DC080`

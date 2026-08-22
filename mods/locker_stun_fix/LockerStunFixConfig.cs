@@ -34,13 +34,13 @@ internal sealed class LockerStunFixConfig
         var highlightStunZone = configFile.Bind(
             "visuals",
             "HighlightStunZone",
-            true,
-            "Always show the balanced Boo zone as a cyan rounded rectangle around every regular locker.");
+            false,
+            "Show the balanced Boo zone as a cyan rounded rectangle around every regular locker.");
         var highlightInteractionZone = configFile.Bind(
             "visuals",
             "HighlightInteractionZone",
-            true,
-            "Always show the amber floor area accepted by the local locker prompt resolver.");
+            false,
+            "Show the amber floor area accepted by the local locker prompt resolver.");
         var enableLogging = configFile.Bind(
             "general",
             "EnableLogging",

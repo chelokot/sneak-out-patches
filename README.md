@@ -48,7 +48,7 @@ not Developer ID signed or notarized; if necessary, Control-click it and choose
 | `alternate-skill-hotkey` | Alternate Skill Hotkey | No | Lets you press Left Alt to use your character's unequipped alternate active skill. |
 | `prop-buff` | Prop Buff | Yes | Lets you change your prop with the mouse wheel while remaining stationary. |
 | `first-person-experiment` | First Person Experiment | No | Adds an experimental first-person mode with mouse look, immersive hiding and task views, a top-center stamina bar, and hold-X cursor release. |
-| `locker-stun-fix` | Locker Stun Fix | Yes | Gives Boo a rounded stun zone extending 1.2 metres from every side of a locker, with optional diagnostic guides for the stun and interaction areas. |
+| `locker-stun-fix` | Locker Stun Fix | Yes | Suppresses Boo when another player opens an occupied locker, while retaining a balanced 1.2 metre stun zone and optional diagnostic guides. |
 | `magic-wardrobe-hook-fix` | Magic Wardrobe Hook Fix | Yes | Prevents a Butcher hook from snapping you back to a magic wardrobe after interrupting your entry. |
 | `chair-wall-throw-fix` | Chair Wall Throw Fix | Yes | Lets you throw held chairs, barrels, and ingredients even when they overlap a wall or exceed the usual distance. |
 | `pumpkin-radius-indicator-fix` | Pumpkin Radius Indicator Fix | Yes | Shows accurate kill and stun radius rings when the pumpkin activates. |

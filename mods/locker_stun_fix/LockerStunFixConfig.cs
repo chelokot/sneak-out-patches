@@ -30,7 +30,7 @@ internal sealed class LockerStunFixConfig
             "general",
             "EnableMod",
             true,
-            "Use a balanced Boo zone extending 1.2 metres from the locker collider on every side.");
+            "Suppress Boo after another player opens an occupied locker and use a balanced 1.2 metre Boo zone.");
         var highlightStunZone = configFile.Bind(
             "visuals",
             "HighlightStunZone",
@@ -45,7 +45,7 @@ internal sealed class LockerStunFixConfig
             "general",
             "EnableLogging",
             true,
-            "Log each balanced Boo spatial query without player audio or unrelated payload data.");
+            "Log locker opener attribution, Boo suppression decisions, and balanced spatial queries.");
 
         return new LockerStunFixConfig(enableMod, highlightStunZone, highlightInteractionZone, enableLogging);
     }

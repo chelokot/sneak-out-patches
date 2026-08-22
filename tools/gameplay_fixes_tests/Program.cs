@@ -159,6 +159,35 @@ Require(
     !ChairReleasePolicy.ShouldOverrideBlockedRelease(true, true, 7, 7, false, false),
     "unrelated stock None result was treated as a forward-detector block");
 
+var lockerPolicy = new LockerBooPolicy<int>();
+Require(
+    lockerPolicy.ObserveOpen(1, 10, 10, false, false, "Open") == LockerOpenObservation.IgnoredOccupant,
+    "a penguin opening their own locker was misclassified as an external opener");
+Require(
+    lockerPolicy.ConsumeForExit(1, 10, out _) == LockerBooDecision.AllowVanillaNoExternalOpen,
+    "a self-opened locker suppressed vanilla Boo");
+Require(
+    lockerPolicy.ObserveOpen(2, 20, 10, false, false, "Open") == LockerOpenObservation.RecordedExternalOpener,
+    "a hunter opening an occupied locker was not recorded");
+Require(
+    lockerPolicy.ConsumeForExit(2, 10, out var forcedOpen) == LockerBooDecision.SuppressExternalOpen
+    && forcedOpen.OpenerPlayerId == 20 && forcedOpen.OccupantPlayerId == 10,
+    "a hunter-opened locker still allowed Boo");
+Require(
+    lockerPolicy.ConsumeForExit(2, 10, out _) == LockerBooDecision.AllowVanillaNoExternalOpen,
+    "one hunter open suppressed more than one exit");
+Require(
+    lockerPolicy.ObserveOpen(3, 20, 10, true, false, "Open") == LockerOpenObservation.IgnoredUnavailable,
+    "an already-open locker created a stale external-open marker");
+Require(
+    lockerPolicy.ObserveOpen(4, 20, 10, false, true, "Open") == LockerOpenObservation.IgnoredUnavailable,
+    "a rejected in-progress open created a false marker");
+lockerPolicy.ObserveOpen(5, 20, 10, false, false, "TryToOpen");
+Require(
+    lockerPolicy.ConsumeForExit(5, 11, out _) == LockerBooDecision.AllowVanillaDifferentOccupant,
+    "an external-open marker suppressed a different occupant");
+Require(lockerPolicy.Clear(5), "hide/close boundary did not clear the locker cycle");
+
 Require(
     LockerStunZonePolicy.IsWithinOpeningDistance(
         new LockerStunZonePoint(1f, 0f, 0f),

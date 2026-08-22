@@ -152,7 +152,7 @@
   {
     "option_id": "locker-stun-fix",
     "label": "Locker Stun Fix",
-    "details": "Gives Boo a rounded stun zone extending 1.2 metres from every side of a locker, with optional diagnostic guides for the stun and interaction areas.",
+    "details": "Suppresses Boo when another player opens an occupied locker, while retaining a balanced 1.2 metre stun zone and optional diagnostic guides.",
     "category": "gameplay",
     "default_enabled": true,
     "stable": true,

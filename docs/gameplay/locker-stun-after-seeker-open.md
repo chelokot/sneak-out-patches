@@ -1,4 +1,17 @@
-# Locker Boo Balance
+# Locker Boo Eligibility and Balance
+
+`Locker.IsOpen` cannot identify who opened a locker. `Locker.ComeOut(int)`
+opens the door with the occupant's player id before `HandleBooSkill(int)` runs,
+so both a voluntary exit and a forced exit are open when Boo is evaluated.
+
+`Locker Stun Fix` records the opener and current occupant at the earlier
+`TryToOpen(int)` and `Open(int, bool)` calls. When a different player opens an
+occupied locker, the marker is consumed by the matching occupant's next
+`HandleBooSkill(int)` call and that handler is skipped. This prevents both the
+stun and Boo cooldown consumption. A voluntary self-exit, empty locker,
+mismatched occupant, or unavailable open preserves vanilla Boo behavior.
+Markers are cleared at close and hide boundaries so they cannot leak into a
+later locker cycle.
 
 Client 1.1.10 gives locker opening and Boo different spatial shapes. The local
 interaction resolver discovers a locker when the player's interaction-height
@@ -12,8 +25,8 @@ metres above the serialized interaction transform. Its sideways reach at the
 locker plane can therefore omit a hunter who was close enough to open the
 locker from its side.
 
-`Locker Stun Fix` replaces only that spatial query. While vanilla
-`HandleBooSkill` is running, the plugin:
+For Boo activations that remain eligible, the plugin replaces only the spatial
+query. While vanilla `HandleBooSkill` is running, the plugin:
 
 1. performs a conservative broad-phase overlap around the complete locker
    collider;
@@ -26,10 +39,10 @@ The resulting Boo zone is the opening-distance rounded rectangle with a true
 `0.2` metre margin on every edge and corner. Any hunter position satisfying the
 `1.0` metre opening-distance test also satisfies the `1.2` metre Boo test.
 
-The plugin no longer suppresses Boo when another player opens an occupied
-locker. Vanilla remains authoritative for the equipped `PenguinBoo` check,
-target role and life-state filters, stun dispatch, and cooldown consumption.
-Like stock Boo, this spatial test does not add wall occlusion.
+Except for the forced-open case above, vanilla remains authoritative for the
+equipped `PenguinBoo` check, target role and life-state filters, stun dispatch,
+and cooldown consumption. Like stock Boo, this spatial test does not add wall
+occlusion.
 
 The optional diagnostic overlay provides two persistent floor guides:
 

@@ -5,13 +5,70 @@ using UnityEngine;
 
 namespace SneakOut.LockerStunFix;
 
-[HarmonyPatch(typeof(Locker), nameof(Locker.HandleBooSkill))]
+[HarmonyPatch(typeof(Locker), nameof(Locker.TryToOpen), new[] { typeof(int) })]
+internal static class LockerTryToOpenPatch
+{
+    [HarmonyPrefix]
+    private static void Prefix(Locker __instance, int playerId)
+    {
+        LockerStunFixRuntime.ObserveOpen(__instance, playerId, nameof(Locker.TryToOpen));
+    }
+}
+
+[HarmonyPatch(typeof(Locker), nameof(Locker.Open), new[] { typeof(int), typeof(bool) })]
+internal static class LockerOpenPatch
+{
+    [HarmonyPrefix]
+    private static void Prefix(Locker __instance, int playerId)
+    {
+        LockerStunFixRuntime.ObserveOpen(__instance, playerId, nameof(Locker.Open));
+    }
+}
+
+[HarmonyPatch(typeof(Locker), nameof(Locker.Close), new[] { typeof(int) })]
+internal static class LockerClosePatch
+{
+    [HarmonyPrefix]
+    private static void Prefix(Locker __instance)
+    {
+        LockerStunFixRuntime.ClearCycle(__instance, nameof(Locker.Close));
+    }
+}
+
+[HarmonyPatch(typeof(Locker), nameof(Locker.Hide), new[] { typeof(int) })]
+internal static class LockerHidePatch
+{
+    [HarmonyPrefix]
+    private static void Prefix(Locker __instance)
+    {
+        LockerStunFixRuntime.ClearCycle(__instance, nameof(Locker.Hide));
+    }
+}
+
+[HarmonyPatch(typeof(Locker), nameof(Locker.HideFast), new[] { typeof(int) })]
+internal static class LockerHideFastPatch
+{
+    [HarmonyPrefix]
+    private static void Prefix(Locker __instance)
+    {
+        LockerStunFixRuntime.ClearCycle(__instance, nameof(Locker.HideFast));
+    }
+}
+
+[HarmonyPatch(typeof(Locker), nameof(Locker.HandleBooSkill), new[] { typeof(int) })]
 internal static class LockerHandleBooSkillPatch
 {
     [HarmonyPrefix]
-    private static void Prefix(Locker __instance, int playerId, out bool __state)
+    private static bool Prefix(Locker __instance, int playerId, out bool __state)
     {
+        __state = false;
+        if (!LockerStunFixRuntime.ShouldApplyLockerStun(__instance, playerId))
+        {
+            return false;
+        }
+
         __state = LockerStunFixRuntime.TryBeginBalancedBooQuery(__instance, playerId);
+        return true;
     }
 
     [HarmonyFinalizer]

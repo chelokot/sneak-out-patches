@@ -4,6 +4,7 @@ using Gameplay.Player.Components;
 using HarmonyLib;
 using Il2CppInterop.Runtime.Injection;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
+using Kinguinverse.WebServiceProvider.Types_v2;
 using UnityEngine;
 
 namespace SneakOut.LockerStunFix;
@@ -11,6 +12,7 @@ namespace SneakOut.LockerStunFix;
 internal static class LockerStunFixRuntime
 {
     private const float IndicatorScanIntervalSeconds = 0.5f;
+    private static readonly LockerBooPolicy<IntPtr> BooPolicy = new();
 
     private static ManualLogSource? _logger;
     private static Harmony? _harmony;
@@ -55,6 +57,69 @@ internal static class LockerStunFixRuntime
         _balancedBooLockerCollider = lockerCollider;
         _balancedBooLockerPointer = locker.Pointer;
         _balancedBooOverlapPrepared = false;
+        return true;
+    }
+
+    public static void ObserveOpen(Locker locker, int openerPlayerId, string source)
+    {
+        if (_configuration?.EnableMod.Value != true
+            || locker.Pointer == IntPtr.Zero)
+        {
+            return;
+        }
+
+        var occupantPlayerId = locker.PlayerCurrentlyUsing;
+        var observation = BooPolicy.ObserveOpen(
+            locker.Pointer,
+            openerPlayerId,
+            occupantPlayerId,
+            locker.IsOpen,
+            locker._duringInteraction,
+            source);
+
+        if (observation is LockerOpenObservation.RecordedExternalOpener
+            or LockerOpenObservation.RefreshedExternalOpener)
+        {
+            LogInfo(
+                $"open-observed locker=0x{locker.Pointer:X} source={source} opener={openerPlayerId} "
+                + $"occupant={occupantPlayerId} isOpen={locker.IsOpen} duringInteraction={locker._duringInteraction} "
+                + $"result={observation}");
+        }
+        else
+        {
+            LogTrace(
+                $"open-ignored locker=0x{locker.Pointer:X} source={source} opener={openerPlayerId} "
+                + $"occupant={occupantPlayerId} isOpen={locker.IsOpen} duringInteraction={locker._duringInteraction} "
+                + $"result={observation}");
+        }
+    }
+
+    public static bool ShouldApplyLockerStun(Locker locker, int playerId)
+    {
+        if (_configuration?.EnableMod.Value != true || locker.Pointer == IntPtr.Zero)
+        {
+            return true;
+        }
+
+        var decision = BooPolicy.ConsumeForExit(locker.Pointer, playerId, out var externalOpen);
+        var hasBoo = TryGetBooEquipped(locker, playerId, out var equipped) ? equipped.ToString() : "unknown";
+
+        if (decision == LockerBooDecision.SuppressExternalOpen)
+        {
+            LogInfo(
+                $"boo-decision locker=0x{locker.Pointer:X} exitingPlayer={playerId} hasBoo={hasBoo} "
+                + $"decision=suppress reason=external-opener opener={externalOpen.OpenerPlayerId} source={externalOpen.Source}; "
+                + "vanilla handler and cooldown consumption skipped");
+            return false;
+        }
+
+        var reason = decision == LockerBooDecision.AllowVanillaDifferentOccupant
+            ? $"marker-for-other-occupant:{externalOpen.OccupantPlayerId}"
+            : "no-external-opener";
+        LogTrace(
+            $"boo-decision locker=0x{locker.Pointer:X} exitingPlayer={playerId} hasBoo={hasBoo} "
+            + $"decision=allow-vanilla reason={reason}");
+
         return true;
     }
 
@@ -159,6 +224,35 @@ internal static class LockerStunFixRuntime
         return new LockerStunZonePoint(point.x, point.y, point.z);
     }
 
+    public static void ClearCycle(Locker locker, string source)
+    {
+        if (locker.Pointer != IntPtr.Zero && BooPolicy.Clear(locker.Pointer))
+        {
+            LogTrace($"cycle-cleared locker=0x{locker.Pointer:X} source={source}");
+        }
+    }
+
+    private static bool TryGetBooEquipped(Locker locker, int playerId, out bool equipped)
+    {
+        equipped = false;
+        try
+        {
+            var skills = locker._playersActiveSkills;
+            if (skills is null || skills.Pointer == IntPtr.Zero)
+            {
+                return false;
+            }
+
+            equipped = skills.HaveSkillEquipped(playerId, SkillType.PenguinBoo, Types.CharacterType.victim_penguin);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            LogTrace($"boo-equipment-unavailable player={playerId} error={exception.GetType().Name}");
+            return false;
+        }
+    }
+
     private static void EnsureIndicatorWatcher()
     {
         if (_watcherInstalled)
@@ -252,6 +346,11 @@ internal static class LockerStunFixRuntime
         {
             _logger?.LogInfo(message);
         }
+    }
+
+    private static void LogInfo(string message)
+    {
+        _logger?.LogInfo(message);
     }
 
     private static void LogIndicatorFailureOnce(string failure)

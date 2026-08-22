@@ -15,6 +15,7 @@
     <Compile Include="../../mods/unlock_everything/TitleLocalizationPolicy.cs" Link="TitleLocalizationPolicy.cs" />
     <Compile Include="../../mods/unlock_everything/TitleAccessPolicy.cs" Link="TitleAccessPolicy.cs" />
     <Compile Include="../../mods/keyboard_layout_fix/NativeMovementPolicy.cs" Link="NativeMovementPolicy.cs" />
+    <Compile Include="../../mods/locker_stun_fix/LockerBooPolicy.cs" Link="LockerBooPolicy.cs" />
     <Compile Include="../../mods/locker_stun_fix/LockerStunZonePolicy.cs" Link="LockerStunZonePolicy.cs" />
     <Compile Include="../../mods/magic_wardrobe_hook_fix/MagicWardrobeHookPolicy.cs" Link="MagicWardrobeHookPolicy.cs" />
     <Compile Include="../../mods/network_host_selector/HostSelectionProtocol.cs" Link="HostSelectionProtocol.cs" />

@@ -20,12 +20,12 @@ internal sealed class UniformSeekerRandomConfig
             "general",
             "EnableMod",
             true,
-            "Use uniform seeker random selection in default mode.");
+            "Use authoritative uniform seeker selection in compatible private parties. Crown mode is unchanged.");
         var enableLogging = configFile.Bind(
             "general",
             "EnableLogging",
             false,
-            "Log uniform seeker random overrides.");
+            "Log launch handshake validation, state authority, candidates, selection, and replicated results.");
 
         return new UniformSeekerRandomConfig(enableMod, enableLogging);
     }

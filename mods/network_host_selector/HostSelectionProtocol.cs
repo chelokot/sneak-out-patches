@@ -5,6 +5,7 @@ internal readonly record struct HostSelectionState(
     int TargetPlayerRaw,
     string TargetUserId,
     string Membership,
+    int CommonCapabilities,
     bool Compatible,
     bool Ready);
 
@@ -12,20 +13,29 @@ internal readonly record struct HostSelectionPeer(
     int PlayerRaw,
     string UserId,
     string Membership,
+    int Capabilities,
     int AcknowledgedRevision);
 
 internal static class HostSelectionProtocol
 {
-    public const int Version = 3;
+    public const int Version = 4;
+    public const string PropertyState = "sohs_s";
+    public const string PropertyPeers = "sohs_e";
+    public const int UniformSeekerRandomCapability = 1 << 0;
 
-    public static string CreateHello(string membership, string userId)
+    public static string CreateHello(string membership, string userId, int capabilities)
     {
-        return $"{Version}|{membership}|{userId}";
+        return $"{Version}|{membership}|{userId}|{capabilities}";
     }
 
-    public static string CreateAck(int revision, string membership, int targetPlayerRaw, string targetUserId)
+    public static string CreateAck(
+        int revision,
+        string membership,
+        int targetPlayerRaw,
+        string targetUserId,
+        int capabilities)
     {
-        return $"{Version}|{revision}|{membership}|{targetPlayerRaw}|{targetUserId}";
+        return $"{Version}|{revision}|{membership}|{targetPlayerRaw}|{targetUserId}|{capabilities}";
     }
 
     public static string CreateState(
@@ -33,6 +43,7 @@ internal static class HostSelectionProtocol
         int targetPlayerRaw,
         string targetUserId,
         string membership,
+        int commonCapabilities,
         bool compatible,
         bool ready)
     {
@@ -43,6 +54,7 @@ internal static class HostSelectionProtocol
             targetPlayerRaw,
             EncodeToken(targetUserId),
             membership,
+            commonCapabilities,
             compatible ? 1 : 0,
             ready ? 1 : 0);
     }
@@ -51,7 +63,7 @@ internal static class HostSelectionProtocol
     {
         state = default;
         var fields = value.Split('|');
-        if (fields.Length != 7
+        if (fields.Length != 8
             || !int.TryParse(fields[0], out var version)
             || version != Version
             || !int.TryParse(fields[1], out var revision)
@@ -60,8 +72,10 @@ internal static class HostSelectionProtocol
             || targetPlayerRaw < 0
             || !TryDecodeToken(fields[3], out var targetUserId)
             || string.IsNullOrWhiteSpace(fields[4])
-            || !TryParseFlag(fields[5], out var compatible)
-            || !TryParseFlag(fields[6], out var ready)
+            || !int.TryParse(fields[5], out var commonCapabilities)
+            || commonCapabilities < 0
+            || !TryParseFlag(fields[6], out var compatible)
+            || !TryParseFlag(fields[7], out var ready)
             || (targetPlayerRaw == 0 && targetUserId.Length != 0)
             || (targetPlayerRaw != 0 && string.IsNullOrWhiteSpace(targetUserId)))
         {
@@ -73,6 +87,7 @@ internal static class HostSelectionProtocol
             targetPlayerRaw,
             targetUserId,
             fields[4],
+            commonCapabilities,
             compatible,
             ready);
         return true;
@@ -83,6 +98,7 @@ internal static class HostSelectionProtocol
         int playerRaw,
         string userId,
         string membership,
+        int capabilities,
         int acknowledgedRevision)
     {
         var peers = ParsePeers(registry);
@@ -90,6 +106,7 @@ internal static class HostSelectionProtocol
             playerRaw,
             userId,
             membership,
+            capabilities,
             acknowledgedRevision);
         return string.Join(
             ";",
@@ -101,6 +118,7 @@ internal static class HostSelectionProtocol
                     peer.PlayerRaw,
                     EncodeToken(peer.UserId),
                     peer.Membership,
+                    peer.Capabilities,
                     peer.AcknowledgedRevision)));
     }
 
@@ -137,7 +155,7 @@ internal static class HostSelectionProtocol
         foreach (var encodedPeer in registry.Split(';', StringSplitOptions.RemoveEmptyEntries))
         {
             var fields = encodedPeer.Split(',');
-            if (fields.Length != 5
+            if (fields.Length != 6
                 || !int.TryParse(fields[0], out var version)
                 || version != Version
                 || !int.TryParse(fields[1], out var playerRaw)
@@ -145,7 +163,9 @@ internal static class HostSelectionProtocol
                 || !TryDecodeToken(fields[2], out var userId)
                 || string.IsNullOrWhiteSpace(userId)
                 || string.IsNullOrWhiteSpace(fields[3])
-                || !int.TryParse(fields[4], out var acknowledgedRevision)
+                || !int.TryParse(fields[4], out var capabilities)
+                || capabilities < 0
+                || !int.TryParse(fields[5], out var acknowledgedRevision)
                 || acknowledgedRevision < -1)
             {
                 continue;
@@ -154,6 +174,7 @@ internal static class HostSelectionProtocol
                 playerRaw,
                 userId,
                 fields[3],
+                capabilities,
                 acknowledgedRevision);
         }
         return result;

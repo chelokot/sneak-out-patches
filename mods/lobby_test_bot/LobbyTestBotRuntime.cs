@@ -3,6 +3,7 @@ using BepInEx.Logging;
 using Events;
 using Fusion;
 using Gameplay.ArrowIndicators;
+using Gameplay.Buffs;
 using Gameplay.Interactions;
 using Gameplay.Player;
 using Gameplay.Player.Components;
@@ -11,6 +12,7 @@ using Gameplay.Spawn;
 using HarmonyLib;
 using Il2CppInterop.Runtime.Injection;
 using Kinguinverse.DataUtils.Events;
+using EmoteType = Kinguinverse.WebServiceProvider.Types_v2.EmoteType;
 using Networking;
 using Networking.Matchmaking;
 using Networking.Matchmaking.Match;
@@ -21,6 +23,7 @@ using UI.Buttons;
 using UI.Views.Lobby;
 using UnityEngine;
 using UnityEngine.Events;
+using UnityEngine.InputSystem;
 using UnityEngine.UI;
 
 namespace SneakOut.LobbyTestBot;
@@ -99,6 +102,12 @@ internal static class LobbyTestBotRuntime
     private static IntPtr _managedNetworkObjectPointer;
     private static int _managedPlayerRefId;
     private static int _managedFusionPlayerRefRaw;
+    private static bool _managedBotControlActive;
+    private static int _managedBotControlPlayerRefRaw;
+    private static Gameplay.CameraManager? _managedBotControlCameraManager;
+    private static float _managedHunterVisualRepairAt = -1f;
+    private static float _managedHunterVisualRepairDeadline = -1f;
+    private static readonly Dictionary<IntPtr, NetworkObject> ManagedBotControlAuthorityObjects = new();
     private static readonly HashSet<IntPtr> ManagedAnimatorPointers = new();
     private static readonly HashSet<IntPtr> LoggedAnimatorPointers = new();
     private static readonly HashSet<IntPtr> DeferredPlayerIndicatorPointers = new();
@@ -112,6 +121,10 @@ internal static class LobbyTestBotRuntime
     private static bool _managedMatchStartGuardScope;
     [ThreadStatic]
     private static bool _managedCharacterPrefabSpawnScope;
+    [ThreadStatic]
+    private static int _managedBotSeekerCageLocalScopeDepth;
+    [ThreadStatic]
+    private static int _managedBotSeekerCageLocalInternalId;
 
     public static void Initialize(ManualLogSource logger, LobbyTestBotConfig configuration)
     {
@@ -174,6 +187,37 @@ internal static class LobbyTestBotRuntime
             && indicator._playerIndicators is not null;
     }
 
+    public static bool ShouldRunManagedBotVisibilityUpdate(EntityVisibilityComponent visibility)
+    {
+        if (!Enabled
+            || !_managedBotControlActive
+            || visibility is null
+            || visibility.Pointer == IntPtr.Zero)
+        {
+            return true;
+        }
+
+        var player = visibility._spookedNetworkPlayer;
+        if (!IsManagedBot(player))
+        {
+            return true;
+        }
+
+        // Stock visibility is evaluated from the original local player's point of view. While
+        // the camera and controls are on the bot, preserve the noisy/silent half of the state but
+        // keep its controlled character prefab rendered. Stock visibility resumes on switch-back.
+        if (visibility._stateType == VisibilityStateType.InvisibleNoisy)
+        {
+            visibility.ForceVisibilityChange(VisibilityStateType.VisibleNoisy);
+        }
+        else if (visibility._stateType == VisibilityStateType.InvisibleSilent)
+        {
+            visibility.ForceVisibilityChange(VisibilityStateType.VisibleSilent);
+        }
+
+        return false;
+    }
+
     private static void EnsureWatcher()
     {
         if (_watcherInstalled)
@@ -198,6 +242,8 @@ internal static class LobbyTestBotRuntime
             TryInitializeDeferredPlayerIndicators();
             ObservePendingOperation();
             MaintainMatchBot();
+            TryToggleManagedBotControl();
+            TryRepairManagedHunterVisual();
             TryRefreshPendingManagedBotOutfit();
             TryCaptureDiagnosticBotIdentity();
             TryCaptureDiagnosticMatch();
@@ -240,6 +286,48 @@ internal static class LobbyTestBotRuntime
         catch (Exception exception)
         {
             LogError("Lobby bot lifecycle watcher failed", exception);
+        }
+    }
+
+    private static void WatcherLateTick()
+    {
+        if (!_managedBotControlActive)
+        {
+            return;
+        }
+
+        var bot = FindManagedBot();
+        if (bot is null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (!TryGetManagedBotVisual(bot, out _, out var visual))
+            {
+                return;
+            }
+
+            var botTransform = bot.transform;
+            var parent = visual.parent;
+            if (parent is null || parent == null || parent.Pointer != botTransform.Pointer)
+            {
+                visual.SetParent(botTransform, false);
+            }
+
+            // The character prefab is a separate network object. Its NetworkTransform can restore
+            // the spawn pose after the player root has simulated, so pin the stock current visual
+            // to its authored local origin after Fusion has rendered the frame.
+            visual.localPosition = Vector3.zero;
+            visual.localRotation = Quaternion.identity;
+        }
+        catch (Exception exception)
+        {
+            if (LoggingEnabled)
+            {
+                _logger?.LogWarning($"Managed bot visual changed during late-frame sync: {exception.Message}");
+            }
         }
     }
 
@@ -612,6 +700,701 @@ internal static class LobbyTestBotRuntime
         inputController._sprint = false;
     }
 
+    public static void CorrectManagedBotMouseAim(PlayerInputController inputController)
+    {
+        if (!Enabled
+            || !_managedBotControlActive
+            || inputController is null
+            || inputController.Pointer == IntPtr.Zero
+            || !inputController._isAiming
+            || !IsManagedBot(inputController._spookedNetworkPlayer)
+            || inputController._desiredGamepadAim.sqrMagnitude > 0.0001f)
+        {
+            return;
+        }
+
+        var bot = inputController._spookedNetworkPlayer;
+        var offset = inputController._lastMouseRaycastPoint - bot.transform.position;
+        var horizontal = new Vector2(offset.x, offset.z);
+        if (horizontal.sqrMagnitude > 0.0001f)
+        {
+            inputController._mouseDirection = horizontal.normalized;
+        }
+    }
+
+    public static ManagedBotInputScope? BeginManagedBotInputScope(
+        PlayerInputController inputController)
+    {
+        if (!TryResolveManagedBotControl(inputController, out var bot))
+        {
+            return null;
+        }
+
+        var originalPlayer = inputController._spookedNetworkPlayer;
+        inputController._spookedNetworkPlayer = bot;
+        return new ManagedBotInputScope(originalPlayer);
+    }
+
+    public static void EndManagedBotInputScope(
+        PlayerInputController inputController,
+        ManagedBotInputScope? scope,
+        bool clearOriginalInput)
+    {
+        if (scope is null || scope.Restored)
+        {
+            return;
+        }
+
+        scope.Restored = true;
+        try
+        {
+            if (clearOriginalInput)
+            {
+                ClearPlayerInput(scope.OriginalPlayer);
+            }
+        }
+        finally
+        {
+            if (inputController is not null && inputController.Pointer != IntPtr.Zero)
+            {
+                inputController._spookedNetworkPlayer = scope.OriginalPlayer;
+            }
+        }
+    }
+
+    public static bool TryRouteManagedBotInteraction(
+        PlayerInputController inputController,
+        Types.InputActionType inputActionType)
+    {
+        if (!TryResolveManagedBotControl(inputController, out var bot))
+        {
+            return false;
+        }
+
+        try
+        {
+            if (inputActionType == Types.InputActionType.None)
+            {
+                return true;
+            }
+
+            var interactive = bot.EntityInteractiveComponent;
+            if (interactive is null || interactive.Pointer == IntPtr.Zero)
+            {
+                _logger?.LogWarning("Managed bot interaction input was ignored: its interactive component is unavailable");
+                return true;
+            }
+
+            interactive.RPC_ClientInput(inputActionType);
+        }
+        catch (Exception exception)
+        {
+            LogError("Managed bot interaction input failed", exception);
+        }
+
+        return true;
+    }
+
+    public static bool TryRouteManagedBotKill(PlayerInputController inputController)
+    {
+        if (!TryResolveManagedBotControl(inputController, out var bot))
+        {
+            return false;
+        }
+
+        try
+        {
+            var seekerCage = FindManagedBotSeekerCage(bot);
+            if (seekerCage is not null)
+            {
+                if (seekerCage._lastStepViewActive)
+                {
+                    seekerCage.OnInput();
+                }
+
+                return true;
+            }
+
+            var botInputController = bot.GetComponent<PlayerInputController>();
+            if (botInputController is null || botInputController.Pointer == IntPtr.Zero)
+            {
+                _logger?.LogWarning("Managed bot kill input was ignored: its input controller is unavailable");
+                return true;
+            }
+
+            botInputController.RPC_ClientAttack();
+        }
+        catch (Exception exception)
+        {
+            LogError("Managed bot kill input failed", exception);
+        }
+
+        return true;
+    }
+
+    public static bool TryRouteManagedBotSkill(
+        PlayerInputController inputController,
+        bool secondSkill)
+    {
+        if (!TryResolveManagedBotControl(inputController, out var bot))
+        {
+            return false;
+        }
+
+        try
+        {
+            var skills = bot.EntitySkillsComponent;
+            if (skills is null || skills.Pointer == IntPtr.Zero)
+            {
+                _logger?.LogWarning("Managed bot skill input was ignored: its skills component is unavailable");
+                return true;
+            }
+
+            if (secondSkill)
+            {
+                skills.OnSecondSkillStartButton();
+            }
+            else
+            {
+                skills.OnFirstSkillStartButton();
+            }
+        }
+        catch (Exception exception)
+        {
+            LogError("Managed bot skill input failed", exception);
+        }
+
+        return true;
+    }
+
+    public static bool TryRouteManagedBotEmote(
+        PlayerEmoteController emoteController,
+        EmoteType emoteType)
+    {
+        if (!Enabled
+            || !_managedBotControlActive
+            || emoteController is null
+            || emoteController.Pointer == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        var bot = FindManagedBot();
+        if (bot is null)
+        {
+            StopManagedBotControl(null, "managed bot is no longer available");
+            return false;
+        }
+
+        // The nested call on the bot controller must reach the stock PlayEmote implementation.
+        if (emoteController._internalId == bot.InternalId)
+        {
+            return false;
+        }
+
+        try
+        {
+            var botEmoteController = FindManagedBotEmoteController(bot);
+            if (botEmoteController is null)
+            {
+                _logger?.LogWarning("Managed bot emote input was ignored: its emote controller is unavailable");
+                return true;
+            }
+
+            botEmoteController.PlayEmote(emoteType);
+        }
+        catch (Exception exception)
+        {
+            LogError("Managed bot emote input failed", exception);
+        }
+
+        return true;
+    }
+
+    public static bool BeginManagedBotSeekerCageLocalScope(SeekerCage seekerCage)
+    {
+        if (!Enabled
+            || !_managedBotControlActive
+            || seekerCage is null
+            || seekerCage.Pointer == IntPtr.Zero
+            || !seekerCage._cageActive)
+        {
+            return false;
+        }
+
+        var bot = FindManagedBot();
+        if (bot is null || seekerCage._seekerId != bot.InternalId)
+        {
+            return false;
+        }
+
+        _managedBotSeekerCageLocalInternalId = bot.InternalId;
+        _managedBotSeekerCageLocalScopeDepth++;
+        return true;
+    }
+
+    public static void EndManagedBotSeekerCageLocalScope(bool scopeEntered)
+    {
+        if (!scopeEntered || _managedBotSeekerCageLocalScopeDepth <= 0)
+        {
+            return;
+        }
+
+        _managedBotSeekerCageLocalScopeDepth--;
+        if (_managedBotSeekerCageLocalScopeDepth == 0)
+        {
+            _managedBotSeekerCageLocalInternalId = 0;
+        }
+    }
+
+    public static void OverrideManagedBotSeekerCageLocalId(int internalId, ref bool isLocal)
+    {
+        if (!isLocal
+            && _managedBotSeekerCageLocalScopeDepth > 0
+            && internalId == _managedBotSeekerCageLocalInternalId)
+        {
+            isLocal = true;
+        }
+    }
+
+    private static SeekerCage? FindManagedBotSeekerCage(SpookedNetworkPlayer bot)
+    {
+        var internalId = bot.InternalId;
+        return Resources.FindObjectsOfTypeAll<SeekerCage>()
+            .FirstOrDefault(seekerCage => seekerCage is not null
+                && seekerCage.Pointer != IntPtr.Zero
+                && seekerCage._cageActive
+                && seekerCage._seekerId == internalId);
+    }
+
+    private static bool TryResolveManagedBotControl(
+        PlayerInputController inputController,
+        out SpookedNetworkPlayer bot)
+    {
+        bot = null!;
+        if (!Enabled
+            || !_managedBotControlActive
+            || inputController is null
+            || inputController.Pointer == IntPtr.Zero
+            || !inputController.HasInputAuthority)
+        {
+            return false;
+        }
+
+        var managedBot = FindManagedBot();
+        if (managedBot is null)
+        {
+            StopManagedBotControl(null, "managed bot is no longer available");
+            return false;
+        }
+
+        // Once control authority is assigned, the bot's own controller also reports local input
+        // authority. Only redirect the original local player's controller; otherwise both objects
+        // consume and publish the same frame of input.
+        if (IsManagedBot(inputController._spookedNetworkPlayer)
+            || inputController.Object?.Pointer == managedBot.Object?.Pointer)
+        {
+            return false;
+        }
+
+        bot = managedBot;
+        return true;
+    }
+
+    private static void TryToggleManagedBotControl()
+    {
+        if (!Enabled)
+        {
+            StopManagedBotControl(null, "mod disabled");
+            return;
+        }
+
+        var keyboard = Keyboard.current;
+        var mainPlusPressed = keyboard is not null
+            && keyboard.equalsKey.wasPressedThisFrame
+            && (keyboard.leftShiftKey.isPressed || keyboard.rightShiftKey.isPressed);
+        if (keyboard is null
+            || (!keyboard.numpadPlusKey.wasPressedThisFrame
+                && !mainPlusPressed))
+        {
+            return;
+        }
+
+        var bot = FindManagedBot();
+        if (bot is null)
+        {
+            StopManagedBotControl(null, "managed bot is no longer available");
+            return;
+        }
+
+        if (_managedBotControlActive)
+        {
+            StopManagedBotControl(bot, "Plus toggled back");
+            ClearAllLocalPlayerInputs(bot);
+            return;
+        }
+
+        if (!TryStartManagedBotControl(bot))
+        {
+            return;
+        }
+
+        ClearAllLocalPlayerInputs(bot);
+        _logger?.LogInfo("Input control switched to managed test bot");
+    }
+
+    private static bool TryStartManagedBotControl(SpookedNetworkPlayer bot)
+    {
+        var registry = bot._networkPlayerRegistry;
+        var localPlayer = registry?._components?
+            .FirstOrDefault(player => player is not null
+                && !player.IsBot
+                && player.HasInputAuthority
+                && player.Object is not null
+                && player.Object.IsValid);
+        var localAuthority = localPlayer?.Object?.InputAuthority ?? PlayerRef.None;
+        if (localPlayer is null || localAuthority.IsNone)
+        {
+            _logger?.LogWarning("Managed bot control was not enabled: the local Fusion player authority is unavailable");
+            return false;
+        }
+
+        ReleaseManagedBotControlAuthority();
+        try
+        {
+            foreach (var networkObject in FindManagedBotControlNetworkObjects(bot))
+            {
+                if (networkObject.InputAuthority.RawEncoded == localAuthority.RawEncoded)
+                {
+                    continue;
+                }
+
+                if (!networkObject.InputAuthority.IsNone || !networkObject.HasStateAuthority)
+                {
+                    throw new InvalidOperationException(
+                        $"Cannot assign local input authority to managed bot object {networkObject.Id}: "
+                        + $"current={networkObject.InputAuthority.RawEncoded}, stateAuthority={networkObject.HasStateAuthority}");
+                }
+
+                networkObject.AssignInputAuthority(localAuthority);
+                ManagedBotControlAuthorityObjects[networkObject.Pointer] = networkObject;
+            }
+
+            if (bot.Object is null
+                || bot.Object.InputAuthority.RawEncoded != localAuthority.RawEncoded)
+            {
+                throw new InvalidOperationException("Managed bot player object did not accept local input authority");
+            }
+
+            _managedBotControlPlayerRefRaw = localAuthority.RawEncoded;
+            _managedBotControlActive = true;
+            SetManagedBotCameraTarget(bot);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            ReleaseManagedBotControlAuthority();
+            LogError("Managed bot control authority transfer failed", exception);
+            return false;
+        }
+    }
+
+    private static IEnumerable<NetworkObject> FindManagedBotControlNetworkObjects(
+        SpookedNetworkPlayer bot)
+    {
+        var objects = new Dictionary<IntPtr, NetworkObject>();
+        AddNetworkObject(objects, bot.Object);
+        AddNetworkObject(objects, bot.EntityInteractiveComponent?.Object);
+        AddNetworkObject(objects, bot.EntitySkillsComponent?.Object);
+        AddNetworkObject(objects, bot.EntityItemsComponent?.Object);
+        AddNetworkObject(objects, bot.EntityNetworkAnimatorComponent?.Object);
+        AddNetworkObject(objects, bot.GetComponentInChildren<PlayerInputController>(true)?.Object);
+        AddNetworkObject(objects, FindManagedBotEmoteController(bot)?.Object);
+        return objects.Values;
+    }
+
+    private static void AddNetworkObject(
+        Dictionary<IntPtr, NetworkObject> objects,
+        NetworkObject? networkObject)
+    {
+        if (networkObject is not null
+            && networkObject.Pointer != IntPtr.Zero
+            && networkObject.IsValid)
+        {
+            objects[networkObject.Pointer] = networkObject;
+        }
+    }
+
+    private static PlayerEmoteController? FindManagedBotEmoteController(SpookedNetworkPlayer bot)
+    {
+        var controllers = bot.GetComponentsInChildren<PlayerEmoteController>(true);
+        return controllers.FirstOrDefault(controller => controller is not null
+                && controller.Pointer != IntPtr.Zero
+                && controller._internalId == bot.InternalId)
+            ?? controllers.FirstOrDefault(controller => controller is not null
+                && controller.Pointer != IntPtr.Zero);
+    }
+
+    private static void EnsureManagedBotControlAuthority(SpookedNetworkPlayer bot)
+    {
+        if (!_managedBotControlActive
+            || bot.Object is null
+            || !bot.Object.IsValid
+            || bot.Object.InputAuthority.IsNone)
+        {
+            return;
+        }
+
+        var localAuthority = bot.Object.InputAuthority;
+        foreach (var networkObject in FindManagedBotControlNetworkObjects(bot))
+        {
+            if (networkObject.InputAuthority.RawEncoded == localAuthority.RawEncoded)
+            {
+                continue;
+            }
+
+            if (!networkObject.InputAuthority.IsNone || !networkObject.HasStateAuthority)
+            {
+                _logger?.LogWarning(
+                    $"Managed bot child object {networkObject.Id} could not receive late input authority: "
+                    + $"current={networkObject.InputAuthority.RawEncoded}, stateAuthority={networkObject.HasStateAuthority}");
+                continue;
+            }
+
+            networkObject.AssignInputAuthority(localAuthority);
+            ManagedBotControlAuthorityObjects[networkObject.Pointer] = networkObject;
+        }
+    }
+
+    private static void ClearAllLocalPlayerInputs(SpookedNetworkPlayer bot)
+    {
+        ClearPlayerInput(bot);
+        var registry = bot._networkPlayerRegistry;
+        if (registry is null || registry._components is null)
+        {
+            return;
+        }
+
+        foreach (var player in registry._components)
+        {
+            if (player is not null && !player.IsBot && player.HasInputAuthority)
+            {
+                ClearPlayerInput(player);
+            }
+        }
+    }
+
+    private static void StopManagedBotControl(SpookedNetworkPlayer? bot, string reason)
+    {
+        if (!_managedBotControlActive
+            && ManagedBotControlAuthorityObjects.Count == 0
+            && _managedBotControlCameraManager is null)
+        {
+            return;
+        }
+
+        ClearPlayerInput(bot ?? FindManagedBot());
+        _managedBotControlActive = false;
+        ResetManagedBotCameraTarget();
+        ReleaseManagedBotControlAuthority();
+        _logger?.LogInfo($"Input control returned to local player: {reason}");
+    }
+
+    private static void SetManagedBotCameraTarget(SpookedNetworkPlayer bot)
+    {
+        try
+        {
+            var cameraManager = bot.UnderlyingPrefabComponent?._cameraManager
+                ?? Resources.FindObjectsOfTypeAll<Gameplay.Camera.SceneCameraManager>()
+                    .FirstOrDefault(candidate => candidate is not null
+                        && candidate.Pointer != IntPtr.Zero)?._cameraManager;
+            if (cameraManager is null
+                || cameraManager == null
+                || cameraManager.Pointer == IntPtr.Zero)
+            {
+                _logger?.LogWarning("Managed bot camera target was not changed: the stock camera manager is unavailable");
+                return;
+            }
+
+            cameraManager.SetCameraTarget(bot.transform);
+            _managedBotControlCameraManager = cameraManager;
+        }
+        catch (Exception exception)
+        {
+            LogError("Managed bot camera target switch failed", exception);
+        }
+    }
+
+    private static void ResetManagedBotCameraTarget()
+    {
+        var cameraManager = _managedBotControlCameraManager;
+        _managedBotControlCameraManager = null;
+        try
+        {
+            if (cameraManager is not null
+                && cameraManager != null
+                && cameraManager.Pointer != IntPtr.Zero)
+            {
+                cameraManager.ResetToPlayer();
+            }
+        }
+        catch (Exception exception)
+        {
+            LogError("Managed bot camera target reset failed", exception);
+        }
+    }
+
+    private static bool TryGetManagedBotVisual(
+        SpookedNetworkPlayer bot,
+        out EntityNetworkAnimatorComponent animator,
+        out Transform visual)
+    {
+        animator = bot.EntityNetworkAnimatorComponent;
+        visual = null!;
+        if (animator is null || animator == null || animator.Pointer == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        visual = animator.transform;
+        return visual is not null && visual != null && visual.Pointer != IntPtr.Zero;
+    }
+
+    private static bool ManagedBotVisualMatchesCharacter(
+        SpookedNetworkPlayer bot,
+        EntityNetworkAnimatorComponent animator)
+    {
+        if (bot.CharacterType != CharacterType.murderer_ripper)
+        {
+            return true;
+        }
+
+        var objectName = animator.gameObject?.name;
+        return objectName is not null
+            && objectName.IndexOf("MurdererRipper", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    private static void ScheduleManagedHunterVisualRepair()
+    {
+        var now = Time.unscaledTime;
+        _managedHunterVisualRepairAt = now + 0.25f;
+        _managedHunterVisualRepairDeadline = now + 5f;
+        _managedPrefabRefreshRequested = true;
+        _managedPrefabRefreshRequestedAt = now;
+        _managedDirectPrefabSpawnRequested = false;
+    }
+
+    private static void TryRepairManagedHunterVisual()
+    {
+        if (_managedHunterVisualRepairAt < 0f
+            || Time.unscaledTime < _managedHunterVisualRepairAt)
+        {
+            return;
+        }
+
+        _managedHunterVisualRepairAt = Time.unscaledTime + 0.25f;
+        try
+        {
+            var bot = FindManagedBot();
+            if (bot is null)
+            {
+                _managedHunterVisualRepairAt = -1f;
+                _managedHunterVisualRepairDeadline = -1f;
+                return;
+            }
+
+            if (bot.CharacterType == CharacterType.murderer_ripper
+                && TryGetManagedBotVisual(bot, out var animator, out var visual)
+                && ManagedBotVisualMatchesCharacter(bot, animator))
+            {
+                var botTransform = bot.transform;
+                var parent = visual.parent;
+                if (parent is null || parent == null || parent.Pointer != botTransform.Pointer)
+                {
+                    visual.SetParent(botTransform, false);
+                }
+                visual.localPosition = Vector3.zero;
+                visual.localRotation = Quaternion.identity;
+                EnsureManagedBotControlAuthority(bot);
+                ManagedAnimatorPointers.Add(animator.Pointer);
+                CleanupSupersededManagedBotVisuals(bot, animator);
+                _managedHunterVisualRepairAt = -1f;
+                _managedHunterVisualRepairDeadline = -1f;
+                _logger?.LogInfo("Managed bot hunter visual is bound to the controlled player root");
+                return;
+            }
+
+            if (Time.unscaledTime >= _managedHunterVisualRepairDeadline)
+            {
+                _managedHunterVisualRepairAt = -1f;
+                _managedHunterVisualRepairDeadline = -1f;
+                _logger?.LogWarning("Managed bot hunter visual did not become available before the repair deadline");
+                return;
+            }
+
+            if (bot.CharacterType == CharacterType.murderer_ripper)
+            {
+                TrySpawnManagedBotCharacterPrefab(bot);
+            }
+        }
+        catch (Exception exception)
+        {
+            if (Time.unscaledTime >= _managedHunterVisualRepairDeadline)
+            {
+                _managedHunterVisualRepairAt = -1f;
+                _managedHunterVisualRepairDeadline = -1f;
+                _logger?.LogWarning(
+                    $"Managed bot hunter visual repair stopped after repeated replacement errors: {exception.Message}");
+                return;
+            }
+            if (LoggingEnabled)
+            {
+                _logger?.LogWarning($"Managed bot hunter visual repair will retry: {exception.Message}");
+            }
+        }
+    }
+
+    private static void ReleaseManagedBotControlAuthority()
+    {
+        var assignedPlayerRefRaw = _managedBotControlPlayerRefRaw;
+        foreach (var networkObject in ManagedBotControlAuthorityObjects.Values)
+        {
+            try
+            {
+                if (networkObject is not null
+                    && networkObject.Pointer != IntPtr.Zero
+                    && networkObject.IsValid
+                    && networkObject.HasStateAuthority
+                    && (assignedPlayerRefRaw == 0
+                        || networkObject.InputAuthority.RawEncoded == assignedPlayerRefRaw))
+                {
+                    networkObject.RemoveInputAuthority();
+                }
+            }
+            catch (Exception exception)
+            {
+                LogError("Managed bot input authority cleanup failed", exception);
+            }
+        }
+
+        ManagedBotControlAuthorityObjects.Clear();
+        _managedBotControlPlayerRefRaw = 0;
+    }
+
+    private static void ClearPlayerInput(SpookedNetworkPlayer? player)
+    {
+        if (player is null || player.Pointer == IntPtr.Zero || player._spookedInputs is null)
+        {
+            return;
+        }
+
+        var internalId = player.InternalId;
+        if (internalId >= 0)
+        {
+            player._spookedInputs.ClearPlayerInputs(ref internalId);
+        }
+    }
+
     public static void ObserveBotSpawnCompleted(NetworkObject networkObject)
     {
         if (!Enabled || _pendingOperation != PendingOperation.Add)
@@ -693,6 +1476,7 @@ internal static class LobbyTestBotRuntime
                     ManagedAnimatorPointers.Add(networkAnimator.Pointer);
                 }
             }
+            EnsureManagedBotControlAuthority(player);
             if (refreshedControllers == 0)
             {
                 _logger?.LogWarning(
@@ -721,7 +1505,9 @@ internal static class LobbyTestBotRuntime
         }
     }
 
-    public static bool ShouldRunNetworkAnimator(EntityNetworkAnimatorComponent animator)
+    public static bool ShouldRunNetworkAnimator(
+        EntityNetworkAnimatorComponent animator,
+        bool allowWhileControlled)
     {
         if (!Enabled)
         {
@@ -735,7 +1521,7 @@ internal static class LobbyTestBotRuntime
 
         if (ManagedAnimatorPointers.Contains(animator.Pointer))
         {
-            return false;
+            return allowWhileControlled && ManagedBotAnimatorIsReady(animator);
         }
 
         var player = animator._spookedNetworkPlayer;
@@ -747,7 +1533,7 @@ internal static class LobbyTestBotRuntime
         if (IsManagedBot(player))
         {
             ManagedAnimatorPointers.Add(animator.Pointer);
-            return false;
+            return allowWhileControlled && ManagedBotAnimatorIsReady(animator);
         }
 
         var networkObject = animator.Object;
@@ -761,7 +1547,7 @@ internal static class LobbyTestBotRuntime
                 && (animator.transform.position - managedBot.transform.position).sqrMagnitude < 0.25f)
             {
                 ManagedAnimatorPointers.Add(animator.Pointer);
-                return false;
+                return allowWhileControlled && ManagedBotAnimatorIsReady(animator);
             }
         }
 
@@ -786,7 +1572,7 @@ internal static class LobbyTestBotRuntime
             && networkObject.InputAuthority.RawEncoded == _managedFusionPlayerRefRaw)
         {
             ManagedAnimatorPointers.Add(animator.Pointer);
-            return false;
+            return allowWhileControlled && ManagedBotAnimatorIsReady(animator);
         }
 
         if (_managedNetworkObjectPointer != IntPtr.Zero
@@ -794,7 +1580,7 @@ internal static class LobbyTestBotRuntime
             && networkObject.Pointer == _managedNetworkObjectPointer)
         {
             ManagedAnimatorPointers.Add(animator.Pointer);
-            return false;
+            return allowWhileControlled && ManagedBotAnimatorIsReady(animator);
         }
 
         // Never suppress an unassociated animator. During scene transitions the stock local
@@ -802,6 +1588,15 @@ internal static class LobbyTestBotRuntime
         // animator as the dummy leaves the local prefab uninitialized with all authored costume
         // renderers visible. Only pointers positively tied to the managed bot are skipped above.
         return true;
+    }
+
+    private static bool ManagedBotAnimatorIsReady(EntityNetworkAnimatorComponent animator)
+    {
+        return _managedBotControlActive
+            && animator._spookedNetworkPlayer is not null
+            && animator._spookedInputs is not null
+            && animator._animator is not null
+            && animator._animations is not null;
     }
 
     public static bool TryOverrideDiagnosticMap(ref SceneType sceneType)
@@ -1037,6 +1832,7 @@ internal static class LobbyTestBotRuntime
                 null,
                 new ConfirmSeekerCharacterEvent(bot.InternalId, CharacterType.murderer_ripper));
             _managedHunterConfirmationSent = true;
+            ScheduleManagedHunterVisualRepair();
             _logger?.LogInfo(
                 $"Confirmed managed test bot hunter through the stock event path: internalId={bot.InternalId}, character={CharacterType.murderer_ripper}");
         }
@@ -1761,6 +2557,8 @@ internal static class LobbyTestBotRuntime
         _managedPrefabRefreshRequested = false;
         _managedPrefabRefreshRequestedAt = -1f;
         _managedDirectPrefabSpawnRequested = false;
+        _managedHunterVisualRepairAt = -1f;
+        _managedHunterVisualRepairDeadline = -1f;
         _managedHunterConfirmationSent = false;
         _managedHunterConfirmationRetryAt = 0f;
         if (!RefreshManagedBotOutfit(player))
@@ -2000,10 +2798,12 @@ internal static class LobbyTestBotRuntime
 
     private static bool TrySpawnManagedBotCharacterPrefab(SpookedNetworkPlayer bot)
     {
+        var hasMatchingVisual = TryGetManagedBotVisual(bot, out var animator, out _)
+            && ManagedBotVisualMatchesCharacter(bot, animator);
         if (_managedDirectPrefabSpawnRequested
             || !_managedPrefabRefreshRequested
             || Time.unscaledTime - _managedPrefabRefreshRequestedAt < 1f
-            || bot.EntityNetworkAnimatorComponent is not null)
+            || hasMatchingVisual)
         {
             return false;
         }
@@ -2026,6 +2826,7 @@ internal static class LobbyTestBotRuntime
         }
 
         NetworkObject? spawnedPrefab = null;
+        var replacedAnimator = bot.EntityNetworkAnimatorComponent;
         _managedCharacterPrefabInitializer ??=
             (NetworkRunner.OnBeforeSpawned)(Action<NetworkRunner, NetworkObject>)InitializeManagedBotCharacterPrefab;
         _managedCharacterPrefabSpawnTarget = underlyingPrefab;
@@ -2053,9 +2854,95 @@ internal static class LobbyTestBotRuntime
             return false;
         }
 
+        var currentAnimator = bot.EntityNetworkAnimatorComponent;
+        if (currentAnimator is not null && currentAnimator.Pointer != IntPtr.Zero)
+        {
+            CleanupSupersededManagedBotVisuals(bot, currentAnimator, replacedAnimator);
+        }
+
         _logger?.LogInfo(
             $"Spawned the missing managed bot character prefab through Fusion: object={spawnedPrefab.Id}, "
             + $"character={bot.CharacterType}/{bot.SubCharacterType}");
+        return true;
+    }
+
+    private static void CleanupSupersededManagedBotVisuals(
+        SpookedNetworkPlayer bot,
+        EntityNetworkAnimatorComponent currentAnimator,
+        EntityNetworkAnimatorComponent? explicitlyReplacedAnimator = null)
+    {
+        var runner = bot.Runner;
+        var botObject = bot.Object;
+        var currentObject = currentAnimator.Object;
+        if (runner is null || currentObject is null || !currentObject.IsValid)
+        {
+            return;
+        }
+
+        var removed = 0;
+        foreach (var candidate in Resources.FindObjectsOfTypeAll<EntityNetworkAnimatorComponent>())
+        {
+            if (candidate is null
+                || candidate.Pointer == IntPtr.Zero
+                || candidate.Pointer == currentAnimator.Pointer)
+            {
+                continue;
+            }
+
+            var linkedPlayer = candidate._spookedNetworkPlayer
+                ?? candidate.GetComponentInParent<SpookedNetworkPlayer>();
+            var wasPublishedBeforeReplacement = candidate.Pointer == explicitlyReplacedAnimator?.Pointer;
+            if (!wasPublishedBeforeReplacement && !IsManagedBot(linkedPlayer))
+            {
+                continue;
+            }
+
+            var candidateObject = candidate.Object;
+            if (wasPublishedBeforeReplacement
+                && candidateObject?.Pointer == botObject?.Pointer
+                && TryDisableReplacedManagedBotVisual(bot, currentAnimator, candidate))
+            {
+                ManagedAnimatorPointers.Remove(candidate.Pointer);
+                removed++;
+                continue;
+            }
+
+            if (candidateObject is null
+                || !candidateObject.IsValid
+                || !candidateObject.HasStateAuthority
+                || candidateObject.Pointer == currentObject.Pointer
+                || candidateObject.Pointer == botObject?.Pointer)
+            {
+                continue;
+            }
+
+            ManagedAnimatorPointers.Remove(candidate.Pointer);
+            runner.Despawn(candidateObject);
+            removed++;
+        }
+
+        if (removed > 0)
+        {
+            _logger?.LogInfo($"Retired {removed} superseded managed bot character visual(s)");
+        }
+    }
+
+    private static bool TryDisableReplacedManagedBotVisual(
+        SpookedNetworkPlayer bot,
+        EntityNetworkAnimatorComponent currentAnimator,
+        EntityNetworkAnimatorComponent replacedAnimator)
+    {
+        var staleObject = replacedAnimator._animator?.gameObject;
+        var currentObject = currentAnimator._animator?.gameObject;
+        if (staleObject is null
+            || staleObject.Pointer == IntPtr.Zero
+            || staleObject.Pointer == bot.gameObject.Pointer
+            || staleObject.Pointer == currentObject?.Pointer)
+        {
+            return false;
+        }
+
+        staleObject.SetActive(false);
         return true;
     }
 
@@ -2074,6 +2961,7 @@ internal static class LobbyTestBotRuntime
 
     private static void ForgetManagedBot(bool preserveMatchIntent)
     {
+        StopManagedBotControl(null, "managed bot left the session");
         _managedSpawnerPointer = IntPtr.Zero;
         _managedPlayerPointer = IntPtr.Zero;
         _managedNetworkObjectPointer = IntPtr.Zero;
@@ -2084,6 +2972,8 @@ internal static class LobbyTestBotRuntime
         _managedPrefabRefreshRequested = false;
         _managedPrefabRefreshRequestedAt = -1f;
         _managedDirectPrefabSpawnRequested = false;
+        _managedHunterVisualRepairAt = -1f;
+        _managedHunterVisualRepairDeadline = -1f;
         if (!preserveMatchIntent)
         {
             _managedMatchJoinStarted = false;
@@ -2299,6 +3189,11 @@ internal static class LobbyTestBotRuntime
         {
             WatcherTick();
         }
+
+        private void LateUpdate()
+        {
+            WatcherLateTick();
+        }
     }
 }
 
@@ -2306,3 +3201,15 @@ internal sealed record ManagedBotResolverState(
     NetworkPlayerRegistry Registry,
     SpookedNetworkPlayer Bot,
     int InternalId);
+
+internal sealed class ManagedBotInputScope
+{
+    public ManagedBotInputScope(SpookedNetworkPlayer originalPlayer)
+    {
+        OriginalPlayer = originalPlayer;
+    }
+
+    public SpookedNetworkPlayer OriginalPlayer { get; }
+
+    public bool Restored { get; set; }
+}

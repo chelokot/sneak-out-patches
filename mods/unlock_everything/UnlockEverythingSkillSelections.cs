@@ -57,41 +57,6 @@ internal static partial class UnlockEverythingSelections
         return false;
     }
 
-    private static bool TryGetPassiveSkillTier(CharacterSkillCards? skillCards, SkillType skillType, out int tier)
-    {
-        tier = 0;
-
-        var passiveSkill1 = skillCards?.PassiveSkillCard1;
-        if (passiveSkill1 is not null && passiveSkill1.SkillType == skillType)
-        {
-            tier = passiveSkill1.Tier;
-            return tier > 0;
-        }
-
-        var passiveSkill2 = skillCards?.PassiveSkillCard2;
-        if (passiveSkill2 is not null && passiveSkill2.SkillType == skillType)
-        {
-            tier = passiveSkill2.Tier;
-            return tier > 0;
-        }
-
-        var passiveSkill3 = skillCards?.PassiveSkillCard3;
-        if (passiveSkill3 is not null && passiveSkill3.SkillType == skillType)
-        {
-            tier = passiveSkill3.Tier;
-            return tier > 0;
-        }
-
-        var passiveSkill4 = skillCards?.PassiveSkillCard4;
-        if (passiveSkill4 is not null && passiveSkill4.SkillType == skillType)
-        {
-            tier = passiveSkill4.Tier;
-            return tier > 0;
-        }
-
-        return false;
-    }
-
     private static bool TryMapWebCharacterTypeToRuntimeCharacterType(CharacterType characterType, out RuntimeCharacterType runtimeCharacterType)
     {
         runtimeCharacterType = characterType switch
@@ -169,20 +134,6 @@ internal static partial class UnlockEverythingSelections
         return false;
     }
 
-    private static bool TryGetPassiveSkillTier(SimplifiedSkillsRuntime skills, SkillType skillType, out int tier)
-    {
-        if (TryGetSkillTier(skills.PassiveSkill1, skillType, out tier)
-            || TryGetSkillTier(skills.PassiveSkill2, skillType, out tier)
-            || TryGetSkillTier(skills.PassiveSkill3, skillType, out tier)
-            || TryGetSkillTier(skills.PassiveSkill4, skillType, out tier))
-        {
-            return true;
-        }
-
-        tier = 0;
-        return false;
-    }
-
     private static bool TryGetSkillTier(PlayerSkillRuntime playerSkill, SkillType skillType, out int tier)
     {
         tier = playerSkill.Tier;
@@ -224,6 +175,22 @@ internal static partial class UnlockEverythingSelections
     {
         characterType = RuntimeCharacterType.spectator;
         tier = 0;
+
+        var currentNetworkPlayer = IsCurrentInternalId(internalId)
+            ? GetCurrentNetworkPlayer()
+            : null;
+        if (UnlockEverythingRuntime.UsePersistentSelections
+            && currentNetworkPlayer?.CharacterType == MummyPerkShopRuntime.MummyCharacterType
+            && ExtendedCharactersSkillsRegistry.TryGetSkillTier(
+                MummyPerkShopRuntime.MummyCharacterType,
+                skillType,
+                out tier))
+        {
+            // Reaper owns the shared perk definitions/modifier curves. The equipped value
+            // remains in Mummy's independent registry entry.
+            characterType = MummyPerkShopRuntime.ReaperCharacterType;
+            return true;
+        }
 
         if (TryGetLoadedSkillTier(internalId, skillType, out characterType, out tier))
         {
@@ -326,20 +293,15 @@ internal static partial class UnlockEverythingSelections
 
         if (characterType == MummyPerkShopRuntime.MummyCharacterType)
         {
-            if (LoadedCharactersSkillsByInternalId.TryGetValue(internalId, out var loadedSkills))
-            {
-                equipped = TryGetPassiveSkillTier(loadedSkills.RipperSkills, skillType, out _);
-                return true;
-            }
-
-            if (!UnlockEverythingRuntime.UsePersistentSelections
-                || !TryGetLocalCharacterForType(internalId, CharacterType.Reaper, out var reaperCharacter))
+            if (!IsCurrentInternalId(internalId))
             {
                 return false;
             }
 
-            equipped = TryGetPassiveSkillTier(reaperCharacter.SkillCards, skillType, out _);
-            return true;
+            return ExtendedCharactersSkillsRegistry.TryHaveSkillEquipped(
+                characterType,
+                skillType,
+                out equipped);
         }
 
         if (TryGetLoadedSkillTier(internalId, skillType, out var loadedCharacterType, out _))
@@ -516,9 +478,35 @@ internal static partial class UnlockEverythingSelections
             return false;
         }
 
-        if (!(mummyPassiveSelection
-                ? TryMapClientCharacterType(MummyPerkShopRuntime.ReaperCharacterType, out var characterType)
-                : TryMapClientCharacterType(clientCharacterType, out characterType)))
+        if (mummyPassiveSelection)
+        {
+            var mummyCards = player?.Cards?.SkillCards;
+            var mummySelectedCard = mummyCards is null ? null : FindSkillCard(mummyCards, skillType);
+            if (player is null || mummySelectedCard is null)
+            {
+                return false;
+            }
+
+            var extendedCharactersSkills = player.Characters is null
+                ? default
+                : CharactersSkillsRuntime.ToCharacterSkills(player.Characters);
+            extendedCharactersSkills.AddOrReplaceSkillInSlot(
+                skillType,
+                (TreeSkillSlotTypeRuntime)slotType,
+                clientCharacterType,
+                mummySelectedCard.Tier);
+            var saved = ExtendedCharactersSkillsRegistry.TryGetSkillFromSlot(
+                    clientCharacterType,
+                    (TreeSkillSlotTypeRuntime)slotType,
+                    out var savedSkillType)
+                && savedSkillType == skillType;
+            UnlockEverythingRuntime.LogSkillUiEvent(
+                "UnlockEverythingSelections.ApplyTreeSkillSelection:mummy",
+                $"slot={(TreeSkillSlotTypeRuntime)slotType}, skill={skillType}, saved={saved}");
+            return saved;
+        }
+
+        if (!TryMapClientCharacterType(clientCharacterType, out var characterType))
         {
             return false;
         }
@@ -538,11 +526,8 @@ internal static partial class UnlockEverythingSelections
 
         var charactersSkills = CharactersSkillsRuntime.ToCharacterSkills(player.Characters);
         var slotValue = (TreeSkillSlotTypeRuntime)slotType;
-        var storageCharacterType = mummyPassiveSelection
-            ? MummyPerkShopRuntime.ReaperCharacterType
-            : clientCharacterType;
-        charactersSkills.AddOrReplaceSkillInSlot(skillType, slotValue, storageCharacterType, selectedCard.Tier);
-        RebuildCharacterSkillCardsFromRegistry(charactersSkills, storageCharacterType, character, cards);
+        charactersSkills.AddOrReplaceSkillInSlot(skillType, slotValue, clientCharacterType, selectedCard.Tier);
+        RebuildCharacterSkillCardsFromRegistry(charactersSkills, clientCharacterType, character, cards);
         UnlockEverythingRuntime.LogSkillSelectionSnapshot("UnlockEverythingSelections.ApplyTreeSkillSelection:applied", character);
         SaveSelection(character);
         SyncLivePlayerCharactersSkills();

@@ -1,6 +1,7 @@
 using System.Reflection;
 using Fusion;
 using Gameplay.ArrowIndicators;
+using Gameplay.Buffs;
 using Gameplay.Match;
 using Gameplay.Player;
 using Gameplay.Player.Components;
@@ -9,6 +10,7 @@ using Gameplay.Spawn;
 using HarmonyLib;
 using Il2CppInterop.Runtime;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
+using EmoteType = Kinguinverse.WebServiceProvider.Types_v2.EmoteType;
 using Networking;
 using Networking.Matchmaking;
 using Networking.Matchmaking.Match;
@@ -209,10 +211,169 @@ internal static class SpookedNetworkPlayerInitPatch
 [HarmonyPatch(typeof(PlayerInputController), "ResolveLocalInputs")]
 internal static class DiagnosticPlayerMovementPatch
 {
+    [HarmonyPrefix]
+    private static void Prefix(
+        PlayerInputController __instance,
+        out ManagedBotInputScope? __state)
+    {
+        __state = LobbyTestBotRuntime.BeginManagedBotInputScope(__instance);
+    }
+
     [HarmonyPostfix]
     private static void Postfix(PlayerInputController __instance)
     {
+        LobbyTestBotRuntime.CorrectManagedBotMouseAim(__instance);
         LobbyTestBotRuntime.ApplyDiagnosticMovement(__instance);
+    }
+
+    [HarmonyFinalizer]
+    private static Exception? Finalizer(
+        Exception? __exception,
+        PlayerInputController __instance,
+        ManagedBotInputScope? __state)
+    {
+        LobbyTestBotRuntime.EndManagedBotInputScope(__instance, __state, clearOriginalInput: false);
+        return __exception;
+    }
+}
+
+[HarmonyPatch(typeof(PlayerInputController), nameof(PlayerInputController.BeforeUpdate))]
+internal static class ManagedBotLocalInputUpdatePatch
+{
+    [HarmonyPrefix]
+    private static void Prefix(
+        PlayerInputController __instance,
+        out ManagedBotInputScope? __state)
+    {
+        // Keep the managed bot selected through both stock phases: raw input sampling and the
+        // movement/state eligibility pass in SaveLocalClientInputs.
+        __state = LobbyTestBotRuntime.BeginManagedBotInputScope(__instance);
+    }
+
+    [HarmonyFinalizer]
+    private static Exception? Finalizer(
+        Exception? __exception,
+        PlayerInputController __instance,
+        ManagedBotInputScope? __state)
+    {
+        LobbyTestBotRuntime.EndManagedBotInputScope(__instance, __state, clearOriginalInput: false);
+        return __exception;
+    }
+}
+
+[HarmonyPatch(typeof(PlayerInputController), nameof(PlayerInputController.BeforeTick))]
+internal static class ManagedBotMovementInputPatch
+{
+    [HarmonyPrefix]
+    private static void Prefix(
+        PlayerInputController __instance,
+        out ManagedBotInputScope? __state)
+    {
+        __state = LobbyTestBotRuntime.BeginManagedBotInputScope(__instance);
+    }
+
+    [HarmonyFinalizer]
+    private static Exception? Finalizer(
+        Exception? __exception,
+        PlayerInputController __instance,
+        ManagedBotInputScope? __state)
+    {
+        LobbyTestBotRuntime.EndManagedBotInputScope(__instance, __state, clearOriginalInput: true);
+        return __exception;
+    }
+}
+
+[HarmonyPatch(typeof(PlayerInputController), "SendInputActionRequest")]
+internal static class ManagedBotInteractionInputPatch
+{
+    [HarmonyPrefix]
+    private static bool Prefix(PlayerInputController __instance, InputActionType inputActionType)
+    {
+        return !LobbyTestBotRuntime.TryRouteManagedBotInteraction(__instance, inputActionType);
+    }
+}
+
+[HarmonyPatch(typeof(PlayerInputController), "OnKillPressInput")]
+internal static class ManagedBotKillInputPatch
+{
+    [HarmonyPrefix]
+    private static bool Prefix(PlayerInputController __instance)
+    {
+        return !LobbyTestBotRuntime.TryRouteManagedBotKill(__instance);
+    }
+}
+
+[HarmonyPatch(typeof(PlayerInputController), "OnFirstSkillInput")]
+internal static class ManagedBotFirstSkillInputPatch
+{
+    [HarmonyPrefix]
+    private static bool Prefix(PlayerInputController __instance)
+    {
+        return !LobbyTestBotRuntime.TryRouteManagedBotSkill(__instance, secondSkill: false);
+    }
+}
+
+[HarmonyPatch(typeof(PlayerInputController), "OnSecondSkillInput")]
+internal static class ManagedBotSecondSkillInputPatch
+{
+    [HarmonyPrefix]
+    private static bool Prefix(PlayerInputController __instance)
+    {
+        return !LobbyTestBotRuntime.TryRouteManagedBotSkill(__instance, secondSkill: true);
+    }
+}
+
+[HarmonyPatch(typeof(PlayerEmoteController), nameof(PlayerEmoteController.PlayEmote))]
+internal static class ManagedBotEmoteInputPatch
+{
+    [HarmonyPrefix]
+    private static bool Prefix(PlayerEmoteController __instance, EmoteType emoteType)
+    {
+        return !LobbyTestBotRuntime.TryRouteManagedBotEmote(__instance, emoteType);
+    }
+}
+
+[HarmonyPatch(typeof(SeekerCage), "Update")]
+internal static class ManagedBotSeekerCageUpdatePatch
+{
+    [HarmonyPrefix]
+    private static void Prefix(SeekerCage __instance, out bool __state)
+    {
+        __state = LobbyTestBotRuntime.BeginManagedBotSeekerCageLocalScope(__instance);
+    }
+
+    [HarmonyFinalizer]
+    private static Exception? Finalizer(Exception? __exception, bool __state)
+    {
+        LobbyTestBotRuntime.EndManagedBotSeekerCageLocalScope(__state);
+        return __exception;
+    }
+}
+
+[HarmonyPatch(typeof(SeekerCage), "RPC_HostAttackResult")]
+internal static class ManagedBotSeekerCageAttackResultPatch
+{
+    [HarmonyPrefix]
+    private static void Prefix(SeekerCage __instance, out bool __state)
+    {
+        __state = LobbyTestBotRuntime.BeginManagedBotSeekerCageLocalScope(__instance);
+    }
+
+    [HarmonyFinalizer]
+    private static Exception? Finalizer(Exception? __exception, bool __state)
+    {
+        LobbyTestBotRuntime.EndManagedBotSeekerCageLocalScope(__state);
+        return __exception;
+    }
+}
+
+[HarmonyPatch(typeof(Game.Game), nameof(Game.Game.IsMyInternalId))]
+internal static class ManagedBotSeekerCageLocalIdPatch
+{
+    [HarmonyPostfix]
+    private static void Postfix(int id, ref bool __result)
+    {
+        LobbyTestBotRuntime.OverrideManagedBotSeekerCageLocalId(id, ref __result);
     }
 }
 
@@ -250,9 +411,19 @@ internal static class ManagedBotNetworkAnimatorPatch
     [HarmonyPrefix]
     private static bool Prefix(EntityNetworkAnimatorComponent __instance)
     {
-        // The managed bot deliberately has no SpookedInputs entry. The stock animator assumes
-        // every network player has one and otherwise logs a Fusion exception every simulation tick.
-        return LobbyTestBotRuntime.ShouldRunNetworkAnimator(__instance);
+        // The managed bot only receives a SpookedInputs entry while controlled. Run the stock
+        // animation simulation during that scope and keep it dormant at all other times.
+        return LobbyTestBotRuntime.ShouldRunNetworkAnimator(__instance, allowWhileControlled: true);
+    }
+}
+
+[HarmonyPatch(typeof(EntityVisibilityComponent), "Update")]
+internal static class ManagedBotVisibilityUpdatePatch
+{
+    [HarmonyPrefix]
+    private static bool Prefix(EntityVisibilityComponent __instance)
+    {
+        return LobbyTestBotRuntime.ShouldRunManagedBotVisibilityUpdate(__instance);
     }
 }
 
@@ -265,7 +436,7 @@ internal static class ManagedBotNetworkAnimatorAfterSpawnedPatch
         // During the lobby-to-match carry the visual prefab is not guaranteed to exist when this
         // async callback fires. The stock callback dereferences that absent prefab and leaves the
         // dummy's animation component half initialized.
-        return LobbyTestBotRuntime.ShouldRunNetworkAnimator(__instance);
+        return LobbyTestBotRuntime.ShouldRunNetworkAnimator(__instance, allowWhileControlled: false);
     }
 }
 
@@ -274,9 +445,9 @@ internal static class ManagedBotNetworkAnimatorCommandPatch
 {
     private static IEnumerable<MethodBase> TargetMethods()
     {
-        // A dummy has no authored character prefab, so the network animator component can exist
-        // while its Unity Animator and animation table are intentionally absent. Keep all stock
-        // match positioning/state logic, but make animation mutations inert for this one object.
+        // The network animator can exist before the fallback character prefab has supplied its
+        // Unity Animator and animation table. Mutations become live only while both are ready and
+        // control is assigned to the bot.
         var mutationNames = new HashSet<string>(StringComparer.Ordinal)
         {
             "SetBool",
@@ -293,7 +464,7 @@ internal static class ManagedBotNetworkAnimatorCommandPatch
     [HarmonyPrefix]
     private static bool Prefix(EntityNetworkAnimatorComponent __instance)
     {
-        return LobbyTestBotRuntime.ShouldRunNetworkAnimator(__instance);
+        return LobbyTestBotRuntime.ShouldRunNetworkAnimator(__instance, allowWhileControlled: true);
     }
 }
 

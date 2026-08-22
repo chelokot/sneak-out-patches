@@ -20,8 +20,20 @@
     <Reference Include="UnityEngine.CoreModule">
       <HintPath>$(InteropDir)/UnityEngine.CoreModule.dll</HintPath>
     </Reference>
+    <Reference Include="UnityEngine.AnimationModule">
+      <HintPath>$(InteropDir)/UnityEngine.AnimationModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.AIModule">
+      <HintPath>$(InteropDir)/UnityEngine.AIModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.PhysicsModule">
+      <HintPath>$(InteropDir)/UnityEngine.PhysicsModule.dll</HintPath>
+    </Reference>
     <Reference Include="UnityEngine.UI">
       <HintPath>$(InteropDir)/UnityEngine.UI.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.ImageConversionModule">
+      <HintPath>$(InteropDir)/UnityEngine.ImageConversionModule.dll</HintPath>
     </Reference>
     <Reference Include="Unity.InputSystem">
       <HintPath>$(InteropDir)/Unity.InputSystem.dll</HintPath>
@@ -32,5 +44,9 @@
     <Reference Include="Unity.TextMeshPro">
       <HintPath>$(InteropDir)/Unity.TextMeshPro.dll</HintPath>
     </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="../mummy_unlock/Assets/mummy_character_icon.png" Link="Assets/mummy_character_icon.png" LogicalName="SneakOut.UnlockEverything.Assets.mummy_character_icon.png" />
   </ItemGroup>
 </Project>

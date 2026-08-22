@@ -13,8 +13,9 @@ namespace SneakOut.NetworkHostSelector;
 
 internal static class NetworkHostSelectorRuntime
 {
-    private const string PropertyState = "sohs_s";
-    private const string PropertyPeers = "sohs_e";
+    private const string UniformSeekerRandomAssemblyName = "SneakOut.UniformSeekerRandom";
+    private const string UniformSeekerRandomPluginType =
+        "SneakOut.UniformSeekerRandom.UniformSeekerRandomPlugin";
     private const float NetworkTickInterval = 0.25f;
     private const float HelloInterval = 1f;
     private const float AckInterval = 0.5f;
@@ -31,6 +32,7 @@ internal static class NetworkHostSelectorRuntime
     private static float _nextAckAt;
     private static string _coordinatorMembership = string.Empty;
     private static bool _coordinatorCompatible;
+    private static int _coordinatorCommonCapabilities;
     private static int _coordinatorRevision;
     private static int _coordinatorTargetRaw;
     private static string _coordinatorTargetUserId = string.Empty;
@@ -38,12 +40,14 @@ internal static class NetworkHostSelectorRuntime
     private static int _publishedTargetRaw = int.MinValue;
     private static string _publishedTargetUserId = string.Empty;
     private static string _publishedMembership = string.Empty;
+    private static int _publishedCommonCapabilities = -1;
     private static bool _publishedCompatible;
     private static bool _publishedReady;
     private static int _observedRevision;
     private static int _observedTargetRaw;
     private static string _observedTargetUserId = string.Empty;
     private static string _observedMembership = string.Empty;
+    private static int _observedCommonCapabilities;
     private static bool _observedCompatible;
     private static bool _observedReady;
     private static bool _observedValid;
@@ -56,6 +60,7 @@ internal static class NetworkHostSelectorRuntime
     private static string _lastLeaderResolutionLog = string.Empty;
     private static string _lastCoordinatorQuorumLog = string.Empty;
     private static string _lastPeerPublicationLog = string.Empty;
+    private static string _lastCapabilityDetectionLog = string.Empty;
 
     public static void Initialize(ManualLogSource logger, NetworkHostSelectorConfig configuration)
     {
@@ -66,7 +71,8 @@ internal static class NetworkHostSelectorRuntime
         EnsureWatcher();
         LogInfo(
             $"TRACE initialized protocol={HostSelectionProtocol.Version} "
-            + $"enabled={configuration.EnableMod.Value} diagnostics={configuration.EnableLogging.Value}");
+            + $"enabled={configuration.EnableMod.Value} diagnostics={configuration.EnableLogging.Value} "
+            + $"localCapabilities={GetLocalCapabilities()}");
     }
 
     public static void ObservePlayer(SpookedNetworkPlayer player)
@@ -170,6 +176,7 @@ internal static class NetworkHostSelectorRuntime
             }
             _coordinatorMembership = membership;
             _coordinatorCompatible = true;
+            _coordinatorCommonCapabilities = GetLocalCapabilities();
             _coordinatorTargetRaw = leader.PlayerRaw;
             _coordinatorTargetUserId = leader.UserId;
             SetObservedState(
@@ -177,13 +184,15 @@ internal static class NetworkHostSelectorRuntime
                 leader.PlayerRaw,
                 leader.UserId,
                 membership,
+                _coordinatorCommonCapabilities,
                 compatible: true,
                 ready: true,
                 valid: true);
             LogTransition(
                 ref _lastCoordinatorQuorumLog,
                 $"HANDSHAKE local-only result=ready targetRaw={leader.PlayerRaw} "
-                + $"targetUserId={FormatValue(leader.UserId)} membership={membership}");
+                + $"targetUserId={FormatValue(leader.UserId)} membership={membership} "
+                + $"commonCapabilities={_coordinatorCommonCapabilities}");
             return;
         }
 
@@ -272,6 +281,34 @@ internal static class NetworkHostSelectorRuntime
                 : "Leader Host disarmed because a participant has not confirmed compatibility");
         }
 
+        var commonCapabilities = compatible ? GetLocalCapabilities() : 0;
+        if (compatible && properties is not null)
+        {
+            foreach (var participant in participants)
+            {
+                if (participant.Raw == runner.LocalPlayer.RawEncoded)
+                {
+                    continue;
+                }
+
+                if (!TryReadPeer(properties, participant.Raw, out var peer))
+                {
+                    commonCapabilities = 0;
+                    break;
+                }
+                commonCapabilities &= peer.Capabilities;
+            }
+        }
+        if (commonCapabilities != _coordinatorCommonCapabilities)
+        {
+            _coordinatorCommonCapabilities = commonCapabilities;
+            _coordinatorRevision++;
+            _lastAckedRevision = -1;
+            LogInfo(
+                $"Common multiplayer feature capabilities changed to {_coordinatorCommonCapabilities}; "
+                + "compatibility will be reconfirmed");
+        }
+
         var ready = compatible
             && _coordinatorTargetRaw != 0
             && !string.IsNullOrWhiteSpace(_coordinatorTargetUserId)
@@ -286,6 +323,7 @@ internal static class NetworkHostSelectorRuntime
             ref _lastCoordinatorQuorumLog,
             $"COORDINATOR quorum revision={_coordinatorRevision} membership={_coordinatorMembership} "
             + $"compatible={compatible} ready={ready} targetRaw={_coordinatorTargetRaw} "
+            + $"commonCapabilities={_coordinatorCommonCapabilities} "
             + $"targetUserId={FormatValue(_coordinatorTargetUserId)} "
             + $"peers=[{DescribePeerStatuses(runner, participants, _coordinatorMembership, _coordinatorRevision)}]");
         PublishState(runner, ready);
@@ -297,6 +335,7 @@ internal static class NetworkHostSelectorRuntime
             && _publishedTargetRaw == _coordinatorTargetRaw
             && string.Equals(_publishedTargetUserId, _coordinatorTargetUserId, StringComparison.Ordinal)
             && string.Equals(_publishedMembership, _coordinatorMembership, StringComparison.Ordinal)
+            && _publishedCommonCapabilities == _coordinatorCommonCapabilities
             && _publishedCompatible == _coordinatorCompatible
             && _publishedReady == ready)
         {
@@ -309,6 +348,7 @@ internal static class NetworkHostSelectorRuntime
             _publishedTargetRaw = _coordinatorTargetRaw;
             _publishedTargetUserId = _coordinatorTargetUserId;
             _publishedMembership = _coordinatorMembership;
+            _publishedCommonCapabilities = _coordinatorCommonCapabilities;
             _publishedCompatible = true;
             _publishedReady = true;
             SetObservedState(
@@ -316,13 +356,15 @@ internal static class NetworkHostSelectorRuntime
                 _coordinatorTargetRaw,
                 _coordinatorTargetUserId,
                 _coordinatorMembership,
+                _coordinatorCommonCapabilities,
                 compatible: true,
                 ready: true,
                 valid: true);
             LogInfo(
                 $"TX STATE local-only revision={_coordinatorRevision} targetRaw={_coordinatorTargetRaw} "
                 + $"targetUserId={FormatValue(_coordinatorTargetUserId)} "
-                + $"membership={_coordinatorMembership} compatible=True ready=True");
+                + $"membership={_coordinatorMembership} "
+                + $"commonCapabilities={_coordinatorCommonCapabilities} compatible=True ready=True");
             return;
         }
 
@@ -331,13 +373,15 @@ internal static class NetworkHostSelectorRuntime
             _coordinatorTargetRaw,
             _coordinatorTargetUserId,
             _coordinatorMembership,
+            _coordinatorCommonCapabilities,
             _coordinatorCompatible,
             ready);
         var properties = new Il2CppSystem.Collections.Generic.Dictionary<string, SessionProperty>();
-        properties[PropertyState] = encodedState;
+        properties[HostSelectionProtocol.PropertyState] = encodedState;
         LogInfo(
             $"TX STATE requested revision={_coordinatorRevision} targetRaw={_coordinatorTargetRaw} "
             + $"targetUserId={FormatValue(_coordinatorTargetUserId)} membership={_coordinatorMembership} "
+            + $"commonCapabilities={_coordinatorCommonCapabilities} "
             + $"compatible={_coordinatorCompatible} ready={ready}");
         var accepted = runner.SessionInfo.UpdateCustomProperties(properties);
         LogInfo($"TX STATE result acceptedByFusion={accepted} encoded={encodedState}");
@@ -350,6 +394,7 @@ internal static class NetworkHostSelectorRuntime
         _publishedTargetRaw = _coordinatorTargetRaw;
         _publishedTargetUserId = _coordinatorTargetUserId;
         _publishedMembership = _coordinatorMembership;
+        _publishedCommonCapabilities = _coordinatorCommonCapabilities;
         _publishedCompatible = _coordinatorCompatible;
         _publishedReady = ready;
         SetObservedState(
@@ -357,6 +402,7 @@ internal static class NetworkHostSelectorRuntime
             _coordinatorTargetRaw,
             _coordinatorTargetUserId,
             _coordinatorMembership,
+            _coordinatorCommonCapabilities,
             _coordinatorCompatible,
             ready,
             valid: true);
@@ -373,7 +419,7 @@ internal static class NetworkHostSelectorRuntime
                 LogTransition(ref _lastObservedStateLog, "RX STATE unavailable reason=no-properties");
                 return;
             }
-            if (!TryReadString(properties, PropertyState, out var encodedState))
+            if (!TryReadString(properties, HostSelectionProtocol.PropertyState, out var encodedState))
             {
                 _observedValid = false;
                 LogTransition(ref _lastObservedStateLog, "RX STATE unavailable reason=property-missing");
@@ -405,6 +451,7 @@ internal static class NetworkHostSelectorRuntime
                 ref _lastObservedStateLog,
                 $"RX STATE revision={state.Revision} targetRaw={state.TargetPlayerRaw} "
                 + $"targetUserId={FormatValue(state.TargetUserId)} membership={state.Membership} "
+                + $"commonCapabilities={state.CommonCapabilities} "
                 + $"compatible={state.Compatible} ready={state.Ready} validation="
                 + $"membershipMatch:{membershipMatches},leaderIdMatch:{leaderIdMatches},"
                 + $"targetPresent:{targetPresent},valid:{valid} "
@@ -414,6 +461,7 @@ internal static class NetworkHostSelectorRuntime
                 state.TargetPlayerRaw,
                 state.TargetUserId,
                 state.Membership,
+                state.CommonCapabilities,
                 state.Compatible,
                 state.Ready,
                 valid);
@@ -430,6 +478,7 @@ internal static class NetworkHostSelectorRuntime
         int targetRaw,
         string targetUserId,
         string membership,
+        int commonCapabilities,
         bool compatible,
         bool ready,
         bool valid)
@@ -442,6 +491,7 @@ internal static class NetworkHostSelectorRuntime
         _observedTargetRaw = targetRaw;
         _observedTargetUserId = targetUserId;
         _observedMembership = membership;
+        _observedCommonCapabilities = commonCapabilities;
         _observedCompatible = compatible;
         _observedReady = ready;
         _observedValid = valid;
@@ -465,14 +515,16 @@ internal static class NetworkHostSelectorRuntime
         }
 
         var properties = runner.SessionInfo.Properties;
+        var localCapabilities = GetLocalCapabilities();
         var registry = properties is not null
-            && TryReadString(properties, PropertyPeers, out var currentRegistry)
+            && TryReadString(properties, HostSelectionProtocol.PropertyPeers, out var currentRegistry)
                 ? currentRegistry
                 : string.Empty;
         var existingAck = -1;
         if (HostSelectionProtocol.TryGetPeer(registry, localRaw, out var existing)
             && string.Equals(existing.UserId, local.UserId, StringComparison.Ordinal)
-            && string.Equals(existing.Membership, membership, StringComparison.Ordinal))
+            && string.Equals(existing.Membership, membership, StringComparison.Ordinal)
+            && existing.Capabilities == localCapabilities)
         {
             existingAck = existing.AcknowledgedRevision;
         }
@@ -481,6 +533,7 @@ internal static class NetworkHostSelectorRuntime
             localRaw,
             local.UserId,
             membership,
+            localCapabilities,
             Math.Max(existingAck, acknowledgedRevision));
         var effectiveAck = Math.Max(existingAck, acknowledgedRevision);
         var messageType = effectiveAck >= 0 ? "ACK" : "HELLO";
@@ -489,16 +542,19 @@ internal static class NetworkHostSelectorRuntime
             LogTransition(
                 ref _lastPeerPublicationLog,
                 $"TX {messageType} current localRaw={localRaw} userId={FormatValue(local.UserId)} "
-                + $"membership={membership} acknowledgedRevision={effectiveAck}");
+                + $"membership={membership} capabilities={localCapabilities} "
+                + $"acknowledgedRevision={effectiveAck}");
             return;
         }
         LogInfo(
             $"TX {messageType} requested localRaw={localRaw} userId={FormatValue(local.UserId)} "
-            + $"membership={membership} acknowledgedRevision={effectiveAck}");
-        var accepted = UpdateProperty(runner, PropertyPeers, value);
+            + $"membership={membership} capabilities={localCapabilities} "
+            + $"acknowledgedRevision={effectiveAck}");
+        var accepted = UpdateProperty(runner, HostSelectionProtocol.PropertyPeers, value);
         LogInfo(
             $"TX {messageType} result acceptedByFusion={accepted} "
-            + $"localRaw={localRaw} membership={membership} acknowledgedRevision={effectiveAck}");
+            + $"localRaw={localRaw} membership={membership} capabilities={localCapabilities} "
+            + $"acknowledgedRevision={effectiveAck}");
         if (accepted)
         {
             _lastPeerPublicationLog = string.Empty;
@@ -524,8 +580,8 @@ internal static class NetworkHostSelectorRuntime
         // Keep the entire protocol in two fixed strings: coordinator state and a compact peer
         // registry. Reserving per-player keys both exceeded the room limit and caused live
         // updates to be rejected by Photon.
-        EnsureSessionProperty(args, PropertyState, string.Empty);
-        EnsureSessionProperty(args, PropertyPeers, string.Empty);
+        EnsureSessionProperty(args, HostSelectionProtocol.PropertyState, string.Empty);
+        EnsureSessionProperty(args, HostSelectionProtocol.PropertyPeers, string.Empty);
     }
 
     private static void EnsureSessionProperty(StartGameArgs args, string key, SessionProperty value)
@@ -665,6 +721,7 @@ internal static class NetworkHostSelectorRuntime
         _nextAckAt = 0f;
         _coordinatorMembership = string.Empty;
         _coordinatorCompatible = false;
+        _coordinatorCommonCapabilities = 0;
         _coordinatorRevision = 1;
         _coordinatorTargetRaw = 0;
         _coordinatorTargetUserId = string.Empty;
@@ -672,12 +729,14 @@ internal static class NetworkHostSelectorRuntime
         _publishedTargetRaw = int.MinValue;
         _publishedTargetUserId = string.Empty;
         _publishedMembership = string.Empty;
+        _publishedCommonCapabilities = -1;
         _publishedCompatible = false;
         _publishedReady = false;
         _observedRevision = 0;
         _observedTargetRaw = 0;
         _observedTargetUserId = string.Empty;
         _observedMembership = string.Empty;
+        _observedCommonCapabilities = 0;
         _observedCompatible = false;
         _observedReady = false;
         _observedValid = false;
@@ -714,6 +773,7 @@ internal static class NetworkHostSelectorRuntime
             + $"localSocialUserId={FormatValue(localSocialUserId)} localRaw={localRaw} "
             + $"privateGame={privateGame} state="
             + $"valid:{_observedValid},compatible:{_observedCompatible},ready:{_observedReady},"
+            + $"commonCapabilities:{_observedCommonCapabilities},"
             + $"revision:{_observedRevision},targetRaw:{_observedTargetRaw},"
             + $"targetUserId:{FormatValue(_observedTargetUserId)},membership:{FormatValue(_observedMembership)}");
         if (!_observedValid
@@ -815,6 +875,7 @@ internal static class NetworkHostSelectorRuntime
                 leader.PlayerRaw,
                 leader.UserId,
                 ComputeMembership(participants),
+                GetLocalCapabilities(),
                 compatible: true,
                 ready: true,
                 valid: true);
@@ -907,7 +968,7 @@ internal static class NetworkHostSelectorRuntime
             LogTransition(ref _lastPeerRegistryLog, "RX PEERS unavailable reason=no-properties");
             return;
         }
-        if (!TryReadString(properties, PropertyPeers, out var registry))
+        if (!TryReadString(properties, HostSelectionProtocol.PropertyPeers, out var registry))
         {
             LogTransition(ref _lastPeerRegistryLog, "RX PEERS unavailable reason=property-missing");
             return;
@@ -934,7 +995,7 @@ internal static class NetworkHostSelectorRuntime
                     + $"userId={FormatValue(participant.UserId)}";
                 if (participant.Raw == runner.LocalPlayer.RawEncoded)
                 {
-                    return $"{prefix},status=local-implicit";
+                    return $"{prefix},status=local-implicit,capabilities={GetLocalCapabilities()}";
                 }
                 if (properties is null || !TryReadPeer(properties, participant.Raw, out var peer))
                 {
@@ -951,7 +1012,8 @@ internal static class NetworkHostSelectorRuntime
                     StringComparison.Ordinal);
                 var revisionMatches = peer.AcknowledgedRevision == expectedRevision;
                 return $"{prefix},status=received,peerUserId={FormatValue(peer.UserId)},"
-                    + $"peerMembership={peer.Membership},ack={peer.AcknowledgedRevision},"
+                    + $"peerMembership={peer.Membership},capabilities={peer.Capabilities},"
+                    + $"ack={peer.AcknowledgedRevision},"
                     + $"identityMatch={identityMatches},membershipMatch={membershipMatches},"
                     + $"revisionMatch={revisionMatches}";
             }));
@@ -977,6 +1039,40 @@ internal static class NetworkHostSelectorRuntime
         {
             LogError("Reading the local social user id failed", exception);
             return string.Empty;
+        }
+    }
+
+    private static int GetLocalCapabilities()
+    {
+        try
+        {
+            var pluginAssembly = AppDomain.CurrentDomain.GetAssemblies()
+                .FirstOrDefault(assembly => string.Equals(
+                    assembly.GetName().Name,
+                    UniformSeekerRandomAssemblyName,
+                    StringComparison.Ordinal));
+            var pluginType = pluginAssembly?.GetType(
+                UniformSeekerRandomPluginType,
+                throwOnError: false,
+                ignoreCase: false);
+            var enabledProperty = pluginType?.GetProperty(
+                "IsFeatureEnabled",
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+            var uniformSeekerEnabled = enabledProperty?.GetValue(null) is true;
+            var capabilities = uniformSeekerEnabled
+                ? HostSelectionProtocol.UniformSeekerRandomCapability
+                : 0;
+            LogTransition(
+                ref _lastCapabilityDetectionLog,
+                $"CAPABILITIES local uniformSeekerRandom={uniformSeekerEnabled} mask={capabilities}");
+            return capabilities;
+        }
+        catch (Exception exception)
+        {
+            LogTransition(
+                ref _lastCapabilityDetectionLog,
+                $"CAPABILITIES local detection-failed error={FormatValue(exception.Message)} mask=0");
+            return 0;
         }
     }
 
@@ -1062,7 +1158,7 @@ internal static class NetworkHostSelectorRuntime
         out HostSelectionPeer peer)
     {
         peer = default;
-        return TryReadString(properties, PropertyPeers, out var registry)
+        return TryReadString(properties, HostSelectionProtocol.PropertyPeers, out var registry)
             && HostSelectionProtocol.TryGetPeer(registry, playerRaw, out peer);
     }
 

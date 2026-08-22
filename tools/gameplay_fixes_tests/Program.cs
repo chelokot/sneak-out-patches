@@ -340,18 +340,35 @@ Require(
     LeaderHostHudText.Compose("Lobby", "Line One\nLine Two") == "Lobby   Host: Line One Line Two",
     "Leader Host allowed a player name to break the bottom HUD strip");
 Require(
-    HostSelectionProtocol.CreateHello("AABBCCDD", "steam-a") == "3|AABBCCDD|steam-a",
+    HostSelectionProtocol.CreateHello(
+        "AABBCCDD",
+        "steam-a",
+        HostSelectionProtocol.UniformSeekerRandomCapability)
+        == "4|AABBCCDD|steam-a|1",
     "Leader Host hello token changed unexpectedly");
 Require(
-    HostSelectionProtocol.CreateAck(7, "AABBCCDD", 4, "steam-d")
-        == "3|7|AABBCCDD|4|steam-d",
+    HostSelectionProtocol.CreateAck(
+        7,
+        "AABBCCDD",
+        4,
+        "steam-d",
+        HostSelectionProtocol.UniformSeekerRandomCapability)
+        == "4|7|AABBCCDD|4|steam-d|1",
     "Leader Host acknowledgement token changed unexpectedly");
-var expectedState = new HostSelectionState(7, 4, "steam-d", "AABBCCDD", true, false);
+var expectedState = new HostSelectionState(
+    7,
+    4,
+    "steam-d",
+    "AABBCCDD",
+    HostSelectionProtocol.UniformSeekerRandomCapability,
+    true,
+    false);
 var encodedState = HostSelectionProtocol.CreateState(
     expectedState.Revision,
     expectedState.TargetPlayerRaw,
     expectedState.TargetUserId,
     expectedState.Membership,
+    expectedState.CommonCapabilities,
     expectedState.Compatible,
     expectedState.Ready);
 Require(
@@ -359,20 +376,37 @@ Require(
     "valid compact host-selection state was rejected");
 Require(decodedState == expectedState, "compact host-selection state did not round-trip");
 Require(
-    !HostSelectionProtocol.TryParseState("3|7|4||AABBCCDD|1|0", out _),
+    !HostSelectionProtocol.TryParseState("4|7|4||AABBCCDD|1|1|0", out _),
     "selected host state accepted an empty user id");
-var peerRegistry = HostSelectionProtocol.UpsertPeer(string.Empty, 2, "steam-b", "AABBCCDD", -1);
-peerRegistry = HostSelectionProtocol.UpsertPeer(peerRegistry, 4, "steam-d", "AABBCCDD", 7);
+var peerRegistry = HostSelectionProtocol.UpsertPeer(
+    string.Empty,
+    2,
+    "steam-b",
+    "AABBCCDD",
+    HostSelectionProtocol.UniformSeekerRandomCapability,
+    -1);
+peerRegistry = HostSelectionProtocol.UpsertPeer(
+    peerRegistry,
+    4,
+    "steam-d",
+    "AABBCCDD",
+    0,
+    7);
 Require(
     HostSelectionProtocol.TryGetPeer(peerRegistry, 2, out var peerTwo)
-    && peerTwo == new HostSelectionPeer(2, "steam-b", "AABBCCDD", -1),
+    && peerTwo == new HostSelectionPeer(
+        2,
+        "steam-b",
+        "AABBCCDD",
+        HostSelectionProtocol.UniformSeekerRandomCapability,
+        -1),
     "compact peer registry lost the first participant");
 Require(
     HostSelectionProtocol.TryGetPeer(peerRegistry, 4, out var peerFour)
-    && peerFour == new HostSelectionPeer(4, "steam-d", "AABBCCDD", 7),
+    && peerFour == new HostSelectionPeer(4, "steam-d", "AABBCCDD", 0, 7),
     "compact peer registry did not preserve acknowledgement state");
 Require(
-    !HostSelectionProtocol.TryGetPeer("2,4,c3RlYW0tZA==,AABBCCDD,7", 4, out _),
+    !HostSelectionProtocol.TryGetPeer("3,4,c3RlYW0tZA==,AABBCCDD,7", 4, out _),
     "Leader Host accepted a peer running the manual-selector protocol");
 var signatureA = HostSelectionProtocol.ComputeMembershipSignature(new[]
 {
@@ -457,6 +491,31 @@ var mummyPerkShopRuntimeSource = File.ReadAllText(Path.Combine(
     "mods",
     "unlock_everything",
     "MummyPerkShopRuntime.cs"));
+var mummyPlayerListIconPatchesSource = File.ReadAllText(Path.Combine(
+    repositoryRoot.FullName,
+    "mods",
+    "unlock_everything",
+    "MummyPlayerListIconPatches.cs"));
+var mummySarcophagusTeleportRuntimeSource = File.ReadAllText(Path.Combine(
+    repositoryRoot.FullName,
+    "mods",
+    "unlock_everything",
+    "MummySarcophagusTeleportRuntime.cs"));
+var mummySarcophagusTeleportPatchesSource = File.ReadAllText(Path.Combine(
+    repositoryRoot.FullName,
+    "mods",
+    "unlock_everything",
+    "MummySarcophagusTeleportPatches.cs"));
+var localSelectionsStoreSource = File.ReadAllText(Path.Combine(
+    repositoryRoot.FullName,
+    "mods",
+    "unlock_everything",
+    "LocalSelectionsStore.cs"));
+var extendedCharactersSkillsRegistrySource = File.ReadAllText(Path.Combine(
+    repositoryRoot.FullName,
+    "mods",
+    "unlock_everything",
+    "ExtendedCharactersSkillsRegistry.cs"));
 var titleLocalizationPatchesSource = File.ReadAllText(Path.Combine(
     repositoryRoot.FullName,
     "mods",
@@ -524,15 +583,85 @@ Require(
 Require(
     mummyPerkShopRuntimeSource.Contains("SkillTree = reaperPassiveTree.SkillTree", StringComparison.Ordinal)
     && mummyPerkShopRuntimeSource.Contains("emptyTree.Rows = Array.Empty<ListWrapper>()", StringComparison.Ordinal)
+    && mummyPerkShopRuntimeSource.Contains("ApplyCarouselIcons", StringComparison.Ordinal)
+    && mummyPerkShopRuntimeSource.Contains("MummyCharacterIcon", StringComparison.Ordinal)
     && unlockEverythingSkillPatchesSource.Contains(
         "HarmonyPatch(typeof(CharactersSkillsRuntime), \"GetSkillsForCharacterType\")",
         StringComparison.Ordinal)
-    && unlockEverythingSkillPatchesSource.Contains("__result = __instance.RipperSkills", StringComparison.Ordinal)
-    && unlockEverythingSkillPatchesSource.Contains("__result.ActiveSkill = default", StringComparison.Ordinal)
+    && unlockEverythingSkillPatchesSource.Contains(
+        "HarmonyPatch(typeof(CharactersSkillsRuntime), \"SaveSkillsForCharacterType\")",
+        StringComparison.Ordinal)
+    && unlockEverythingSkillPatchesSource.Contains(
+        "HarmonyPatch(typeof(MainBoostersView), nameof(MainBoostersView.GetDescriptionParams))",
+        StringComparison.Ordinal)
+    && unlockEverythingSkillPatchesSource.Contains(
+        "HarmonyPatch(typeof(SpookedSkillSettingsRuntime), nameof(SpookedSkillSettingsRuntime.GetTitle))",
+        StringComparison.Ordinal)
+    && unlockEverythingSkillPatchesSource.Contains(
+        "HarmonyPatch(typeof(SpookedSkillSettingsRuntime), nameof(SpookedSkillSettingsRuntime.GetDescriptionKey))",
+        StringComparison.Ordinal)
+    && unlockEverythingSkillPatchesSource.Contains(
+        "HarmonyPatch(typeof(SpookedSkillSettingsRuntime), nameof(SpookedSkillSettingsRuntime.GetAllModifiers))",
+        StringComparison.Ordinal)
+    && extendedCharactersSkillsRegistrySource.Contains("GetDefinitionCharacter", StringComparison.Ordinal)
+    && extendedCharactersSkillsRegistrySource.Contains(
+        "_ => MummyPerkShopRuntime.ReaperCharacterType",
+        StringComparison.Ordinal)
+    && unlockEverythingSkillPatchesSource.Contains("MainBoostersView._ShiftCharactersPanel_d__115", StringComparison.Ordinal)
+    && !mummyPerkShopRuntimeSource.Contains("BeginEquippedSkillsAlias", StringComparison.Ordinal)
+    && !mummyPerkShopRuntimeSource.Contains("ApplyEquippedPassiveSkills", StringComparison.Ordinal)
+    && !unlockEverythingSkillPatchesSource.Contains(
+        "HarmonyPatch(typeof(MainBoostersView), nameof(MainBoostersView.SetEquippedSkills))",
+        StringComparison.Ordinal)
+    && !unlockEverythingSkillPatchesSource.Contains(
+        "HarmonyPatch(typeof(MainBoostersView), nameof(MainBoostersView.SetSkillInfo))",
+        StringComparison.Ordinal)
+    && extendedCharactersSkillsRegistrySource.Contains("MummyStorageKey = \"runtime:12\"", StringComparison.Ordinal)
+    && extendedCharactersSkillsRegistrySource.Contains("TryGetSkills", StringComparison.Ordinal)
+    && extendedCharactersSkillsRegistrySource.Contains("TrySaveSkills", StringComparison.Ordinal)
+    && extendedCharactersSkillsRegistrySource.Contains("skills.ActiveSkill = default", StringComparison.Ordinal)
+    && extendedCharactersSkillsRegistrySource.Contains("skills.PassiveSkill4 = default", StringComparison.Ordinal)
+    && localSelectionsStoreSource.Contains("SaveRuntimeCharacterSkills", StringComparison.Ordinal)
+    && localSelectionsStoreSource.Contains("TryGetRuntimeCharacterSkills", StringComparison.Ordinal)
     && unlockEverythingSkillSelectionsSource.Contains(
+        "ExtendedCharactersSkillsRegistry.TryGetSkillFromSlot",
+        StringComparison.Ordinal)
+    && unlockEverythingSkillSelectionsSource.Contains(
+        "ExtendedCharactersSkillsRegistry.TryHaveSkillEquipped",
+        StringComparison.Ordinal)
+    && !unlockEverythingSkillPatchesSource.Contains("__instance.RipperSkills", StringComparison.Ordinal)
+    && !unlockEverythingSkillSelectionsSource.Contains("LocalSelectionsStore.IsMummyPassiveSkillEquipped", StringComparison.Ordinal)
+    && !unlockEverythingSkillSelectionsSource.Contains(
         "? MummyPerkShopRuntime.ReaperCharacterType",
         StringComparison.Ordinal),
-    "Mummy must reuse only Reaper's passive tree and synchronized passive storage");
+    "Mummy must borrow Reaper's perk catalog while using an independent seventh skill-registry entry");
+Require(
+    mummyPlayerListIconPatchesSource.Contains(
+        "HarmonyPatch(typeof(PlayerInGameRecord), nameof(PlayerInGameRecord.Refresh))",
+        StringComparison.Ordinal)
+    && mummyPerkShopRuntimeSource.Contains("ApplyPlayerListIcon", StringComparison.Ordinal)
+    && mummySarcophagusTeleportRuntimeSource.Contains(
+        "Types.CharacterAnimations.WardrobeHide",
+        StringComparison.Ordinal)
+    && mummySarcophagusTeleportRuntimeSource.Contains(
+        "Types.CharacterAnimations.LockerStepOut",
+        StringComparison.Ordinal)
+    && mummySarcophagusTeleportRuntimeSource.Contains(
+        "MurdererButcherAnimationController",
+        StringComparison.Ordinal)
+    && mummySarcophagusTeleportRuntimeSource.Contains(
+        "characterMovement.SetInputDirection(Vector3.zero, true)",
+        StringComparison.Ordinal)
+    && mummySarcophagusTeleportRuntimeSource.Contains(
+        "characterMovement.SetLookRotation(rotation, true, false)",
+        StringComparison.Ordinal)
+    && mummySarcophagusTeleportPatchesSource.Contains(
+        "HarmonyPatch(typeof(EntityNetworkAnimatorComponent), nameof(EntityNetworkAnimatorComponent.FixedUpdateNetwork))",
+        StringComparison.Ordinal)
+    && mummySarcophagusTeleportPatchesSource.Contains(
+        "HarmonyPatch(typeof(EntityNetworkAnimatorComponent), nameof(EntityNetworkAnimatorComponent.Render))",
+        StringComparison.Ordinal),
+    "Mummy presentation must borrow a wardrobe-capable controller and control sarcophagus motion every simulation and render frame");
 var leaderHostRuntimeSource = File.ReadAllText(Path.Combine(
     repositoryRoot.FullName,
     "mods",
@@ -543,6 +672,16 @@ var leaderHostPatchesSource = File.ReadAllText(Path.Combine(
     "mods",
     "network_host_selector",
     "NetworkHostSelectorPatches.cs"));
+var uniformSeekerRuntimeSource = File.ReadAllText(Path.Combine(
+    repositoryRoot.FullName,
+    "mods",
+    "uniform_seeker_random",
+    "UniformSeekerRandomRuntime.cs"));
+var uniformSeekerPatchesSource = File.ReadAllText(Path.Combine(
+    repositoryRoot.FullName,
+    "mods",
+    "uniform_seeker_random",
+    "UniformSeekerRandomPatches.cs"));
 Require(
     !leaderHostRuntimeSource.Contains("ActivePlayers", StringComparison.Ordinal)
     && !leaderHostRuntimeSource.Contains("Il2CppSystem.Collections.IEnumerator", StringComparison.Ordinal),
@@ -560,8 +699,28 @@ Require(
     leaderHostRuntimeSource.Contains("gameState.PrivateGameCheckbox", StringComparison.Ordinal)
     && leaderHostRuntimeSource.Contains("ShouldOverrideAssignedHost", StringComparison.Ordinal),
     "Leader Host must preserve the backend-assigned host during public matchmaking");
+Require(
+    leaderHostRuntimeSource.Contains("UniformSeekerRandomCapability", StringComparison.Ordinal)
+    && leaderHostRuntimeSource.Contains("peer.Capabilities", StringComparison.Ordinal)
+    && leaderHostRuntimeSource.Contains("commonCapabilities &=", StringComparison.Ordinal),
+    "Leader Host must publish Uniform Seeker Random only when every current peer advertises it");
+Require(
+    uniformSeekerRuntimeSource.Contains("stateMachine.HasStateAuthority", StringComparison.Ordinal)
+    && uniformSeekerRuntimeSource.Contains("_launchQuorumReady", StringComparison.Ordinal)
+    && uniformSeekerRuntimeSource.Contains("SELECTION final action=STOCK reason=not-state-authority", StringComparison.Ordinal),
+    "Uniform Seeker Random must never override selection on a client or without launch quorum");
+Require(
+    uniformSeekerRuntimeSource.Contains("stateMachine.SeekerChosenRefId", StringComparison.Ordinal)
+    && uniformSeekerRuntimeSource.Contains("transport=stock-seeker-replication", StringComparison.Ordinal)
+    && !uniformSeekerRuntimeSource.Contains("UpdateCustomProperties", StringComparison.Ordinal),
+    "Uniform Seeker Random must observe the stock replicated result instead of publishing a second result protocol");
+Require(
+    uniformSeekerPatchesSource.Contains("nameof(PhotonLobby.JoinMatchSession)", StringComparison.Ordinal)
+    && uniformSeekerPatchesSource.Contains("HarmonyPriority(Priority.Last)", StringComparison.Ordinal)
+    && uniformSeekerPatchesSource.Contains("nameof(MatchStateMachine.FixedUpdateNetwork)", StringComparison.Ordinal),
+    "Uniform Seeker Random must capture the finalized launch host and observe replicated match state");
 
-Console.WriteLine("Gameplay fixes, Community Discord, and synchronized Leader Host protocol tests passed.");
+Console.WriteLine("Gameplay fixes, Community Discord, Leader Host, and authoritative seeker tests passed.");
 
 internal enum TestSkinPart
 {

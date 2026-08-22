@@ -23,6 +23,8 @@ internal static class GameTranslatorReloadDictionaryPatch
                     dictionary.Add(entry.Key, entry.Value);
                 }
             }
+
+            MummyPerkShopRuntime.AddCharacterNameTranslation(__instance);
         }
         catch (Exception exception)
         {

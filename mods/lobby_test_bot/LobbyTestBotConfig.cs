@@ -96,7 +96,7 @@ internal sealed class LobbyTestBotConfig
             "general",
             "EnableMod",
             true,
-            "Show the native Dummy bot settings row and allow it to spawn one real inert network player.");
+            "Show the native Dummy bot settings row, spawn one network player, and allow Plus to switch controls.");
         var autoOpenPortalWhenLobbyReady = configFile.Bind(
             "diagnostics",
             "AutoOpenPortalWhenLobbyReady",

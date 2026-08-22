@@ -40,6 +40,24 @@ If `GamesFinishedCount == 0`, the player goes into the last fallback bucket inst
 - preferred role affects the result through `CanBeSeeker`
 - if multiple players are in the same bucket, the final choice is a fair random pick among them
 
+## Synchronized runtime override
+
+`Uniform Seeker Random` uses the `Leader Host` lobby handshake to advertise a feature
+capability for each real participant. In a private game, the override arms only when the
+finalized handshake says every participant supports the current randomizer protocol and
+the finalized match host is the synchronized party creator.
+
+The random choice is not made in the social lobby. Once the match registry exists,
+`ShouldStartState.GetRandomSeeker()` is overridden only on the Fusion state-authority
+client. It chooses from the same preferred/fallback candidate lists used by the runtime
+mod and returns the selected internal player id through the game's normal start path.
+`MatchStateMachine.SeekerChosenRefId` remains the single replicated result; clients do
+not roll independently or publish a second hunter message.
+
+If the feature quorum, final-host validation, active state machine, state authority, or
+candidate list is missing, the patch preserves the stock selection. Public matchmaking
+and `Berek` remain on their stock role-selection paths.
+
 ## Important caveat
 
 `GetRandomSeeker()` has a separate branch for `Berek`, so this logic should not be assumed to apply to crown mode.

@@ -60,7 +60,8 @@ not Developer ID signed or notarized; if necessary, Control-click it and choose
 
 | Id | Name | Default | Description |
 | --- | --- | :---: | --- |
-| `network-host-selector` | Leader Host | No | Makes the party creator host private matches when every player has the compatible mod; public matchmaking keeps the assigned host. |
+| `network-host-selector` | Leader Host | Yes | Makes the party creator host private matches when every player has the compatible mod; public matchmaking keeps the assigned host. |
+| `quick-reconnect` | Quick Reconnect | Yes | Enables the game's dormant reconnect-and-rejoin flow after a Photon timeout. Relayed non-host clients are not supported. |
 | `minimap` | Minimap | Yes | Adds a configurable minimap showing rooms, objectives, hiding spots, item dispensers, and your position. |
 | `start-delay-reducer` | Start Now | Yes | Lets the host start the match immediately after the normal connection wait. |
 | `background-loading-guard` | Background Loading Guard | Yes | Allows loading to continue while the game is in the background and restores your previous setting afterward. |
@@ -78,7 +79,7 @@ not Developer ID signed or notarized; if necessary, Control-click it and choose
 
 | Id | Name | Default | Description |
 | --- | --- | :---: | --- |
-| `lobby-test-bot` | Lobby Test Bot | No | Lets the host add an idle bot, choose it as the Classic-mode hunter, and start private test matches. |
+| `lobby-test-bot` | Lobby Test Bot | No | Lets the host add a test bot, choose it as the Classic-mode hunter, start private test matches, and use Plus to switch the camera, movement, interaction, attack, skill, and emote controls. |
 | `runtime-profiler` | Runtime Profiler (Debug) | No | Creates a performance report when the game closes to help diagnose slow mods and game functions. |
 
 ## Command line

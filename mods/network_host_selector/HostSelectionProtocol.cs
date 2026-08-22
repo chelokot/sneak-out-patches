@@ -18,7 +18,7 @@ internal readonly record struct HostSelectionPeer(
 
 internal static class HostSelectionProtocol
 {
-    public const int Version = 4;
+    public const int Version = 5;
     public const string PropertyState = "sohs_s";
     public const string PropertyPeers = "sohs_e";
     public const int UniformSeekerRandomCapability = 1 << 0;
@@ -127,20 +127,14 @@ internal static class HostSelectionProtocol
         return ParsePeers(registry).TryGetValue(playerRaw, out peer);
     }
 
-    public static string ComputeMembershipSignature(IEnumerable<(int PlayerRaw, string UserId)> participants)
+    public static string ComputeMembershipSignature(IEnumerable<int> playerRefs)
     {
         const ulong offsetBasis = 14695981039346656037UL;
         const ulong prime = 1099511628211UL;
         var hash = offsetBasis;
-        foreach (var participant in participants
-                     .OrderBy(entry => entry.PlayerRaw)
-                     .ThenBy(entry => entry.UserId, StringComparer.Ordinal))
+        foreach (var playerRaw in playerRefs.OrderBy(value => value))
         {
-            foreach (var value in BitConverter.GetBytes(participant.PlayerRaw))
-            {
-                hash = (hash ^ value) * prime;
-            }
-            foreach (var value in System.Text.Encoding.UTF8.GetBytes(participant.UserId))
+            foreach (var value in BitConverter.GetBytes(playerRaw))
             {
                 hash = (hash ^ value) * prime;
             }

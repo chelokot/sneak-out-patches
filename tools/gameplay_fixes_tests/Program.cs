@@ -385,7 +385,7 @@ Require(
         "AABBCCDD",
         "steam-a",
         HostSelectionProtocol.UniformSeekerRandomCapability)
-        == "4|AABBCCDD|steam-a|1",
+        == "5|AABBCCDD|steam-a|1",
     "Leader Host hello token changed unexpectedly");
 Require(
     HostSelectionProtocol.CreateAck(
@@ -394,7 +394,7 @@ Require(
         4,
         "steam-d",
         HostSelectionProtocol.UniformSeekerRandomCapability)
-        == "4|7|AABBCCDD|4|steam-d|1",
+        == "5|7|AABBCCDD|4|steam-d|1",
     "Leader Host acknowledgement token changed unexpectedly");
 var expectedState = new HostSelectionState(
     7,
@@ -417,7 +417,7 @@ Require(
     "valid compact host-selection state was rejected");
 Require(decodedState == expectedState, "compact host-selection state did not round-trip");
 Require(
-    !HostSelectionProtocol.TryParseState("4|7|4||AABBCCDD|1|1|0", out _),
+    !HostSelectionProtocol.TryParseState("5|7|4||AABBCCDD|1|1|0", out _),
     "selected host state accepted an empty user id");
 var peerRegistry = HostSelectionProtocol.UpsertPeer(
     string.Empty,
@@ -447,28 +447,28 @@ Require(
     && peerFour == new HostSelectionPeer(4, "steam-d", "AABBCCDD", 0, 7),
     "compact peer registry did not preserve acknowledgement state");
 Require(
-    !HostSelectionProtocol.TryGetPeer("3,4,c3RlYW0tZA==,AABBCCDD,7", 4, out _),
-    "Leader Host accepted a peer running the manual-selector protocol");
+    !HostSelectionProtocol.TryGetPeer("4,4,c3RlYW0tZA==,AABBCCDD,0,7", 4, out _),
+    "Leader Host accepted a peer running the identity-coupled protocol");
 var signatureA = HostSelectionProtocol.ComputeMembershipSignature(new[]
 {
-    (3, "steam-c"),
-    (1, "steam-a"),
-    (2, "steam-b"),
+    3,
+    1,
+    2,
 });
 var signatureB = HostSelectionProtocol.ComputeMembershipSignature(new[]
 {
-    (2, "steam-b"),
-    (3, "steam-c"),
-    (1, "steam-a"),
+    2,
+    3,
+    1,
 });
 var signatureDifferent = HostSelectionProtocol.ComputeMembershipSignature(new[]
 {
-    (1, "steam-a"),
-    (2, "steam-b"),
-    (3, "steam-other"),
+    1,
+    2,
+    4,
 });
 Require(signatureA == signatureB, "Leader Host membership signature depends on enumeration order");
-Require(signatureA != signatureDifferent, "Leader Host membership signature ignored a changed identity");
+Require(signatureA != signatureDifferent, "Leader Host membership signature ignored a changed PlayerRef");
 var observedParticipantSnapshot = LeaderHostParticipantPolicy.CreateSnapshot(new[]
 {
     new LeaderHostParticipant(4, "steam-d", "D", true, false),
@@ -770,6 +770,10 @@ Require(
     !leaderHostRuntimeSource.Contains("ActivePlayers", StringComparison.Ordinal)
     && !leaderHostRuntimeSource.Contains("Il2CppSystem.Collections.IEnumerator", StringComparison.Ordinal),
     "Leader Host reintroduced unsafe polling of Fusion's mutable IL2CPP player iterator");
+Require(
+    leaderHostRuntimeSource.Contains("playerRef == runner.LocalPlayer", StringComparison.Ordinal)
+    && leaderHostRuntimeSource.Contains("return runner.UserId ?? string.Empty", StringComparison.Ordinal),
+    "Leader Host must use Fusion's client-readable local user id instead of a server-only PlayerRef lookup");
 Require(
     !leaderHostRuntimeSource.Contains("LeaderHostStatus", StringComparison.Ordinal)
     && !leaderHostRuntimeSource.Contains("Instantiate(view._playButton", StringComparison.Ordinal),

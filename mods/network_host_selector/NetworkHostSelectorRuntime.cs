@@ -507,9 +507,12 @@ internal static class NetworkHostSelectorRuntime
         var local = participants.FirstOrDefault(participant => participant.Raw == localRaw);
         if (local is null || string.IsNullOrWhiteSpace(local.UserId))
         {
+            var reason = local is null
+                ? "local-participant-missing"
+                : "local-user-id-missing";
             LogTransition(
                 ref _lastPeerPublicationLog,
-                $"TX PEER blocked reason=local-participant-missing localRaw={localRaw} "
+                $"TX PEER blocked reason={reason} localRaw={localRaw} "
                 + $"participants=[{FormatParticipants(participants)}]");
             return;
         }
@@ -664,6 +667,12 @@ internal static class NetworkHostSelectorRuntime
     {
         try
         {
+            // In Client/Server mode Fusion only exposes PlayerRef-to-user-id lookups to the
+            // server. Every peer can still read its own authenticated user id directly.
+            if (playerRef == runner.LocalPlayer)
+            {
+                return runner.UserId ?? string.Empty;
+            }
             return runner.GetPlayerUserId(playerRef) ?? string.Empty;
         }
         catch
@@ -675,7 +684,7 @@ internal static class NetworkHostSelectorRuntime
     private static string ComputeMembership(IEnumerable<LeaderHostParticipant> participants)
     {
         return HostSelectionProtocol.ComputeMembershipSignature(
-            participants.Select(participant => (participant.Raw, participant.UserId)));
+            participants.Select(participant => participant.Raw));
     }
 
     private static bool TryResolvePartyCreator(

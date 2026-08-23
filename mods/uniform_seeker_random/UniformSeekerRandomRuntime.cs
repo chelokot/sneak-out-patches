@@ -52,24 +52,19 @@ internal static class UniformSeekerRandomRuntime
         _launchCommonCapabilities = 0;
         _lastReplicatedSeekerLog = string.Empty;
 
-        var privateGame = IsPrivateGameSelected();
+        var localPrivateGame = IsPrivateGameSelected();
         var runner = PhotonLobby.Runner;
         var runnerUsable = IsUsableLobbyRunner(runner);
         var localRaw = runnerUsable ? runner!.LocalPlayer.RawEncoded : 0;
         var playerCount = runnerUsable ? runner!.SessionInfo.PlayerCount : 0;
         LogInfo(
             $"HANDSHAKE capture requested hostId={FormatValue(_launchHostId)} "
-            + $"privateGame={privateGame} runnerUsable={runnerUsable} "
+            + $"localPrivateGame={localPrivateGame} runnerUsable={runnerUsable} "
             + $"localRaw={localRaw} playerCount={playerCount}");
 
         if (!IsEnabled)
         {
             FinishLaunchCapture("mod-disabled", ready: false);
-            return;
-        }
-        if (!privateGame)
-        {
-            FinishLaunchCapture("public-game", ready: false);
             return;
         }
         if (!runnerUsable)
@@ -81,7 +76,8 @@ internal static class UniformSeekerRandomRuntime
         if (playerCount == 1)
         {
             var party = PgosLobby.Instance;
-            var localOnlyValid = party is not null
+            var localOnlyValid = localPrivateGame
+                && party is not null
                 && party.AmITeamLeader
                 && !string.IsNullOrWhiteSpace(party.TeamLeaderId)
                 && string.Equals(party.TeamLeaderId, _launchHostId, StringComparison.Ordinal);
@@ -115,18 +111,25 @@ internal static class UniformSeekerRandomRuntime
 
             _launchRevision = state.Revision;
             _launchCommonCapabilities = state.CommonCapabilities;
+            if (!state.PrivateGame)
+            {
+                FinishLaunchCapture("public-game", ready: false);
+                return;
+            }
             var hostMatches = !string.IsNullOrWhiteSpace(_launchHostId)
                 && string.Equals(state.TargetUserId, _launchHostId, StringComparison.Ordinal);
             var capabilityPresent =
                 (state.CommonCapabilities & HostSelectionProtocol.UniformSeekerRandomCapability) != 0;
             var ready = state.Compatible
                 && state.Ready
+                && state.PrivateGame
                 && hostMatches
                 && capabilityPresent;
             LogInfo(
                 $"HANDSHAKE received state revision={state.Revision} "
                 + $"targetRaw={state.TargetPlayerRaw} targetUserId={FormatValue(state.TargetUserId)} "
-                + $"membership={state.Membership} compatible={state.Compatible} ready={state.Ready} "
+                + $"membership={state.Membership} privateGame={state.PrivateGame} "
+                + $"compatible={state.Compatible} ready={state.Ready} "
                 + $"commonCapabilities={state.CommonCapabilities} validation="
                 + $"hostMatch:{hostMatches},uniformCapability:{capabilityPresent},accepted:{ready}");
             FinishLaunchCapture(
@@ -368,6 +371,10 @@ internal static class UniformSeekerRandomRuntime
         bool capabilityPresent)
     {
         var reasons = new List<string>();
+        if (!state.PrivateGame)
+        {
+            reasons.Add("public-game");
+        }
         if (!state.Compatible)
         {
             reasons.Add("leader-host-incompatible");

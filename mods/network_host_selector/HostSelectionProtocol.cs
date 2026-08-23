@@ -6,6 +6,7 @@ internal readonly record struct HostSelectionState(
     string TargetUserId,
     string Membership,
     int CommonCapabilities,
+    bool PrivateGame,
     bool Compatible,
     bool Ready);
 
@@ -15,9 +16,15 @@ internal readonly record struct HostSelectionPeer(
     int Capabilities,
     int AcknowledgedRevision);
 
+internal readonly record struct HostSelectionAdvertisement(
+    string Membership,
+    int Capabilities,
+    int AcknowledgedRevision,
+    int TargetPlayerRaw);
+
 internal static class HostSelectionProtocol
 {
-    public const int Version = 6;
+    public const int Version = 7;
     public const string PropertyState = "sohs_s";
     public const string PropertyPeers = "sohs_e";
     public const int UniformSeekerRandomCapability = 1 << 0;
@@ -36,12 +43,54 @@ internal static class HostSelectionProtocol
         return $"{Version}|{revision}|{membership}|{targetPlayerRaw}|{capabilities}";
     }
 
+    public static bool TryParseAdvertisement(
+        string value,
+        out HostSelectionAdvertisement advertisement)
+    {
+        advertisement = default;
+        var fields = value.Split('|');
+        if (fields.Length == 3
+            && TryParseVersion(fields[0])
+            && !string.IsNullOrWhiteSpace(fields[1])
+            && int.TryParse(fields[2], out var helloCapabilities)
+            && helloCapabilities >= 0)
+        {
+            advertisement = new HostSelectionAdvertisement(
+                fields[1],
+                helloCapabilities,
+                AcknowledgedRevision: -1,
+                TargetPlayerRaw: 0);
+            return true;
+        }
+
+        if (fields.Length == 5
+            && TryParseVersion(fields[0])
+            && int.TryParse(fields[1], out var revision)
+            && revision >= 0
+            && !string.IsNullOrWhiteSpace(fields[2])
+            && int.TryParse(fields[3], out var targetPlayerRaw)
+            && targetPlayerRaw > 0
+            && int.TryParse(fields[4], out var ackCapabilities)
+            && ackCapabilities >= 0)
+        {
+            advertisement = new HostSelectionAdvertisement(
+                fields[2],
+                ackCapabilities,
+                revision,
+                targetPlayerRaw);
+            return true;
+        }
+
+        return false;
+    }
+
     public static string CreateState(
         int revision,
         int targetPlayerRaw,
         string targetUserId,
         string membership,
         int commonCapabilities,
+        bool privateGame,
         bool compatible,
         bool ready)
     {
@@ -53,6 +102,7 @@ internal static class HostSelectionProtocol
             EncodeToken(targetUserId),
             membership,
             commonCapabilities,
+            privateGame ? 1 : 0,
             compatible ? 1 : 0,
             ready ? 1 : 0);
     }
@@ -61,7 +111,7 @@ internal static class HostSelectionProtocol
     {
         state = default;
         var fields = value.Split('|');
-        if (fields.Length != 8
+        if (fields.Length != 9
             || !int.TryParse(fields[0], out var version)
             || version != Version
             || !int.TryParse(fields[1], out var revision)
@@ -72,8 +122,9 @@ internal static class HostSelectionProtocol
             || string.IsNullOrWhiteSpace(fields[4])
             || !int.TryParse(fields[5], out var commonCapabilities)
             || commonCapabilities < 0
-            || !TryParseFlag(fields[6], out var compatible)
-            || !TryParseFlag(fields[7], out var ready)
+            || !TryParseFlag(fields[6], out var privateGame)
+            || !TryParseFlag(fields[7], out var compatible)
+            || !TryParseFlag(fields[8], out var ready)
             || (targetPlayerRaw == 0 && targetUserId.Length != 0)
             || (targetPlayerRaw != 0 && string.IsNullOrWhiteSpace(targetUserId)))
         {
@@ -86,6 +137,7 @@ internal static class HostSelectionProtocol
             targetUserId,
             fields[4],
             commonCapabilities,
+            privateGame,
             compatible,
             ready);
         return true;
@@ -225,6 +277,11 @@ internal static class HostSelectionProtocol
     {
         flag = value == "1";
         return flag || value == "0";
+    }
+
+    private static bool TryParseVersion(string value)
+    {
+        return int.TryParse(value, out var version) && version == Version;
     }
 
 }

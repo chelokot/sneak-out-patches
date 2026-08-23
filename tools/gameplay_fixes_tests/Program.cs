@@ -384,7 +384,7 @@ Require(
     HostSelectionProtocol.CreateHello(
         "AABBCCDD",
         HostSelectionProtocol.UniformSeekerRandomCapability)
-        == "6|AABBCCDD|1",
+        == "7|AABBCCDD|1",
     "Leader Host hello token changed unexpectedly");
 Require(
     HostSelectionProtocol.CreateAck(
@@ -392,14 +392,46 @@ Require(
         "AABBCCDD",
         4,
         HostSelectionProtocol.UniformSeekerRandomCapability)
-        == "6|7|AABBCCDD|4|1",
+        == "7|7|AABBCCDD|4|1",
     "Leader Host acknowledgement token changed unexpectedly");
+Require(
+    HostSelectionProtocol.TryParseAdvertisement(
+        HostSelectionProtocol.CreateHello(
+            "AABBCCDD",
+            HostSelectionProtocol.UniformSeekerRandomCapability),
+        out var helloAdvertisement)
+    && helloAdvertisement == new HostSelectionAdvertisement(
+        "AABBCCDD",
+        HostSelectionProtocol.UniformSeekerRandomCapability,
+        -1,
+        0),
+    "Leader Host rejected a valid reliable HELLO advertisement");
+Require(
+    HostSelectionProtocol.TryParseAdvertisement(
+        HostSelectionProtocol.CreateAck(
+            7,
+            "AABBCCDD",
+            4,
+            HostSelectionProtocol.UniformSeekerRandomCapability),
+        out var ackAdvertisement)
+    && ackAdvertisement == new HostSelectionAdvertisement(
+        "AABBCCDD",
+        HostSelectionProtocol.UniformSeekerRandomCapability,
+        7,
+        4),
+    "Leader Host rejected a valid reliable ACK advertisement");
+Require(
+    !HostSelectionProtocol.TryParseAdvertisement("7|AABBCCDD|-1", out _)
+    && !HostSelectionProtocol.TryParseAdvertisement("7|7|AABBCCDD|0|1", out _)
+    && !HostSelectionProtocol.TryParseAdvertisement("6|AABBCCDD|1", out _),
+    "Leader Host accepted a malformed or incompatible reliable advertisement");
 var expectedState = new HostSelectionState(
     7,
     4,
     "steam-d",
     "AABBCCDD",
     HostSelectionProtocol.UniformSeekerRandomCapability,
+    true,
     true,
     false);
 var encodedState = HostSelectionProtocol.CreateState(
@@ -408,6 +440,7 @@ var encodedState = HostSelectionProtocol.CreateState(
     expectedState.TargetUserId,
     expectedState.Membership,
     expectedState.CommonCapabilities,
+    expectedState.PrivateGame,
     expectedState.Compatible,
     expectedState.Ready);
 Require(
@@ -415,7 +448,7 @@ Require(
     "valid compact host-selection state was rejected");
 Require(decodedState == expectedState, "compact host-selection state did not round-trip");
 Require(
-    !HostSelectionProtocol.TryParseState("6|7|4||AABBCCDD|1|1|0", out _),
+    !HostSelectionProtocol.TryParseState("7|7|4||AABBCCDD|1|1|1|0", out _),
     "selected host state accepted an empty user id");
 var peerRegistry = HostSelectionProtocol.UpsertPeer(
     string.Empty,
@@ -825,8 +858,16 @@ Require(
     "Portal Mode Selector must keep game_mode out of party-lobby matchmaking");
 Require(
     leaderHostRuntimeSource.Contains("gameState.PrivateGameCheckbox", StringComparison.Ordinal)
+    && leaderHostRuntimeSource.Contains("privateGame = _observedPrivateGame", StringComparison.Ordinal)
+    && leaderHostRuntimeSource.Contains("state.PrivateGame", StringComparison.Ordinal)
     && leaderHostRuntimeSource.Contains("ShouldOverrideAssignedHost", StringComparison.Ordinal),
-    "Leader Host must preserve the backend-assigned host during public matchmaking");
+    "Leader Host must synchronize the authority's private selection and preserve public matchmaking");
+Require(
+    leaderHostRuntimeSource.Contains("SendReliableDataToServer", StringComparison.Ordinal)
+    && leaderHostRuntimeSource.Contains("NetworkEvents", StringComparison.Ordinal)
+    && leaderHostRuntimeSource.Contains("CoordinatorPeers", StringComparison.Ordinal)
+    && leaderHostRuntimeSource.Contains("if (!IsCoordinator(runner))", StringComparison.Ordinal),
+    "Leader Host must send peer advertisements to an authority-owned room-property registry");
 Require(
     leaderHostRuntimeSource.Contains("UniformSeekerRandomCapability", StringComparison.Ordinal)
     && leaderHostRuntimeSource.Contains("peer.Capabilities", StringComparison.Ordinal)

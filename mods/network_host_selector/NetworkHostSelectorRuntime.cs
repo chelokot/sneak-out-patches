@@ -1,13 +1,18 @@
 using BepInEx.Logging;
 using Fusion;
+using Fusion.Sockets;
 using Gameplay.Player.Components;
 using HarmonyLib;
+using Il2CppInterop.Runtime;
+using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using Il2CppInterop.Runtime.Injection;
 using Networking.Lobby;
 using Networking.Party;
+using System.Text;
 using TMPro;
 using UI.Views;
 using UnityEngine;
+using UnityEngine.Events;
 
 namespace SneakOut.NetworkHostSelector;
 
@@ -19,8 +24,12 @@ internal static class NetworkHostSelectorRuntime
     private const float NetworkTickInterval = 0.25f;
     private const float HelloInterval = 1f;
     private const float AckInterval = 0.5f;
+    private const int ReliableMessageMagic = 0x534F484C;
+    private const int ReliableMessageChannel = 1;
+    private const int MaximumReliablePayloadBytes = 256;
 
     private static readonly Dictionary<IntPtr, SpookedNetworkPlayer> ObservedPlayers = new();
+    private static readonly Dictionary<int, HostSelectionPeer> CoordinatorPeers = new();
 
     private static ManualLogSource? _logger;
     private static NetworkHostSelectorConfig? _configuration;
@@ -36,18 +45,22 @@ internal static class NetworkHostSelectorRuntime
     private static int _coordinatorRevision;
     private static int _coordinatorTargetRaw;
     private static string _coordinatorTargetUserId = string.Empty;
+    private static bool _coordinatorPrivateGame;
     private static int _publishedRevision = -1;
     private static int _publishedTargetRaw = int.MinValue;
     private static string _publishedTargetUserId = string.Empty;
     private static string _publishedMembership = string.Empty;
     private static int _publishedCommonCapabilities = -1;
+    private static bool _publishedPrivateGame;
     private static bool _publishedCompatible;
     private static bool _publishedReady;
+    private static string _publishedPeerRegistry = string.Empty;
     private static int _observedRevision;
     private static int _observedTargetRaw;
     private static string _observedTargetUserId = string.Empty;
     private static string _observedMembership = string.Empty;
     private static int _observedCommonCapabilities;
+    private static bool _observedPrivateGame;
     private static bool _observedCompatible;
     private static bool _observedReady;
     private static bool _observedValid;
@@ -61,6 +74,11 @@ internal static class NetworkHostSelectorRuntime
     private static string _lastCoordinatorQuorumLog = string.Empty;
     private static string _lastPeerPublicationLog = string.Empty;
     private static string _lastCapabilityDetectionLog = string.Empty;
+    private static NetworkRunner? _transportRunner;
+    private static NetworkEvents? _networkEvents;
+    private static UnityAction<NetworkRunner, PlayerRef, ReliableKey, Il2CppSystem.ArraySegment<byte>>?
+        _reliableDataAction;
+    private static int _reliableMessageSequence;
 
     public static void Initialize(ManualLogSource logger, NetworkHostSelectorConfig configuration)
     {
@@ -142,10 +160,15 @@ internal static class NetworkHostSelectorRuntime
         if (_runnerPointer != runner.Pointer)
         {
             ResetForRunner(runner.Pointer);
+            EnsureReliableTransport(runner);
             LogInfo(
                 $"RUNNER attached session={FormatValue(runner.SessionInfo.Name)} "
                 + $"localRaw={runner.LocalPlayer.RawEncoded} server={runner.IsServer} "
                 + $"sharedMaster={runner.IsSharedModeMasterClient} playerCount={runner.SessionInfo.PlayerCount}");
+        }
+        else
+        {
+            EnsureReliableTransport(runner);
         }
 
         var participants = GetParticipants(runner);
@@ -179,12 +202,14 @@ internal static class NetworkHostSelectorRuntime
             _coordinatorCommonCapabilities = GetLocalCapabilities();
             _coordinatorTargetRaw = leader.PlayerRaw;
             _coordinatorTargetUserId = leader.UserId;
+            _coordinatorPrivateGame = IsPrivateGameSelected();
             SetObservedState(
                 _coordinatorRevision,
                 leader.PlayerRaw,
                 leader.UserId,
                 membership,
                 _coordinatorCommonCapabilities,
+                _coordinatorPrivateGame,
                 compatible: true,
                 ready: true,
                 valid: true);
@@ -192,14 +217,15 @@ internal static class NetworkHostSelectorRuntime
                 ref _lastCoordinatorQuorumLog,
                 $"HANDSHAKE local-only result=ready targetRaw={leader.PlayerRaw} "
                 + $"targetUserId={FormatValue(leader.UserId)} membership={membership} "
-                + $"commonCapabilities={_coordinatorCommonCapabilities}");
+                + $"commonCapabilities={_coordinatorCommonCapabilities} "
+                + $"privateGame={_coordinatorPrivateGame}");
             return;
         }
 
         if (now >= _nextHelloAt)
         {
             _nextHelloAt = now + HelloInterval;
-            PublishPeerStatus(runner, participants, membership, acknowledgedRevision: -1);
+            PublishPeerStatus(runner, participants, membership, _lastAckedRevision);
         }
 
         ReadObservedState(runner, participants);
@@ -260,13 +286,26 @@ internal static class NetworkHostSelectorRuntime
             LogInfo($"Party creator fixed as match host ({leader.UserId})");
         }
 
-        var properties = runner.SessionInfo.Properties;
+        if (leaderResolved)
+        {
+            var privateGame = IsPrivateGameSelected();
+            if (privateGame != _coordinatorPrivateGame)
+            {
+                _coordinatorPrivateGame = privateGame;
+                _coordinatorRevision++;
+                _lastAckedRevision = -1;
+                LogInfo(
+                    $"Coordinator game visibility changed privateGame={_coordinatorPrivateGame}; "
+                    + "compatibility will be reconfirmed");
+            }
+        }
+
+        var registry = CreateCoordinatorRegistry(participants);
+        PublishPeerRegistry(runner, registry);
         // Every participant advertises its current PlayerRef. Requiring the exact set prevents
         // a matching count made up of missing or stale player slots from arming the override.
         var compatible = _localOnlySession
-            || properties is not null
-            && TryReadString(properties, HostSelectionProtocol.PropertyPeers, out var registry)
-            && HostSelectionProtocol.HasExactPeerSet(
+            || HostSelectionProtocol.HasExactPeerSet(
                 registry,
                 participants.Select(participant => participant.Raw),
                 _coordinatorMembership);
@@ -281,11 +320,11 @@ internal static class NetworkHostSelectorRuntime
         }
 
         var commonCapabilities = compatible ? GetLocalCapabilities() : 0;
-        if (compatible && properties is not null)
+        if (compatible)
         {
             foreach (var participant in participants)
             {
-                if (!TryReadPeer(properties, participant.Raw, out var peer))
+                if (!HostSelectionProtocol.TryGetPeer(registry, participant.Raw, out var peer))
                 {
                     commonCapabilities = 0;
                     break;
@@ -306,9 +345,8 @@ internal static class NetworkHostSelectorRuntime
         var ready = compatible
             && _coordinatorTargetRaw != 0
             && !string.IsNullOrWhiteSpace(_coordinatorTargetUserId)
-            && properties is not null
             && participants.All(participant =>
-                TryReadPeer(properties, participant.Raw, out var peer)
+                HostSelectionProtocol.TryGetPeer(registry, participant.Raw, out var peer)
                 && string.Equals(peer.Membership, _coordinatorMembership, StringComparison.Ordinal)
                 && peer.AcknowledgedRevision == _coordinatorRevision);
         LogTransition(
@@ -316,8 +354,9 @@ internal static class NetworkHostSelectorRuntime
             $"COORDINATOR quorum revision={_coordinatorRevision} membership={_coordinatorMembership} "
             + $"compatible={compatible} ready={ready} targetRaw={_coordinatorTargetRaw} "
             + $"commonCapabilities={_coordinatorCommonCapabilities} "
+            + $"privateGame={_coordinatorPrivateGame} "
             + $"targetUserId={FormatValue(_coordinatorTargetUserId)} "
-            + $"peers=[{DescribePeerStatuses(runner, participants, _coordinatorMembership, _coordinatorRevision)}]");
+            + $"peers=[{DescribePeerStatuses(participants, _coordinatorMembership, _coordinatorRevision, registry)}]");
         PublishState(runner, ready);
     }
 
@@ -328,6 +367,7 @@ internal static class NetworkHostSelectorRuntime
             && string.Equals(_publishedTargetUserId, _coordinatorTargetUserId, StringComparison.Ordinal)
             && string.Equals(_publishedMembership, _coordinatorMembership, StringComparison.Ordinal)
             && _publishedCommonCapabilities == _coordinatorCommonCapabilities
+            && _publishedPrivateGame == _coordinatorPrivateGame
             && _publishedCompatible == _coordinatorCompatible
             && _publishedReady == ready)
         {
@@ -341,6 +381,7 @@ internal static class NetworkHostSelectorRuntime
             _publishedTargetUserId = _coordinatorTargetUserId;
             _publishedMembership = _coordinatorMembership;
             _publishedCommonCapabilities = _coordinatorCommonCapabilities;
+            _publishedPrivateGame = _coordinatorPrivateGame;
             _publishedCompatible = true;
             _publishedReady = true;
             SetObservedState(
@@ -349,6 +390,7 @@ internal static class NetworkHostSelectorRuntime
                 _coordinatorTargetUserId,
                 _coordinatorMembership,
                 _coordinatorCommonCapabilities,
+                _coordinatorPrivateGame,
                 compatible: true,
                 ready: true,
                 valid: true);
@@ -356,7 +398,8 @@ internal static class NetworkHostSelectorRuntime
                 $"TX STATE local-only revision={_coordinatorRevision} targetRaw={_coordinatorTargetRaw} "
                 + $"targetUserId={FormatValue(_coordinatorTargetUserId)} "
                 + $"membership={_coordinatorMembership} "
-                + $"commonCapabilities={_coordinatorCommonCapabilities} compatible=True ready=True");
+                + $"commonCapabilities={_coordinatorCommonCapabilities} "
+                + $"privateGame={_coordinatorPrivateGame} compatible=True ready=True");
             return;
         }
 
@@ -366,6 +409,7 @@ internal static class NetworkHostSelectorRuntime
             _coordinatorTargetUserId,
             _coordinatorMembership,
             _coordinatorCommonCapabilities,
+            _coordinatorPrivateGame,
             _coordinatorCompatible,
             ready);
         var properties = new Il2CppSystem.Collections.Generic.Dictionary<string, SessionProperty>();
@@ -374,6 +418,7 @@ internal static class NetworkHostSelectorRuntime
             $"TX STATE requested revision={_coordinatorRevision} targetRaw={_coordinatorTargetRaw} "
             + $"targetUserId={FormatValue(_coordinatorTargetUserId)} membership={_coordinatorMembership} "
             + $"commonCapabilities={_coordinatorCommonCapabilities} "
+            + $"privateGame={_coordinatorPrivateGame} "
             + $"compatible={_coordinatorCompatible} ready={ready}");
         var accepted = runner.SessionInfo.UpdateCustomProperties(properties);
         LogInfo($"TX STATE result acceptedByFusion={accepted} encoded={encodedState}");
@@ -387,6 +432,7 @@ internal static class NetworkHostSelectorRuntime
         _publishedTargetUserId = _coordinatorTargetUserId;
         _publishedMembership = _coordinatorMembership;
         _publishedCommonCapabilities = _coordinatorCommonCapabilities;
+        _publishedPrivateGame = _coordinatorPrivateGame;
         _publishedCompatible = _coordinatorCompatible;
         _publishedReady = ready;
         SetObservedState(
@@ -395,6 +441,7 @@ internal static class NetworkHostSelectorRuntime
             _coordinatorTargetUserId,
             _coordinatorMembership,
             _coordinatorCommonCapabilities,
+            _coordinatorPrivateGame,
             _coordinatorCompatible,
             ready,
             valid: true);
@@ -444,6 +491,7 @@ internal static class NetworkHostSelectorRuntime
                 $"RX STATE revision={state.Revision} targetRaw={state.TargetPlayerRaw} "
                 + $"targetUserId={FormatValue(state.TargetUserId)} membership={state.Membership} "
                 + $"commonCapabilities={state.CommonCapabilities} "
+                + $"privateGame={state.PrivateGame} "
                 + $"compatible={state.Compatible} ready={state.Ready} validation="
                 + $"membershipMatch:{membershipMatches},leaderIdMatch:{leaderIdMatches},"
                 + $"targetPresent:{targetPresent},valid:{valid} "
@@ -454,6 +502,7 @@ internal static class NetworkHostSelectorRuntime
                 state.TargetUserId,
                 state.Membership,
                 state.CommonCapabilities,
+                state.PrivateGame,
                 state.Compatible,
                 state.Ready,
                 valid);
@@ -471,6 +520,7 @@ internal static class NetworkHostSelectorRuntime
         string targetUserId,
         string membership,
         int commonCapabilities,
+        bool privateGame,
         bool compatible,
         bool ready,
         bool valid)
@@ -484,6 +534,7 @@ internal static class NetworkHostSelectorRuntime
         _observedTargetUserId = targetUserId;
         _observedMembership = membership;
         _observedCommonCapabilities = commonCapabilities;
+        _observedPrivateGame = privateGame;
         _observedCompatible = compatible;
         _observedReady = ready;
         _observedValid = valid;
@@ -506,52 +557,299 @@ internal static class NetworkHostSelectorRuntime
             return;
         }
 
-        var properties = runner.SessionInfo.Properties;
         var localCapabilities = GetLocalCapabilities();
-        var publishedRegistry = properties is not null
-            && TryReadString(properties, HostSelectionProtocol.PropertyPeers, out var currentRegistry)
-                ? currentRegistry
-                : string.Empty;
-        var registry = HostSelectionProtocol.RetainCurrentPeers(
-            publishedRegistry,
-            participants.Select(participant => participant.Raw));
-        var existingAck = -1;
-        if (HostSelectionProtocol.TryGetPeer(registry, localRaw, out var existing)
-            && string.Equals(existing.Membership, membership, StringComparison.Ordinal)
-            && existing.Capabilities == localCapabilities)
-        {
-            existingAck = existing.AcknowledgedRevision;
-        }
-        var value = HostSelectionProtocol.UpsertPeer(
-            registry,
-            localRaw,
-            membership,
-            localCapabilities,
-            Math.Max(existingAck, acknowledgedRevision));
-        var effectiveAck = Math.Max(existingAck, acknowledgedRevision);
+        var effectiveAck = Math.Max(-1, acknowledgedRevision);
         var messageType = effectiveAck >= 0 ? "ACK" : "HELLO";
-        if (string.Equals(value, publishedRegistry, StringComparison.Ordinal))
+        if (IsCoordinator(runner))
         {
+            UpsertCoordinatorPeer(localRaw, membership, localCapabilities, effectiveAck);
             LogTransition(
                 ref _lastPeerPublicationLog,
-                $"TX {messageType} current localRaw={localRaw} membership={membership} "
-                + $"capabilities={localCapabilities} "
-                + $"acknowledgedRevision={effectiveAck}");
+                $"TX {messageType} acceptedByAuthority=True localRaw={localRaw} membership={membership} "
+                + $"capabilities={localCapabilities} acknowledgedRevision={effectiveAck}");
             return;
         }
-        LogInfo(
-            $"TX {messageType} requested localRaw={localRaw} membership={membership} "
-            + $"capabilities={localCapabilities} "
-            + $"acknowledgedRevision={effectiveAck}");
-        var accepted = UpdateProperty(runner, HostSelectionProtocol.PropertyPeers, value);
-        LogInfo(
-            $"TX {messageType} result acceptedByFusion={accepted} "
-            + $"localRaw={localRaw} membership={membership} capabilities={localCapabilities} "
-            + $"acknowledgedRevision={effectiveAck}");
+
+        var encoded = effectiveAck >= 0
+            ? HostSelectionProtocol.CreateAck(
+                effectiveAck,
+                membership,
+                _observedTargetRaw,
+                localCapabilities)
+            : HostSelectionProtocol.CreateHello(membership, localCapabilities);
+        try
+        {
+            var payload = ToIl2CppBytes(Encoding.UTF8.GetBytes(encoded));
+            runner.SendReliableDataToServer(CreateReliableMessageKey(), payload);
+            LogInfo(
+                $"TX {messageType} transport=reliable-to-server localRaw={localRaw} membership={membership} "
+                + $"capabilities={localCapabilities} acknowledgedRevision={effectiveAck}");
+        }
+        catch (Exception exception)
+        {
+            LogError($"Sending reliable {messageType} to the lobby authority failed", exception);
+        }
+    }
+
+    private static void UpsertCoordinatorPeer(
+        int playerRaw,
+        string membership,
+        int capabilities,
+        int acknowledgedRevision)
+    {
+        var effectiveAck = acknowledgedRevision;
+        if (CoordinatorPeers.TryGetValue(playerRaw, out var existing)
+            && string.Equals(existing.Membership, membership, StringComparison.Ordinal)
+            && existing.Capabilities == capabilities)
+        {
+            effectiveAck = Math.Max(existing.AcknowledgedRevision, acknowledgedRevision);
+        }
+        CoordinatorPeers[playerRaw] = new HostSelectionPeer(
+            playerRaw,
+            membership,
+            capabilities,
+            effectiveAck);
+    }
+
+    private static string CreateCoordinatorRegistry(
+        IReadOnlyList<LeaderHostParticipant> participants)
+    {
+        var currentPlayerRaws = participants
+            .Select(participant => participant.Raw)
+            .ToHashSet();
+        foreach (var stalePlayerRaw in CoordinatorPeers.Keys
+            .Where(playerRaw => !currentPlayerRaws.Contains(playerRaw))
+            .ToArray())
+        {
+            CoordinatorPeers.Remove(stalePlayerRaw);
+        }
+
+        var registry = string.Empty;
+        foreach (var peer in CoordinatorPeers.Values.OrderBy(peer => peer.PlayerRaw))
+        {
+            registry = HostSelectionProtocol.UpsertPeer(
+                registry,
+                peer.PlayerRaw,
+                peer.Membership,
+                peer.Capabilities,
+                peer.AcknowledgedRevision);
+        }
+        return registry;
+    }
+
+    private static void PublishPeerRegistry(NetworkRunner runner, string registry)
+    {
+        if (string.Equals(registry, _publishedPeerRegistry, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        LogInfo($"TX PEERS requested registry={FormatValue(registry)}");
+        var accepted = UpdateProperty(runner, HostSelectionProtocol.PropertyPeers, registry);
+        LogInfo($"TX PEERS result acceptedByFusion={accepted} registry={FormatValue(registry)}");
         if (accepted)
         {
-            _lastPeerPublicationLog = string.Empty;
+            _publishedPeerRegistry = registry;
         }
+    }
+
+    private static void EnsureReliableTransport(NetworkRunner runner)
+    {
+        if (_transportRunner is not null
+            && _transportRunner.Pointer == runner.Pointer
+            && _networkEvents is not null
+            && _networkEvents.Pointer != IntPtr.Zero)
+        {
+            return;
+        }
+
+        DetachReliableTransport();
+        NetworkEvents? networkEvents = null;
+        try
+        {
+            networkEvents = runner.gameObject.AddComponent<NetworkEvents>();
+            networkEvents.OnReliableData ??= new NetworkEvents.ReliableDataEvent();
+            _reliableDataAction =
+                (UnityAction<NetworkRunner, PlayerRef, ReliableKey, Il2CppSystem.ArraySegment<byte>>)
+                HandleReliableData;
+            networkEvents.OnReliableData.AddListener(_reliableDataAction);
+            runner.AddCallbacks(new INetworkRunnerCallbacks[]
+            {
+                networkEvents.Cast<INetworkRunnerCallbacks>(),
+            });
+            _transportRunner = runner;
+            _networkEvents = networkEvents;
+            LogInfo(
+                $"TRANSPORT attached runner=0x{runner.Pointer.ToInt64():X} "
+                + "channel=FusionReliableData");
+        }
+        catch (Exception exception)
+        {
+            if (networkEvents is not null && networkEvents.Pointer != IntPtr.Zero)
+            {
+                UnityEngine.Object.Destroy(networkEvents);
+            }
+            _transportRunner = null;
+            _networkEvents = null;
+            _reliableDataAction = null;
+            LogError("Attaching the reliable Leader Host transport failed", exception);
+        }
+    }
+
+    private static void DetachReliableTransport()
+    {
+        var runner = _transportRunner;
+        var networkEvents = _networkEvents;
+        var action = _reliableDataAction;
+        _transportRunner = null;
+        _networkEvents = null;
+        _reliableDataAction = null;
+        if (networkEvents is null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (action is not null && networkEvents.Pointer != IntPtr.Zero)
+            {
+                networkEvents.OnReliableData?.RemoveListener(action);
+            }
+            if (runner is not null
+                && runner.Pointer != IntPtr.Zero
+                && networkEvents.Pointer != IntPtr.Zero)
+            {
+                runner.RemoveCallbacks(new INetworkRunnerCallbacks[]
+                {
+                    networkEvents.Cast<INetworkRunnerCallbacks>(),
+                });
+            }
+            if (networkEvents.Pointer != IntPtr.Zero)
+            {
+                UnityEngine.Object.Destroy(networkEvents);
+            }
+        }
+        catch
+        {
+            // The previous runner may already have been destroyed during a scene transition.
+        }
+    }
+
+    private static void HandleReliableData(
+        NetworkRunner runner,
+        PlayerRef sender,
+        ReliableKey key,
+        Il2CppSystem.ArraySegment<byte> data)
+    {
+        try
+        {
+            if (!Enabled
+                || runner is null
+                || runner.Pointer != _runnerPointer
+                || !IsCoordinator(runner)
+                || !IsReliableMessageKey(key))
+            {
+                return;
+            }
+
+            var senderRaw = sender.RawEncoded;
+            if (senderRaw <= 0
+                || !_cachedParticipants.Any(participant => participant.Raw == senderRaw))
+            {
+                LogInfo($"RX PEER rejected reason=unknown-sender senderRaw={senderRaw}");
+                return;
+            }
+
+            if (!TryDecodeReliablePayload(data, out var encoded)
+                || !HostSelectionProtocol.TryParseAdvertisement(encoded, out var advertisement))
+            {
+                LogInfo(
+                    $"RX PEER rejected reason=invalid-payload senderRaw={senderRaw} "
+                    + $"encoded={FormatValue(encoded)}");
+                return;
+            }
+
+            var acknowledgedRevision = advertisement.AcknowledgedRevision;
+            if (acknowledgedRevision >= 0
+                && (acknowledgedRevision != _coordinatorRevision
+                    || advertisement.TargetPlayerRaw != _coordinatorTargetRaw))
+            {
+                LogInfo(
+                    $"RX ACK downgraded-to-hello reason=stale-state senderRaw={senderRaw} "
+                    + $"acknowledgedRevision={acknowledgedRevision} "
+                    + $"targetRaw={advertisement.TargetPlayerRaw} "
+                    + $"expectedRevision={_coordinatorRevision} expectedTargetRaw={_coordinatorTargetRaw}");
+                acknowledgedRevision = -1;
+            }
+
+            UpsertCoordinatorPeer(
+                senderRaw,
+                advertisement.Membership,
+                advertisement.Capabilities,
+                acknowledgedRevision);
+            var messageType = acknowledgedRevision >= 0 ? "ACK" : "HELLO";
+            LogInfo(
+                $"RX {messageType} transport=reliable senderRaw={senderRaw} "
+                + $"membership={advertisement.Membership} "
+                + $"capabilities={advertisement.Capabilities} "
+                + $"acknowledgedRevision={acknowledgedRevision}");
+        }
+        catch (Exception exception)
+        {
+            LogError("Receiving reliable Leader Host data failed", exception);
+        }
+    }
+
+    private static ReliableKey CreateReliableMessageKey()
+    {
+        var sequence = unchecked(++_reliableMessageSequence);
+        return ReliableKey.FromInts(
+            ReliableMessageMagic,
+            HostSelectionProtocol.Version,
+            ReliableMessageChannel,
+            sequence);
+    }
+
+    private static bool IsReliableMessageKey(ReliableKey key)
+    {
+        key.GetInts(out var magic, out var version, out var channel, out _);
+        return magic == ReliableMessageMagic
+            && version == HostSelectionProtocol.Version
+            && channel == ReliableMessageChannel;
+    }
+
+    private static Il2CppStructArray<byte> ToIl2CppBytes(IReadOnlyList<byte> bytes)
+    {
+        var result = new Il2CppStructArray<byte>(bytes.Count);
+        for (var index = 0; index < bytes.Count; index++)
+        {
+            result[index] = bytes[index];
+        }
+        return result;
+    }
+
+    private static bool TryDecodeReliablePayload(
+        Il2CppSystem.ArraySegment<byte> data,
+        out string encoded)
+    {
+        encoded = string.Empty;
+        var array = data.Array;
+        if (array is null
+            || data.Offset < 0
+            || data.Count <= 0
+            || data.Count > MaximumReliablePayloadBytes
+            || data.Offset + data.Count > array.Length)
+        {
+            return false;
+        }
+
+        var bytes = new byte[data.Count];
+        for (var index = 0; index < data.Count; index++)
+        {
+            bytes[index] = array[data.Offset + index];
+        }
+        encoded = Encoding.UTF8.GetString(bytes);
+        return true;
     }
 
     public static void InitializeSessionProperties(StartGameArgs args)
@@ -596,6 +894,12 @@ internal static class NetworkHostSelectorRuntime
 
     private static bool UpdateProperty(NetworkRunner runner, string key, string value)
     {
+        if (!IsCoordinator(runner))
+        {
+            LogInfo($"Publishing session property {key} blocked because the local peer is not authority");
+            return false;
+        }
+
         try
         {
             var properties = new Il2CppSystem.Collections.Generic.Dictionary<string, SessionProperty>();
@@ -694,7 +998,9 @@ internal static class NetworkHostSelectorRuntime
     private static void ResetForRunner(IntPtr runnerPointer)
     {
         var previousRunnerPointer = _runnerPointer;
+        DetachReliableTransport();
         _runnerPointer = runnerPointer;
+        CoordinatorPeers.Clear();
         _cachedParticipants = Array.Empty<LeaderHostParticipant>();
         _nextHelloAt = 0f;
         _nextAckAt = 0f;
@@ -704,18 +1010,22 @@ internal static class NetworkHostSelectorRuntime
         _coordinatorRevision = 1;
         _coordinatorTargetRaw = 0;
         _coordinatorTargetUserId = string.Empty;
+        _coordinatorPrivateGame = false;
         _publishedRevision = -1;
         _publishedTargetRaw = int.MinValue;
         _publishedTargetUserId = string.Empty;
         _publishedMembership = string.Empty;
         _publishedCommonCapabilities = -1;
+        _publishedPrivateGame = false;
         _publishedCompatible = false;
         _publishedReady = false;
+        _publishedPeerRegistry = string.Empty;
         _observedRevision = 0;
         _observedTargetRaw = 0;
         _observedTargetUserId = string.Empty;
         _observedMembership = string.Empty;
         _observedCommonCapabilities = 0;
+        _observedPrivateGame = false;
         _observedCompatible = false;
         _observedReady = false;
         _observedValid = false;
@@ -727,6 +1037,7 @@ internal static class NetworkHostSelectorRuntime
         _lastLeaderResolutionLog = string.Empty;
         _lastCoordinatorQuorumLog = string.Empty;
         _lastPeerPublicationLog = string.Empty;
+        _reliableMessageSequence = 0;
         if (runnerPointer == IntPtr.Zero && previousRunnerPointer != IntPtr.Zero)
         {
             LogInfo($"RUNNER detached previousPointer=0x{previousRunnerPointer.ToInt64():X}");
@@ -741,7 +1052,7 @@ internal static class NetworkHostSelectorRuntime
         }
         var originalHostId = hostId;
         RefreshObservedFromCurrentRunner();
-        var privateGame = IsPrivateGameSelected();
+        var privateGame = _observedPrivateGame;
         var localSocialUserId = GetLocalSocialUserId();
         var runner = PhotonLobby.Runner;
         var localRaw = IsUsableLobbyRunner(runner)
@@ -849,12 +1160,14 @@ internal static class NetworkHostSelectorRuntime
             _localOnlySession = true;
             _coordinatorTargetRaw = leader.PlayerRaw;
             _coordinatorTargetUserId = leader.UserId;
+            _coordinatorPrivateGame = IsPrivateGameSelected();
             SetObservedState(
                 _coordinatorRevision,
                 leader.PlayerRaw,
                 leader.UserId,
                 ComputeMembership(participants),
                 GetLocalCapabilities(),
+                _coordinatorPrivateGame,
                 compatible: true,
                 ready: true,
                 valid: true);
@@ -972,6 +1285,35 @@ internal static class NetworkHostSelectorRuntime
             {
                 var prefix = $"raw={participant.Raw},name={FormatValue(participant.Name)}";
                 if (properties is null || !TryReadPeer(properties, participant.Raw, out var peer))
+                {
+                    return $"{prefix},status=missing";
+                }
+
+                var membershipMatches = string.Equals(
+                    peer.Membership,
+                    membership,
+                    StringComparison.Ordinal);
+                var revisionMatches = peer.AcknowledgedRevision == expectedRevision;
+                return $"{prefix},status=received,peerMembership={peer.Membership},"
+                    + $"capabilities={peer.Capabilities},"
+                    + $"ack={peer.AcknowledgedRevision},"
+                    + $"membershipMatch={membershipMatches},"
+                    + $"revisionMatch={revisionMatches}";
+            }));
+    }
+
+    private static string DescribePeerStatuses(
+        IReadOnlyList<LeaderHostParticipant> participants,
+        string membership,
+        int expectedRevision,
+        string registry)
+    {
+        return string.Join(
+            "; ",
+            participants.Select(participant =>
+            {
+                var prefix = $"raw={participant.Raw},name={FormatValue(participant.Name)}";
+                if (!HostSelectionProtocol.TryGetPeer(registry, participant.Raw, out var peer))
                 {
                     return $"{prefix},status=missing";
                 }

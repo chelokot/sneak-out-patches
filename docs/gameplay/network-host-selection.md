@@ -6,11 +6,13 @@ The stock client receives `matchId`, `hostId`, and `region`, then compares `host
 
 Safety protocol:
 
-- every real Fusion peer advertises the current protocol version, its `PlayerRef`, and its current membership signature through room custom properties;
+- every real Fusion client sends the current protocol version, membership signature, acknowledgement revision, and enabled capabilities to the lobby authority through Fusion reliable data;
+- the lobby authority binds each advertisement to Fusion's authenticated sender `PlayerRef`, keeps the authoritative peer registry in memory, and is the only process that writes the compact registry to room custom properties;
 - each peer also advertises enabled multiplayer feature capabilities; the coordinator publishes only the bitwise intersection supported by every current participant;
 - the participant snapshot comes from `SpookedNetworkPlayer` spawn/despawn callbacks and must match Fusion's scalar session player count before use, avoiding Fusion's mutable IL2CPP `ActivePlayers` iterator during joins;
 - the advertised `PlayerRef` set must exactly match the current real-player set, and every advertisement must carry the current membership signature; this rejects missing, extra, and stale entries without depending on Fusion user-id lookup behavior;
 - the current lobby authority publishes the `PlayerRef` membership signature, revision, creator `PlayerRef`, and exact party-leader social user id as session custom properties;
+- the lobby authority also publishes its local private/public portal selection, because that UI state is not synchronized into other party members' local `GameState` objects;
 - every real participant acknowledges the same revision through its own membership-bound room property;
 - Leader Host becomes ready only after all acknowledgements arrive;
 - lobby test bots are excluded from the quorum;
@@ -21,7 +23,7 @@ Safety protocol:
 
 The protocol deliberately does not Harmony-patch `PhotonLobby.OnReliableDataReceived`.
 The BepInEx IL2CPP bridge bundled with the game setup cannot safely box Fusion's nested
-`ReliableKey` and `ArraySegment<byte>` value types and can otherwise terminate the process
-before a managed postfix is entered.
+`ReliableKey` and `ArraySegment<byte>` value types in a Harmony postfix. Instead, Leader Host
+registers a typed `NetworkEvents.OnReliableData` listener with the lobby runner.
 
 There is no host selector or extra portal button. The stock lower-left map/ping strip appends `Host: <name>` for the party creator selected to host the match. Ping never changes that choice.

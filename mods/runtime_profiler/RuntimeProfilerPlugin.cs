@@ -7,8 +7,8 @@ namespace SneakOut.RuntimeProfiler;
 public sealed class RuntimeProfilerPlugin : BasePlugin
 {
     public const string PluginGuid = "chelokot.sneakout.runtime-profiler";
-    public const string PluginName = "Runtime Profiler";
-    public const string PluginVersion = "0.2.1";
+    public const string PluginName = "Runtime Event Logger";
+    public const string PluginVersion = "1.0.0";
 
     public override void Load()
     {

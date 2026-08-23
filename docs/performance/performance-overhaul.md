@@ -12,9 +12,9 @@ This is the measurement record behind `performance-optimizer` and the Linux inst
 - opt-in in-game frame histograms and narrow managed-method profiling
 - Linux `perf` sampling for native/Unity/DXVK work
 
-Diagnostic measurements use the runtime profiler's opt-in interval reports alongside
-host process, GPU, and cgroup sampling. Keep production measurements on the default
-no-I/O path unless the session explicitly needs detailed CSV output.
+The historical measurements used the former runtime profiler's opt-in method reports
+alongside host process, GPU, and cgroup sampling. The current debug plugin records
+chronological gameplay events and main-thread stalls instead of aggregate method timing.
 
 ## Host state mattered
 

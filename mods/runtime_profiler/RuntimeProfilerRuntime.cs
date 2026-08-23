@@ -1,531 +1,860 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Reflection;
 using System.Text;
-using HarmonyLib;
 using BepInEx;
 using BepInEx.Logging;
+using Fusion;
+using Gameplay.Interactions;
+using Gameplay.Player.Components;
+using HarmonyLib;
+using Il2CppInterop.Runtime.Injection;
+using Il2CppInterop.Runtime.InteropTypes;
 using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.UI;
+using UI.Buttons;
+using UI.Views;
 
 namespace SneakOut.RuntimeProfiler;
 
 internal static class RuntimeProfilerRuntime
 {
-    private static readonly ThreadLocal<Stack<ActiveFrame>> ThreadFrames = new(() => new Stack<ActiveFrame>(32));
-    private static readonly Dictionary<MethodBase, int> MethodIds = new();
-    private static MethodDescriptor[] _methods = Array.Empty<MethodDescriptor>();
-    private static MethodStatistics[] _methodStats = Array.Empty<MethodStatistics>();
-    private static long[] _edgeCalls = Array.Empty<long>();
-    private static long[] _edgeTotalTicks = Array.Empty<long>();
+    private static readonly Stopwatch SessionClock = Stopwatch.StartNew();
+    private static readonly Dictionary<MethodBase, EventHookDefinition> EventHooks = new();
+    private static readonly object EventStateGate = new();
+
+    [ThreadStatic]
+    private static Stack<RuntimeEventScope>? _threadEventScopes;
 
     private static ManualLogSource? _logger;
     private static RuntimeProfilerConfig? _configuration;
+    private static RuntimeEventLogWriter? _writer;
     private static Harmony? _harmony;
-    private static string? _reportPath;
-    private static Timer? _reportTimer;
+    private static Timer? _watchdogTimer;
+    private static string? _logPath;
+    private static string _activeMainThreadEvents = "none";
+    private static string _lastStartedEvent = "none";
+    private static string _lastCompletedEvent = "none";
+    private static long _lastHeartbeatTimestamp;
+    private static long _freezeStartTimestamp;
+    private static long _sequence;
+    private static long _eventId;
+    private static int _mainThreadId;
     private static int _initialized;
-    private static int _reportWritten;
-    private static int _patchedMethodCount;
-    private static long _profileStartTimestamp;
+    private static int _shutdown;
+    private static int _watchdogCheckActive;
+    private static int _freezeActive;
+    private static int _applicationFocused = 1;
+    private static int _applicationPaused;
 
     public static void Initialize(ManualLogSource logger, RuntimeProfilerConfig configuration)
     {
         _logger = logger;
         _configuration = configuration;
 
-        if (!configuration.EnableMod.Value)
+        if (!configuration.EnableMod.Value || Interlocked.Exchange(ref _initialized, 1) != 0)
         {
             return;
         }
 
-        if (Interlocked.Exchange(ref _initialized, 1) != 0)
-        {
-            return;
-        }
-
-        _harmony = new Harmony(RuntimeProfilerPlugin.PluginGuid);
-        PatchConfiguredMethods();
-        _profileStartTimestamp = Stopwatch.GetTimestamp();
-        _reportTimer = new Timer(
-            _ => WriteReport(),
+        _mainThreadId = Environment.CurrentManagedThreadId;
+        _lastHeartbeatTimestamp = Stopwatch.GetTimestamp();
+        var logDirectory = Path.Combine(Paths.BepInExRootPath, "event-logs");
+        Directory.CreateDirectory(logDirectory);
+        _logPath = Path.Combine(
+            logDirectory,
+            $"runtime-events-{DateTime.UtcNow:yyyyMMdd-HHmmss-fff}-{Environment.ProcessId}.tsv");
+        _writer = new RuntimeEventLogWriter(_logPath);
+        _writer.Enqueue(
+            "utc\telapsed_ms\tsequence\tthread\tkind\tcategory\taction\tevent_id\tduration_ms\tdetails\tstate\terror");
+        WriteRecord(
+            "SESSION_START",
+            "SYSTEM",
+            RuntimeProfilerPlugin.PluginName,
+            0,
             null,
-            TimeSpan.FromSeconds(
-                Math.Max(0, configuration.WarmupSeconds.Value)
-                + Math.Max(10, configuration.ReportAfterSeconds.Value)),
-            Timeout.InfiniteTimeSpan);
-        Application.add_quitting(new Action(WriteReport));
-        AppDomain.CurrentDomain.ProcessExit += OnProcessExit;
-        LogInfo($"Patched {_patchedMethodCount} methods");
-    }
-
-    private static void OnProcessExit(object? sender, EventArgs args)
-    {
-        WriteReport();
-    }
-
-    private static void PatchConfiguredMethods()
-    {
-        var prefix = AccessTools.Method(typeof(RuntimeProfilerRuntime), nameof(ProfilePrefix));
-        var finalizer = AccessTools.Method(typeof(RuntimeProfilerRuntime), nameof(ProfileFinalizer));
-        var targetAssemblies = new HashSet<string>(
-            SplitConfigList(_configuration!.TargetAssemblies.Value),
-            StringComparer.Ordinal);
-        foreach (var targetAssembly in targetAssemblies)
-        {
-            if (AppDomain.CurrentDomain.GetAssemblies().Any(assembly =>
-                    string.Equals(assembly.GetName().Name, targetAssembly, StringComparison.Ordinal)))
-            {
-                continue;
-            }
-
-            try
-            {
-                Assembly.Load(new AssemblyName(targetAssembly));
-            }
-            catch (Exception exception)
-            {
-                LogInfo($"Target assembly {targetAssembly} could not be loaded: {exception.Message}");
-            }
-        }
-
-        var includeNamespacePrefixes = SplitConfigList(_configuration.IncludeNamespacePrefixes.Value);
-        var targetMethodPatterns = SplitConfigList(_configuration.TargetMethodPatterns.Value);
-        var excludeNamespacePrefixes = SplitConfigList(_configuration.ExcludeNamespacePrefixes.Value);
-        var candidateMethods = new List<MethodBase>();
-
-        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
-        {
-            if (!targetAssemblies.Contains(assembly.GetName().Name ?? string.Empty))
-            {
-                continue;
-            }
-
-            foreach (var type in GetLoadableTypes(assembly))
-            {
-                if (!ShouldIncludeType(type, includeNamespacePrefixes, excludeNamespacePrefixes))
-                {
-                    continue;
-                }
-
-                foreach (var method in type.GetMethods(BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
-                {
-                    if (!ShouldIncludeMethod(method))
-                    {
-                        continue;
-                    }
-
-                    if (!ShouldIncludeMethodByPattern(method, targetMethodPatterns))
-                    {
-                        continue;
-                    }
-
-                    candidateMethods.Add(method);
-                }
-            }
-        }
-
-        var selectedMethods = candidateMethods
-            .OrderBy(method => method.DeclaringType?.FullName, StringComparer.Ordinal)
-            .ThenBy(method => method.Name, StringComparer.Ordinal)
-            .Take(_configuration.MaxPatchedMethods.Value)
-            .ToArray();
-        _methods = selectedMethods
-            .Select((method, methodId) => new MethodDescriptor(methodId, GetSignature(method), false))
-            .ToArray();
-        _methodStats = selectedMethods.Select(_ => new MethodStatistics()).ToArray();
-        _edgeCalls = new long[selectedMethods.Length * selectedMethods.Length];
-        _edgeTotalTicks = new long[selectedMethods.Length * selectedMethods.Length];
-        for (var methodId = 0; methodId < selectedMethods.Length; methodId++)
-        {
-            MethodIds[selectedMethods[methodId]] = methodId;
-        }
-
-        for (var methodId = 0; methodId < selectedMethods.Length; methodId++)
-        {
-            var method = selectedMethods[methodId];
-            try
-            {
-                _harmony!.Patch(method, prefix: new HarmonyMethod(prefix), finalizer: new HarmonyMethod(finalizer));
-                _methods[methodId] = _methods[methodId] with { Patched = true };
-                _patchedMethodCount++;
-                LogInfo($"Patched [{methodId}] {_methods[methodId].Signature}");
-            }
-            catch (Exception exception)
-            {
-                LogInfo($"Failed to patch {GetSignature(method)}: {exception.Message}");
-            }
-        }
-    }
-
-    private static bool ShouldIncludeType(Type type, IReadOnlyList<string> includeNamespacePrefixes, IReadOnlyList<string> excludeNamespacePrefixes)
-    {
-        var fullName = type.FullName ?? string.Empty;
-
-        if (fullName.Length == 0)
-        {
-            return false;
-        }
-
-        if (excludeNamespacePrefixes.Any(prefix => fullName.StartsWith(prefix, StringComparison.Ordinal)))
-        {
-            return false;
-        }
-
-        return includeNamespacePrefixes.Count == 0 ||
-               includeNamespacePrefixes.Any(prefix => fullName.StartsWith(prefix, StringComparison.Ordinal));
-    }
-
-    private static bool ShouldIncludeMethod(MethodInfo method)
-    {
-        // Harmony's IL2CPP trampoline for this global MonoBehaviour recursively re-enters the
-        // wrapper and throws from the generated DMD. Refuse it even in an intentionally broad
-        // profile so the diagnostic cannot manufacture an error loop and invalidate the run.
-        if (string.Equals(method.DeclaringType?.FullName, "WorldRegionSwitch", StringComparison.Ordinal)
-            && string.Equals(method.Name, "Update", StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        if (method.IsAbstract)
-        {
-            return false;
-        }
-
-        if (method.ContainsGenericParameters || method.IsGenericMethodDefinition)
-        {
-            return false;
-        }
-
-        if (!_configuration!.IncludeConstructors.Value && (method.IsConstructor || method.IsSpecialName && method.Name == ".cctor"))
-        {
-            return false;
-        }
-
-        if (!_configuration.IncludePropertyAccessors.Value && method.IsSpecialName &&
-            (method.Name.StartsWith("get_", StringComparison.Ordinal) ||
-             method.Name.StartsWith("set_", StringComparison.Ordinal) ||
-             method.Name.StartsWith("add_", StringComparison.Ordinal) ||
-             method.Name.StartsWith("remove_", StringComparison.Ordinal)))
-        {
-            return false;
-        }
-
-        if (!_configuration.IncludeCompilerGenerated.Value &&
-            (method.Name.Contains('<') || (method.DeclaringType?.FullName?.Contains('<') ?? false)))
-        {
-            return false;
-        }
-
-        return true;
-    }
-
-    private static bool ShouldIncludeMethodByPattern(MethodInfo method, IReadOnlyList<string> targetMethodPatterns)
-    {
-        if (targetMethodPatterns.Count == 0)
-        {
-            return true;
-        }
-
-        var signature = GetSignature(method);
-        return targetMethodPatterns.Any(pattern => signature.Contains(pattern, StringComparison.Ordinal));
-    }
-
-    private static IReadOnlyList<string> SplitConfigList(string value)
-    {
-        return value
-            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Where(item => item.Length > 0)
-            .ToArray();
-    }
-
-    private static IEnumerable<Type> GetLoadableTypes(Assembly assembly)
-    {
-        try
-        {
-            return assembly.GetTypes();
-        }
-        catch (ReflectionTypeLoadException exception)
-        {
-            return exception.Types.Where(type => type is not null)!;
-        }
-    }
-
-    private static void ProfilePrefix(MethodBase __originalMethod, out bool __state)
-    {
-        __state = false;
-        var warmupSeconds = Math.Max(0, _configuration?.WarmupSeconds.Value ?? 0);
-        if (warmupSeconds > 0
-            && (Stopwatch.GetTimestamp() - _profileStartTimestamp) / (double)Stopwatch.Frequency < warmupSeconds)
-        {
-            return;
-        }
-
-        if (!MethodIds.TryGetValue(__originalMethod, out var methodId))
-        {
-            return;
-        }
-
-        var stack = ThreadFrames.Value!;
-        var parentMethodId = stack.Count > 0 ? stack.Peek().MethodId : -1;
-        stack.Push(new ActiveFrame(methodId, parentMethodId, Stopwatch.GetTimestamp()));
-        __state = true;
-    }
-
-    private static Exception? ProfileFinalizer(Exception? __exception, bool __state)
-    {
-        if (!__state)
-        {
-            return __exception;
-        }
-
-        var stack = ThreadFrames.Value!;
-        if (stack.Count == 0)
-        {
-            return __exception;
-        }
-
-        var frame = stack.Pop();
-        var elapsedTicks = Stopwatch.GetTimestamp() - frame.StartTimestamp;
-        var selfTicks = elapsedTicks - frame.ChildTicks;
-        if (selfTicks < 0)
-        {
-            selfTicks = 0;
-        }
-
-        if (stack.Count > 0)
-        {
-            var parent = stack.Pop();
-            parent.ChildTicks += elapsedTicks;
-            stack.Push(parent);
-        }
-
-        _methodStats[frame.MethodId].Record(elapsedTicks, selfTicks, __exception is not null);
-
-        if (frame.ParentMethodId >= 0)
-        {
-            var edgeIndex = frame.ParentMethodId * _methods.Length + frame.MethodId;
-            Interlocked.Increment(ref _edgeCalls[edgeIndex]);
-            Interlocked.Add(ref _edgeTotalTicks[edgeIndex], elapsedTicks);
-        }
-
-        return __exception;
-    }
-
-    private static string GetSignature(MethodBase method)
-    {
-        var parameters = string.Join(
-            ", ",
-            method.GetParameters().Select(parameter => $"{GetFriendlyTypeName(parameter.ParameterType)} {parameter.Name}"));
-        var returnType = method is MethodInfo info ? GetFriendlyTypeName(info.ReturnType) : "void";
-        var declaringType = method.DeclaringType?.FullName ?? "<global>";
-        return $"{returnType} {declaringType}.{method.Name}({parameters})";
-    }
-
-    private static string GetFriendlyTypeName(Type type)
-    {
-        if (!type.IsGenericType)
-        {
-            return type.FullName ?? type.Name;
-        }
-
-        var genericDefinitionName = type.GetGenericTypeDefinition().FullName ?? type.Name;
-        var tickIndex = genericDefinitionName.IndexOf('`');
-        if (tickIndex >= 0)
-        {
-            genericDefinitionName = genericDefinitionName[..tickIndex];
-        }
-
-        var genericArguments = string.Join(", ", type.GetGenericArguments().Select(GetFriendlyTypeName));
-        return $"{genericDefinitionName}<{genericArguments}>";
-    }
-
-    private static void WriteReport()
-    {
-        if (Interlocked.Exchange(ref _reportWritten, 1) != 0)
-        {
-            return;
-        }
-
-        if (_patchedMethodCount == 0)
-        {
-            return;
-        }
+            $"version={RuntimeProfilerPlugin.PluginVersion}; process={Environment.ProcessId}",
+            $"freezeThresholdMs={FreezeThresholdMilliseconds}; hitchThresholdMs={HitchThresholdMilliseconds}; watchdogPollMs={WatchdogPollMilliseconds}",
+            null);
 
         try
         {
-            _reportTimer?.Dispose();
-            _reportTimer = null;
-            var reportDirectory = Path.Combine(Paths.BepInExRootPath, "profile-reports");
-            Directory.CreateDirectory(reportDirectory);
-            _reportPath = Path.Combine(
-                reportDirectory,
-                $"runtime-profiler-{DateTime.UtcNow:yyyyMMdd-HHmmss}.txt");
-
-            var builder = new StringBuilder();
-            builder.AppendLine("SneakOut Runtime Profiler Report");
-            builder.AppendLine($"GeneratedAtUtc: {DateTimeOffset.UtcNow:O}");
-            builder.AppendLine($"PatchedMethods: {_patchedMethodCount}");
-            builder.AppendLine($"WarmupSeconds: {Math.Max(0, _configuration?.WarmupSeconds.Value ?? 0)}");
-            builder.AppendLine($"ProfileSeconds: {Math.Max(10, _configuration?.ReportAfterSeconds.Value ?? 60)}");
-            builder.AppendLine();
-
-            AppendMethodTable(builder);
-            builder.AppendLine();
-            AppendEdgeTable(builder);
-
-            File.WriteAllText(_reportPath, builder.ToString(), Encoding.UTF8);
-            LogInfo($"Wrote profiler report to {_reportPath}");
+            _harmony = new Harmony(RuntimeProfilerPlugin.PluginGuid);
+            _harmony.PatchAll(typeof(RuntimeProfilerPlugin).Assembly);
+            AttachHeartbeatWatcher();
+            Interlocked.Exchange(ref _lastHeartbeatTimestamp, Stopwatch.GetTimestamp());
+            _watchdogTimer = new Timer(
+                _ => CheckMainThreadHeartbeat(),
+                null,
+                WatchdogPollMilliseconds,
+                WatchdogPollMilliseconds);
+            Application.add_quitting(new Action(Shutdown));
+            AppDomain.CurrentDomain.ProcessExit += OnProcessExit;
+            _logger.LogInfo($"Runtime event log: {_logPath}");
         }
         catch (Exception exception)
         {
-            _logger?.LogError($"Runtime profiler failed to write report: {exception}");
+            WriteRecord("ERROR", "SYSTEM", "initialize", 0, null, string.Empty, string.Empty, exception);
+            Shutdown();
+            throw;
         }
     }
 
-    private static void AppendMethodTable(StringBuilder builder)
+    public static IEnumerable<MethodBase> GetEventTargets()
     {
-        builder.AppendLine("Top Methods");
-        builder.AppendLine("SelfMs\tTotalMs\tAvgMs\tMaxMs\tCalls\tExceptions\tMethod");
+        EventHooks.Clear();
 
-        foreach (var item in _methods
-                     .Where(method => method.Patched)
-                     .Select(method => new MethodReportRow(method.Signature, _methodStats[method.MethodId].Snapshot()))
-                     .OrderByDescending(row => row.Snapshot.SelfTicks)
-                     .ThenByDescending(row => row.Snapshot.TotalTicks)
-                     .Take(_configuration!.TopMethodCount.Value))
+        if (_configuration?.LogInteractions.Value == true)
         {
-            builder.AppendLine(
-                $"{TicksToMilliseconds(item.Snapshot.SelfTicks):F3}\t" +
-                $"{TicksToMilliseconds(item.Snapshot.TotalTicks):F3}\t" +
-                $"{TicksToMilliseconds(item.Snapshot.AverageTicks):F3}\t" +
-                $"{TicksToMilliseconds(item.Snapshot.MaxTicks):F3}\t" +
-                $"{item.Snapshot.Calls}\t" +
-                $"{item.Snapshot.Exceptions}\t" +
-                item.Signature);
+            AddHook(
+                typeof(EntityInteractiveComponent),
+                nameof(EntityInteractiveComponent.Interact),
+                new[] { typeof(Interactable), typeof(Types.InteractionType), typeof(int), typeof(bool) },
+                "INTERACTION",
+                "resolve");
+            AddHook(typeof(Door), "Open", new[] { typeof(int) }, "DOOR", "open");
+            AddHook(typeof(Door), "Close", new[] { typeof(int) }, "DOOR", "close");
         }
-    }
 
-    private static void AppendEdgeTable(StringBuilder builder)
-    {
-        builder.AppendLine("Top Caller -> Callee Edges");
-        builder.AppendLine("TotalMs\tCalls\tAvgMs\tEdge");
-
-        foreach (var item in EnumerateEdgeSnapshots()
-                     .OrderByDescending(snapshot => snapshot.TotalTicks)
-                     .Take(_configuration!.TopEdgeCount.Value))
+        if (_configuration?.LogItemActions.Value == true)
         {
-            builder.AppendLine(
-                $"{TicksToMilliseconds(item.TotalTicks):F3}\t" +
-                $"{item.Calls}\t" +
-                $"{TicksToMilliseconds(item.AverageTicks):F3}\t" +
-                $"{item.ParentSignature} -> {item.ChildSignature}");
-        }
-    }
+            AddHook(typeof(Chair), nameof(Chair.PickUp), new[] { typeof(int) }, "ITEM", "chair.pickup");
+            AddHook(typeof(Chair), nameof(Chair.Throw), new[] { typeof(int) }, "ITEM", "chair.throw");
+            AddHook(typeof(Barrel), nameof(Barrel.PickUp), new[] { typeof(int) }, "ITEM", "barrel.pickup");
+            AddHook(typeof(Barrel), nameof(Barrel.Throw), new[] { typeof(int) }, "ITEM", "barrel.throw");
+            AddHook(
+                typeof(Gameplay.Interactions.Tasks.PotTask.Ingredient),
+                nameof(Gameplay.Interactions.Tasks.PotTask.Ingredient.PickUp),
+                new[] { typeof(int) },
+                "ITEM",
+                "ingredient.pickup");
+            AddHook(
+                typeof(Gameplay.Interactions.Tasks.PotTask.Ingredient),
+                nameof(Gameplay.Interactions.Tasks.PotTask.Ingredient.Throw),
+                new[] { typeof(int) },
+                "ITEM",
+                "ingredient.throw");
+            AddHook(typeof(Jug), nameof(Jug.PickUp), new[] { typeof(int) }, "ITEM", "jug.pickup");
+            AddHook(
+                typeof(Gameplay.ThrowableBanana),
+                nameof(Gameplay.ThrowableBanana.Throw),
+                new[] { typeof(Vector3) },
+                "ITEM",
+                "banana.throw");
+            AddHook(
+                typeof(Gameplay.ThrowableSnare),
+                nameof(Gameplay.ThrowableSnare.Throw),
+                new[] { typeof(Vector3) },
+                "ITEM",
+                "snare.throw");
 
-    private static double TicksToMilliseconds(long ticks)
-    {
-        return ticks * 1000d / Stopwatch.Frequency;
-    }
-
-    private static IEnumerable<EdgeSnapshot> EnumerateEdgeSnapshots()
-    {
-        for (var parentMethodId = 0; parentMethodId < _methods.Length; parentMethodId++)
-        {
-            for (var childMethodId = 0; childMethodId < _methods.Length; childMethodId++)
+            var pickupMethods = new[]
             {
-                var edgeIndex = parentMethodId * _methods.Length + childMethodId;
-                var calls = Interlocked.Read(ref _edgeCalls[edgeIndex]);
-                if (calls == 0)
-                {
-                    continue;
-                }
+                "RPC_OnBananaPickUp",
+                "RPC_OnBananaStrikePickUp",
+                "RPC_OnBroomstickPickUp",
+                "RPC_OnGhostEctoplasmPickUp",
+                "RPC_OnGhostSlowPickUp",
+                "RPC_OnShovelPickUp",
+                "RPC_OnSkateboardPickUp",
+                "RPC_OnSnarePickUp"
+            };
+            foreach (var methodName in pickupMethods)
+            {
+                AddHook(
+                    typeof(Networking.Photon.SpookedNetworkCollisionManager),
+                    methodName,
+                    new[] { typeof(int) },
+                    "ITEM",
+                    ToActionName(methodName));
+            }
 
-                var totalTicks = Interlocked.Read(ref _edgeTotalTicks[edgeIndex]);
-                yield return new EdgeSnapshot(
-                    _methods[parentMethodId].Signature,
-                    _methods[childMethodId].Signature,
-                    calls,
-                    totalTicks,
-                    totalTicks / calls);
+            AddHook(
+                typeof(Networking.Photon.SpookedNetworkCollisionManager),
+                "RPC_OnWandPickUp",
+                new[] { typeof(int), typeof(Types.WandSpellType) },
+                "ITEM",
+                "wand.pickup");
+            AddHook(
+                typeof(EntityItemsComponent),
+                "OnQuickcastItemUsage",
+                new[] { typeof(Inputs.SpookedInputEvent) },
+                "ITEM",
+                "quickcast.request");
+            AddHook(
+                typeof(EntityItemsComponent),
+                nameof(EntityItemsComponent.OnCardItemUsage),
+                new[] { typeof(Types.ItemType) },
+                "ITEM",
+                "card.request");
+            AddHook(
+                typeof(EntityItemsComponent),
+                "Handle",
+                new[] { typeof(Types.ItemType) },
+                "ITEM",
+                "use.applied");
+            AddHook(
+                typeof(EntityItemsComponent),
+                "DropItem",
+                new[] { typeof(Types.ItemType) },
+                "ITEM",
+                "drop");
+        }
+
+        if (_configuration?.LogSkillsAndPerks.Value == true)
+        {
+            AddHook(
+                typeof(EntitySkillsComponent),
+                nameof(EntitySkillsComponent.OnFirstSkillStartButton),
+                Type.EmptyTypes,
+                "SKILL",
+                "first.request");
+            AddHook(
+                typeof(EntitySkillsComponent),
+                nameof(EntitySkillsComponent.OnSecondSkillStartButton),
+                Type.EmptyTypes,
+                "SKILL",
+                "second.request");
+            AddHook(
+                typeof(EntitySkillsComponent),
+                nameof(EntitySkillsComponent.OnSkillCardUsage),
+                new[] { typeof(Types.SpookedSkillType) },
+                "SKILL",
+                "card.request");
+            AddHook(
+                typeof(EntitySkillsComponent),
+                nameof(EntitySkillsComponent.UseBooSkill),
+                Type.EmptyTypes,
+                "SKILL",
+                "boo.request");
+            AddHook(
+                typeof(EntitySkillsComponent),
+                "HostValidateAndUseSkill",
+                new[] { typeof(bool) },
+                "SKILL",
+                "validate-and-use");
+            AddHook(
+                typeof(EntitySkillsComponent),
+                "RPC_AfterSkill",
+                new[] { typeof(Types.SpookedSkillType) },
+                "SKILL",
+                "use.applied");
+            AddHook(
+                typeof(MainBoostersViewModel),
+                nameof(MainBoostersViewModel.OnEquipActionButton),
+                Type.EmptyTypes,
+                "PERK",
+                "equip.request");
+            AddHook(
+                typeof(MainBoostersViewModel),
+                "TreeSkillSelected",
+                new[] { typeof(Il2CppSystem.Object), typeof(Il2CppSystem.EventArgs) },
+                "PERK",
+                "selection.changed");
+            AddHook(
+                typeof(MainBoostersViewModel),
+                "TreeSkillEquipped",
+                new[] { typeof(Il2CppSystem.Object), typeof(Il2CppSystem.EventArgs) },
+                "PERK",
+                "equip.applied");
+            AddHook(
+                typeof(SeekerSelectionViewModel),
+                nameof(SeekerSelectionViewModel.OnLeftArrowClick),
+                Type.EmptyTypes,
+                "SELECTION",
+                "seeker.left");
+            AddHook(
+                typeof(SeekerSelectionViewModel),
+                nameof(SeekerSelectionViewModel.OnRightArrowClick),
+                Type.EmptyTypes,
+                "SELECTION",
+                "seeker.right");
+            AddHook(
+                typeof(SeekerSelectionViewModel),
+                "OnConfirm",
+                new[] { typeof(Inputs.SpookedInputEvent) },
+                "SELECTION",
+                "seeker.confirm");
+        }
+
+        if (_configuration?.LogBuffsAndStuns.Value == true)
+        {
+            AddHook(
+                typeof(EntityBuffsComponent),
+                nameof(EntityBuffsComponent.HostApplyBuff),
+                new[] { typeof(int), typeof(Types.SpookedBuffType), typeof(float) },
+                "BUFF",
+                "apply");
+            AddHook(
+                typeof(EntityBuffsComponent),
+                nameof(EntityBuffsComponent.RemoveBuff),
+                new[] { typeof(Types.SpookedBuffType) },
+                "BUFF",
+                "remove");
+        }
+
+        if (_configuration?.LogButtonPresses.Value == true)
+        {
+            AddHook(typeof(Button), "Press", Type.EmptyTypes, "UI", "button.press");
+        }
+
+        return EventHooks.Keys.ToArray();
+    }
+
+    public static RuntimeEventScope BeginPatchedEvent(
+        MethodBase originalMethod,
+        object? instance,
+        object[] arguments)
+    {
+        if (_writer is null || !EventHooks.TryGetValue(originalMethod, out var hook))
+        {
+            return default;
+        }
+
+        var category = ResolveCategory(hook.Category, arguments);
+        var id = Interlocked.Increment(ref _eventId);
+        var startedTimestamp = Stopwatch.GetTimestamp();
+        var details = DescribeArguments(originalMethod, arguments);
+        var state = DescribeState(instance);
+        var summary = $"{id}:{category}:{hook.Action}";
+        var scope = new RuntimeEventScope(
+            id,
+            startedTimestamp,
+            category,
+            hook.Action,
+            summary,
+            instance);
+
+        var scopes = _threadEventScopes ??= new Stack<RuntimeEventScope>(8);
+        scopes.Push(scope);
+        if (Environment.CurrentManagedThreadId == _mainThreadId)
+        {
+            lock (EventStateGate)
+            {
+                _lastStartedEvent = summary;
+                _activeMainThreadEvents = string.Join(" > ", scopes.Reverse().Select(item => item.Summary));
             }
         }
+
+        WriteRecord("BEGIN", category, hook.Action, id, null, details, state, null);
+        return scope;
     }
 
-    private static void LogInfo(string message)
+    public static void EndPatchedEvent(RuntimeEventScope scope, Exception? exception)
     {
-        if (_configuration is null || !_configuration.EnableLogging.Value)
+        if (scope.EventId == 0)
         {
             return;
         }
 
-        _logger?.LogInfo(message);
-    }
+        var elapsedMilliseconds = ToMilliseconds(Stopwatch.GetTimestamp() - scope.StartTimestamp);
+        var state = DescribeState(scope.Instance);
+        WriteRecord(
+            exception is null ? "END" : "FAIL",
+            scope.Category,
+            scope.Action,
+            scope.EventId,
+            elapsedMilliseconds,
+            string.Empty,
+            state,
+            exception);
 
-    private struct ActiveFrame
-    {
-        public ActiveFrame(int methodId, int parentMethodId, long startTimestamp)
+        var scopes = _threadEventScopes;
+        if (scopes is not null && scopes.Count > 0)
         {
-            MethodId = methodId;
-            ParentMethodId = parentMethodId;
-            StartTimestamp = startTimestamp;
-            ChildTicks = 0;
-        }
-
-        public int MethodId { get; }
-
-        public int ParentMethodId { get; }
-
-        public long StartTimestamp { get; }
-
-        public long ChildTicks { get; set; }
-    }
-
-    private sealed class MethodStatistics
-    {
-        private long _calls;
-        private long _exceptions;
-        private long _totalTicks;
-        private long _selfTicks;
-        private long _maxTicks;
-
-        public void Record(long totalTicks, long selfTicks, bool threw)
-        {
-            Interlocked.Increment(ref _calls);
-            Interlocked.Add(ref _totalTicks, totalTicks);
-            Interlocked.Add(ref _selfTicks, selfTicks);
-            if (threw)
+            if (scopes.Peek().EventId == scope.EventId)
             {
-                Interlocked.Increment(ref _exceptions);
+                scopes.Pop();
             }
-
-            var observedMax = Interlocked.Read(ref _maxTicks);
-            while (totalTicks > observedMax)
+            else
             {
-                var previous = Interlocked.CompareExchange(ref _maxTicks, totalTicks, observedMax);
-                if (previous == observedMax)
+                var remaining = scopes.Where(item => item.EventId != scope.EventId).Reverse().ToArray();
+                scopes.Clear();
+                foreach (var item in remaining)
                 {
-                    break;
+                    scopes.Push(item);
                 }
-
-                observedMax = previous;
             }
         }
 
-        public MethodSnapshot Snapshot()
+        if (Environment.CurrentManagedThreadId == _mainThreadId)
         {
-            var calls = Interlocked.Read(ref _calls);
-            var totalTicks = Interlocked.Read(ref _totalTicks);
-            return new MethodSnapshot(
-                calls,
-                Interlocked.Read(ref _exceptions),
-                totalTicks,
-                Interlocked.Read(ref _selfTicks),
-                Interlocked.Read(ref _maxTicks),
-                calls == 0 ? 0 : totalTicks / calls);
+            lock (EventStateGate)
+            {
+                _lastCompletedEvent = scope.Summary;
+                _activeMainThreadEvents = scopes is { Count: > 0 }
+                    ? string.Join(" > ", scopes.Reverse().Select(item => item.Summary))
+                    : "none";
+            }
         }
     }
 
-    private readonly record struct MethodDescriptor(int MethodId, string Signature, bool Patched);
-    private readonly record struct MethodReportRow(string Signature, MethodSnapshot Snapshot);
-    private readonly record struct MethodSnapshot(long Calls, long Exceptions, long TotalTicks, long SelfTicks, long MaxTicks, long AverageTicks);
-    private readonly record struct EdgeSnapshot(string ParentSignature, string ChildSignature, long Calls, long TotalTicks, long AverageTicks);
+    public static void ObserveFrame()
+    {
+        var now = Stopwatch.GetTimestamp();
+        var previous = Interlocked.Exchange(ref _lastHeartbeatTimestamp, now);
+        if (previous == 0)
+        {
+            return;
+        }
+
+        var elapsedMilliseconds = ToMilliseconds(now - previous);
+        if (Interlocked.Exchange(ref _freezeActive, 0) != 0)
+        {
+            var freezeDuration = ToMilliseconds(now - Interlocked.Read(ref _freezeStartTimestamp));
+            WriteRecord(
+                "FREEZE_END",
+                "FREEZE",
+                "main-thread-recovered",
+                0,
+                freezeDuration,
+                BuildWatchdogContext($"heartbeatGapMs={elapsedMilliseconds:F1}"),
+                string.Empty,
+                null);
+            return;
+        }
+
+        if (!ApplicationMonitoringEnabled)
+        {
+            return;
+        }
+
+        if (elapsedMilliseconds >= FreezeThresholdMilliseconds)
+        {
+            WriteRecord(
+                "FREEZE_RECOVERED",
+                "FREEZE",
+                "detected-on-recovery",
+                0,
+                elapsedMilliseconds,
+                BuildWatchdogContext("watchdogThreadWasAlsoDelayed=true"),
+                string.Empty,
+                null);
+        }
+        else if (elapsedMilliseconds >= HitchThresholdMilliseconds)
+        {
+            WriteRecord(
+                "HITCH",
+                "FREEZE",
+                "frame-delay",
+                0,
+                elapsedMilliseconds,
+                BuildWatchdogContext(string.Empty),
+                string.Empty,
+                null);
+        }
+    }
+
+    public static void ObserveApplicationFocus(bool focused)
+    {
+        Interlocked.Exchange(ref _applicationFocused, focused ? 1 : 0);
+        Interlocked.Exchange(ref _lastHeartbeatTimestamp, Stopwatch.GetTimestamp());
+        if (!focused)
+        {
+            Interlocked.Exchange(ref _freezeActive, 0);
+        }
+
+        WriteRecord(
+            "STATE",
+            "APPLICATION",
+            "focus",
+            0,
+            null,
+            $"focused={focused.ToString().ToLowerInvariant()}",
+            string.Empty,
+            null);
+    }
+
+    public static void ObserveApplicationPause(bool paused)
+    {
+        Interlocked.Exchange(ref _applicationPaused, paused ? 1 : 0);
+        Interlocked.Exchange(ref _lastHeartbeatTimestamp, Stopwatch.GetTimestamp());
+        if (paused)
+        {
+            Interlocked.Exchange(ref _freezeActive, 0);
+        }
+
+        WriteRecord(
+            "STATE",
+            "APPLICATION",
+            "pause",
+            0,
+            null,
+            $"paused={paused.ToString().ToLowerInvariant()}",
+            string.Empty,
+            null);
+    }
+
+    public static void Shutdown()
+    {
+        if (Interlocked.Exchange(ref _shutdown, 1) != 0)
+        {
+            return;
+        }
+
+        _watchdogTimer?.Dispose();
+        _watchdogTimer = null;
+        WriteRecord(
+            "SESSION_END",
+            "SYSTEM",
+            RuntimeProfilerPlugin.PluginName,
+            0,
+            null,
+            string.Empty,
+            string.Empty,
+            null);
+        _writer?.Dispose();
+        _writer = null;
+    }
+
+    private static int FreezeThresholdMilliseconds =>
+        Math.Max(250, _configuration?.FreezeThresholdMilliseconds.Value ?? 1000);
+
+    private static int HitchThresholdMilliseconds =>
+        Math.Max(50, _configuration?.HitchThresholdMilliseconds.Value ?? 250);
+
+    private static int WatchdogPollMilliseconds =>
+        Math.Clamp(_configuration?.WatchdogPollMilliseconds.Value ?? 100, 50, 1000);
+
+    private static bool ApplicationMonitoringEnabled =>
+        (Volatile.Read(ref _applicationFocused) != 0 && Volatile.Read(ref _applicationPaused) == 0)
+        || _configuration?.DetectWhileUnfocused.Value == true;
+
+    private static void AttachHeartbeatWatcher()
+    {
+        ClassInjector.RegisterTypeInIl2Cpp<RuntimeProfilerWatcher>();
+        var watcherObject = new GameObject("RuntimeEventLoggerHeartbeat");
+        UnityEngine.Object.DontDestroyOnLoad(watcherObject);
+        watcherObject.hideFlags = HideFlags.HideAndDontSave;
+        watcherObject.AddComponent<RuntimeProfilerWatcher>();
+    }
+
+    private static void CheckMainThreadHeartbeat()
+    {
+        if (Interlocked.Exchange(ref _watchdogCheckActive, 1) != 0)
+        {
+            return;
+        }
+
+        try
+        {
+            if (Volatile.Read(ref _shutdown) != 0 || !ApplicationMonitoringEnabled)
+            {
+                return;
+            }
+
+            var now = Stopwatch.GetTimestamp();
+            var lastHeartbeat = Interlocked.Read(ref _lastHeartbeatTimestamp);
+            var stalledMilliseconds = ToMilliseconds(now - lastHeartbeat);
+            if (stalledMilliseconds < FreezeThresholdMilliseconds
+                || Interlocked.CompareExchange(ref _freezeActive, 1, 0) != 0)
+            {
+                return;
+            }
+
+            Interlocked.Exchange(ref _freezeStartTimestamp, lastHeartbeat);
+            WriteRecord(
+                "FREEZE_START",
+                "FREEZE",
+                "main-thread-unresponsive",
+                0,
+                stalledMilliseconds,
+                BuildWatchdogContext($"detectedAfterMs={stalledMilliseconds:F1}"),
+                string.Empty,
+                null);
+        }
+        catch (Exception exception)
+        {
+            WriteRecord("ERROR", "FREEZE", "watchdog", 0, null, string.Empty, string.Empty, exception);
+        }
+        finally
+        {
+            Volatile.Write(ref _watchdogCheckActive, 0);
+        }
+    }
+
+    private static void AddHook(
+        Type declaringType,
+        string methodName,
+        Type[] parameterTypes,
+        string category,
+        string action)
+    {
+        var method = AccessTools.DeclaredMethod(declaringType, methodName, parameterTypes);
+        if (method is null)
+        {
+            WriteRecord(
+                "WARNING",
+                "SYSTEM",
+                "hook-missing",
+                0,
+                null,
+                $"method={declaringType.FullName}.{methodName}",
+                string.Empty,
+                null);
+            return;
+        }
+
+        EventHooks[method] = new EventHookDefinition(category, action);
+    }
+
+    private static string ToActionName(string rpcMethodName)
+    {
+        var itemName = rpcMethodName
+            .Replace("RPC_On", string.Empty, StringComparison.Ordinal)
+            .Replace("PickUp", string.Empty, StringComparison.Ordinal);
+        return $"{itemName.ToLowerInvariant()}.pickup";
+    }
+
+    private static string ResolveCategory(string category, IReadOnlyList<object> arguments)
+    {
+        if (!string.Equals(category, "BUFF", StringComparison.Ordinal))
+        {
+            return category;
+        }
+
+        foreach (var argument in arguments)
+        {
+            if (argument is Types.SpookedBuffType buffType && IsStun(buffType))
+            {
+                return "STUN";
+            }
+        }
+
+        return category;
+    }
+
+    private static bool IsStun(Types.SpookedBuffType buffType)
+    {
+        var name = buffType.ToString();
+        return name.Contains("Stun", StringComparison.OrdinalIgnoreCase)
+               || buffType == Types.SpookedBuffType.BananaFail
+               || buffType == Types.SpookedBuffType.Slip;
+    }
+
+    private static string DescribeArguments(MethodBase method, IReadOnlyList<object> arguments)
+    {
+        var parameters = method.GetParameters();
+        var items = new List<string>(arguments.Count);
+        for (var index = 0; index < arguments.Count; index++)
+        {
+            var name = index < parameters.Length ? parameters[index].Name : $"arg{index}";
+            items.Add($"{name}={FormatValue(arguments[index])}");
+        }
+
+        return string.Join("; ", items);
+    }
+
+    private static string DescribeState(object? instance)
+    {
+        try
+        {
+            return instance switch
+            {
+                Button button => DescribeButton(button),
+                Door door =>
+                    $"{DescribeInteractable(door)}; isOpen={door.IsOpen.ToString().ToLowerInvariant()}",
+                Interactable interactable => DescribeInteractable(interactable),
+                EntitySkillsComponent skills =>
+                    $"{DescribeNetworkBehaviour(skills)}; first={skills.FirstSkillType}; second={skills.SecondSkillType}; "
+                    + $"firstCooldown={skills.FirstSkillCooldown:F3}; secondCooldown={skills.SecondSkillCooldown:F3}; "
+                    + $"duringPropChange={skills.DuringPropChange.ToString().ToLowerInvariant()}",
+                EntityBuffsComponent buffs =>
+                    $"{DescribeNetworkBehaviour(buffs)}; stunned={buffs.IsStuned.ToString().ToLowerInvariant()}; "
+                    + $"canMove={buffs.CanMove.ToString().ToLowerInvariant()}; "
+                    + $"blocked={buffs.BlockInputs.ToString().ToLowerInvariant()}",
+                MainBoostersViewModel boosters =>
+                    $"skill={boosters.CurrentSkillSelected}; buttonState={boosters.CurrentSelectedButtonState}; "
+                    + $"blocked={boosters.IsCurrentSkillSelectedBlocked.ToString().ToLowerInvariant()}; "
+                    + $"booster={boosters.CurrentBoosterSelected}",
+                SeekerSelectionViewModel selection =>
+                    $"seeker={selection._chosenSeeker}; confirmed={selection._confirm.ToString().ToLowerInvariant()}; "
+                    + $"selectionIndex={selection._currentSelectionIndex}; shift={selection._shift}; "
+                    + $"open={selection._isOpen.ToString().ToLowerInvariant()}",
+                NetworkBehaviour networkBehaviour => DescribeNetworkBehaviour(networkBehaviour),
+                Component component =>
+                    $"object={GetHierarchyPath(component.transform)}; "
+                    + $"active={component.gameObject.activeInHierarchy.ToString().ToLowerInvariant()}",
+                Il2CppObjectBase il2CppObject =>
+                    $"type={il2CppObject.GetType().FullName}; pointer=0x{il2CppObject.Pointer:X}",
+                null => "instance=null",
+                _ => $"type={instance.GetType().FullName}"
+            };
+        }
+        catch (Exception exception)
+        {
+            return $"state-unavailable={exception.GetType().Name}";
+        }
+    }
+
+    private static string DescribeButton(Button button)
+    {
+        var selectedObject = EventSystem.current?.currentSelectedGameObject;
+        var customState = button is SpookedOutlineButton outlineButton
+            ? $"; customSelected={outlineButton._isSelected.ToString().ToLowerInvariant()}"
+              + $"; highlighted={outlineButton._isHiglighted.ToString().ToLowerInvariant()}"
+            : string.Empty;
+        return $"object={GetHierarchyPath(button.transform)}; scene={button.gameObject.scene.name}; "
+               + $"interactable={button.interactable.ToString().ToLowerInvariant()}; "
+               + $"effectiveInteractable={button.IsInteractable().ToString().ToLowerInvariant()}; "
+               + $"enabled={button.enabled.ToString().ToLowerInvariant()}; "
+               + $"active={button.gameObject.activeInHierarchy.ToString().ToLowerInvariant()}; "
+               + $"selected={(selectedObject == button.gameObject).ToString().ToLowerInvariant()}"
+               + customState;
+    }
+
+    private static string DescribeInteractable(Interactable interactable)
+    {
+        return $"object={GetHierarchyPath(interactable.transform)}; type={interactable.InteractableType}; "
+               + $"networkId={interactable.NetworkObjectId}; "
+               + $"playerCurrentlyUsing={interactable.PlayerCurrentlyUsing}; "
+               + $"position={FormatVector(interactable.Position)}";
+    }
+
+    private static string DescribeNetworkBehaviour(NetworkBehaviour behaviour)
+    {
+        return $"object={GetHierarchyPath(behaviour.transform)}; "
+               + $"inputAuthority={behaviour.HasInputAuthority.ToString().ToLowerInvariant()}; "
+               + $"stateAuthority={behaviour.HasStateAuthority.ToString().ToLowerInvariant()}; "
+               + $"proxy={behaviour.IsProxy.ToString().ToLowerInvariant()}";
+    }
+
+    private static string GetHierarchyPath(Transform? transform)
+    {
+        if (transform is null)
+        {
+            return "<no-transform>";
+        }
+
+        var names = new Stack<string>();
+        var current = transform;
+        for (var depth = 0; current is not null && depth < 16; depth++)
+        {
+            names.Push(current.name);
+            current = current.parent;
+        }
+
+        return string.Join("/", names);
+    }
+
+    private static string FormatValue(object? value)
+    {
+        try
+        {
+            return value switch
+            {
+                null => "null",
+                string text => text,
+                bool boolean => boolean.ToString().ToLowerInvariant(),
+                float single => single.ToString("F3", CultureInfo.InvariantCulture),
+                double number => number.ToString("F3", CultureInfo.InvariantCulture),
+                Vector3 vector => FormatVector(vector),
+                Interactable interactable => DescribeInteractable(interactable),
+                UnityEngine.Object unityObject => $"{unityObject.GetType().Name}:{unityObject.name}",
+                Enum enumValue => $"{enumValue.GetType().Name}.{enumValue}",
+                byte or sbyte or short or ushort or int or uint or long or ulong or decimal =>
+                    Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty,
+                Il2CppObjectBase il2CppObject =>
+                    $"{il2CppObject.GetType().Name}@0x{il2CppObject.Pointer:X}",
+                _ => value.GetType().FullName ?? value.GetType().Name
+            };
+        }
+        catch (Exception exception)
+        {
+            return $"<unavailable:{exception.GetType().Name}>";
+        }
+    }
+
+    private static string FormatVector(Vector3 vector) =>
+        FormattableString.Invariant($"({vector.x:F3},{vector.y:F3},{vector.z:F3})");
+
+    private static string BuildWatchdogContext(string prefix)
+    {
+        lock (EventStateGate)
+        {
+            var suffix =
+                $"active={_activeMainThreadEvents}; lastStarted={_lastStartedEvent}; lastCompleted={_lastCompletedEvent}";
+            return string.IsNullOrEmpty(prefix) ? suffix : $"{prefix}; {suffix}";
+        }
+    }
+
+    private static void WriteRecord(
+        string kind,
+        string category,
+        string action,
+        long eventId,
+        double? durationMilliseconds,
+        string details,
+        string state,
+        Exception? exception)
+    {
+        var writer = _writer;
+        if (writer is null)
+        {
+            return;
+        }
+
+        var sequence = Interlocked.Increment(ref _sequence);
+        var line = string.Join(
+            '\t',
+            DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture),
+            SessionClock.Elapsed.TotalMilliseconds.ToString("F3", CultureInfo.InvariantCulture),
+            sequence.ToString(CultureInfo.InvariantCulture),
+            Environment.CurrentManagedThreadId.ToString(CultureInfo.InvariantCulture),
+            Sanitize(kind),
+            Sanitize(category),
+            Sanitize(action),
+            eventId == 0 ? string.Empty : eventId.ToString(CultureInfo.InvariantCulture),
+            durationMilliseconds?.ToString("F3", CultureInfo.InvariantCulture) ?? string.Empty,
+            Sanitize(details),
+            Sanitize(state),
+            Sanitize(exception?.ToString() ?? string.Empty));
+        writer.Enqueue(line);
+    }
+
+    private static string Sanitize(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return string.Empty;
+        }
+
+        var builder = new StringBuilder(Math.Min(value.Length, 512));
+        foreach (var character in value)
+        {
+            builder.Append(character switch
+            {
+                '\t' => ' ',
+                '\r' => ' ',
+                '\n' => ' ',
+                _ => character
+            });
+            if (builder.Length >= 2048)
+            {
+                builder.Append("...");
+                break;
+            }
+        }
+
+        return builder.ToString();
+    }
+
+    private static double ToMilliseconds(long stopwatchTicks) =>
+        stopwatchTicks * 1000d / Stopwatch.Frequency;
+
+    private static void OnProcessExit(object? sender, EventArgs args)
+    {
+        Shutdown();
+    }
+
+    private readonly record struct EventHookDefinition(string Category, string Action);
 }
+
+internal readonly record struct RuntimeEventScope(
+    long EventId,
+    long StartTimestamp,
+    string Category,
+    string Action,
+    string Summary,
+    object? Instance);

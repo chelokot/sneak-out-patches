@@ -6,151 +6,180 @@ internal sealed class RuntimeProfilerConfig
 {
     private RuntimeProfilerConfig(
         ConfigEntry<bool> enableMod,
-        ConfigEntry<bool> enableLogging,
-        ConfigEntry<string> targetAssemblies,
-        ConfigEntry<string> includeNamespacePrefixes,
-        ConfigEntry<string> targetMethodPatterns,
-        ConfigEntry<string> excludeNamespacePrefixes,
-        ConfigEntry<bool> includePropertyAccessors,
-        ConfigEntry<bool> includeConstructors,
-        ConfigEntry<bool> includeCompilerGenerated,
-        ConfigEntry<int> maxPatchedMethods,
-        ConfigEntry<int> warmupSeconds,
-        ConfigEntry<int> reportAfterSeconds,
-        ConfigEntry<int> topMethodCount,
-        ConfigEntry<int> topEdgeCount)
+        ConfigEntry<bool> logInteractions,
+        ConfigEntry<bool> logItemActions,
+        ConfigEntry<bool> logSkillsAndPerks,
+        ConfigEntry<bool> logBuffsAndStuns,
+        ConfigEntry<bool> logButtonPresses,
+        ConfigEntry<int> freezeThresholdMilliseconds,
+        ConfigEntry<int> hitchThresholdMilliseconds,
+        ConfigEntry<int> watchdogPollMilliseconds,
+        ConfigEntry<bool> detectWhileUnfocused)
     {
         EnableMod = enableMod;
-        EnableLogging = enableLogging;
-        TargetAssemblies = targetAssemblies;
-        IncludeNamespacePrefixes = includeNamespacePrefixes;
-        TargetMethodPatterns = targetMethodPatterns;
-        ExcludeNamespacePrefixes = excludeNamespacePrefixes;
-        IncludePropertyAccessors = includePropertyAccessors;
-        IncludeConstructors = includeConstructors;
-        IncludeCompilerGenerated = includeCompilerGenerated;
-        MaxPatchedMethods = maxPatchedMethods;
-        WarmupSeconds = warmupSeconds;
-        ReportAfterSeconds = reportAfterSeconds;
-        TopMethodCount = topMethodCount;
-        TopEdgeCount = topEdgeCount;
+        LogInteractions = logInteractions;
+        LogItemActions = logItemActions;
+        LogSkillsAndPerks = logSkillsAndPerks;
+        LogBuffsAndStuns = logBuffsAndStuns;
+        LogButtonPresses = logButtonPresses;
+        FreezeThresholdMilliseconds = freezeThresholdMilliseconds;
+        HitchThresholdMilliseconds = hitchThresholdMilliseconds;
+        WatchdogPollMilliseconds = watchdogPollMilliseconds;
+        DetectWhileUnfocused = detectWhileUnfocused;
     }
 
     public ConfigEntry<bool> EnableMod { get; }
-
-    public ConfigEntry<bool> EnableLogging { get; }
-
-    public ConfigEntry<string> TargetAssemblies { get; }
-
-    public ConfigEntry<string> IncludeNamespacePrefixes { get; }
-
-    public ConfigEntry<string> TargetMethodPatterns { get; }
-
-    public ConfigEntry<string> ExcludeNamespacePrefixes { get; }
-
-    public ConfigEntry<bool> IncludePropertyAccessors { get; }
-
-    public ConfigEntry<bool> IncludeConstructors { get; }
-
-    public ConfigEntry<bool> IncludeCompilerGenerated { get; }
-
-    public ConfigEntry<int> MaxPatchedMethods { get; }
-
-    public ConfigEntry<int> WarmupSeconds { get; }
-
-    public ConfigEntry<int> ReportAfterSeconds { get; }
-
-    public ConfigEntry<int> TopMethodCount { get; }
-
-    public ConfigEntry<int> TopEdgeCount { get; }
+    public ConfigEntry<bool> LogInteractions { get; }
+    public ConfigEntry<bool> LogItemActions { get; }
+    public ConfigEntry<bool> LogSkillsAndPerks { get; }
+    public ConfigEntry<bool> LogBuffsAndStuns { get; }
+    public ConfigEntry<bool> LogButtonPresses { get; }
+    public ConfigEntry<int> FreezeThresholdMilliseconds { get; }
+    public ConfigEntry<int> HitchThresholdMilliseconds { get; }
+    public ConfigEntry<int> WatchdogPollMilliseconds { get; }
+    public ConfigEntry<bool> DetectWhileUnfocused { get; }
 
     public static RuntimeProfilerConfig Bind(ConfigFile configFile)
     {
+        var legacyProfilerConfig = HasConfigKey(configFile, "targeting", "TargetAssemblies")
+                                   || HasConfigKey(configFile, "report", "TopMethodCount");
+        if (legacyProfilerConfig)
+        {
+            BindLegacyProfilerSettings(configFile);
+        }
+
         var enableMod = configFile.Bind(
-            "general",
-            "EnableMod",
-            true,
-            "Enable the runtime method profiler.");
-        var enableLogging = configFile.Bind(
-            "general",
-            "EnableLogging",
-            false,
-            "Write profiler setup details to the BepInEx log.");
-        var targetAssemblies = configFile.Bind(
-            "targeting",
-            "TargetAssemblies",
-            "Assembly-CSharp;Kinguinverse",
-            "Semicolon-separated assembly names to scan for methods.");
-        var includeNamespacePrefixes = configFile.Bind(
-            "targeting",
-            "IncludeNamespacePrefixes",
-            "Gameplay.Match.;Networking.Party.;UI.Views.",
-            "Semicolon-separated full type-name prefixes to include.");
-        var targetMethodPatterns = configFile.Bind(
-            "targeting",
-            "TargetMethodPatterns",
-            string.Empty,
-            "Semicolon-separated method signature substrings to include after namespace filtering.");
-        var excludeNamespacePrefixes = configFile.Bind(
-            "targeting",
-            "ExcludeNamespacePrefixes",
-            "Gameplay.Match.MatchState.;UI.Views.BattlepassView;UI.Views.DailyQuestsView",
-            "Semicolon-separated full type-name prefixes to exclude.");
-        var includePropertyAccessors = configFile.Bind(
-            "targeting",
-            "IncludePropertyAccessors",
-            false,
-            "Patch property/event accessor methods.");
-        var includeConstructors = configFile.Bind(
-            "targeting",
-            "IncludeConstructors",
-            false,
-            "Patch constructors.");
-        var includeCompilerGenerated = configFile.Bind(
-            "targeting",
-            "IncludeCompilerGenerated",
-            false,
-            "Patch compiler-generated methods and closure/state-machine types.");
-        var maxPatchedMethods = configFile.Bind(
-            "targeting",
-            "MaxPatchedMethods",
-            300,
-            "Maximum number of methods to patch after filtering.");
-        var topMethodCount = configFile.Bind(
-            "report",
-            "TopMethodCount",
-            200,
-            "Maximum number of methods to write into the report.");
-        var warmupSeconds = configFile.Bind(
-            "report",
-            "WarmupSeconds",
-            0,
-            "Ignore method calls during this startup/scene-loading warmup period.");
-        var reportAfterSeconds = configFile.Bind(
-            "report",
-            "ReportAfterSeconds",
-            60,
-            "Profiling duration after warmup before the one-shot report is written.");
-        var topEdgeCount = configFile.Bind(
-            "report",
-            "TopEdgeCount",
-            100,
-            "Maximum number of caller->callee edges to write into the report.");
+            "general", "EnableMod", true,
+            "Enable chronological gameplay event and freeze logging.");
+        var logInteractions = configFile.Bind(
+            "events", "LogInteractions", true,
+            "Log object interactions and door state changes.");
+        var logItemActions = configFile.Bind(
+            "events", "LogItemActions", true,
+            "Log item pickup, use, drop, and throw actions.");
+        var logSkillsAndPerks = configFile.Bind(
+            "events", "LogSkillsAndPerks", true,
+            "Log skill/perk button attempts, validation, and successful use.");
+        var logBuffsAndStuns = configFile.Bind(
+            "events", "LogBuffsAndStuns", true,
+            "Log buff application/removal, including the exact stun type and source player.");
+        var logButtonPresses = configFile.Bind(
+            "events", "LogButtonPresses", true,
+            "Log every Unity UI button press with its hierarchy and enabled/selected state.");
+        var freezeThresholdMilliseconds = configFile.Bind(
+            "freeze-detection", "FreezeThresholdMilliseconds", 1000,
+            "Main-thread heartbeat delay that is considered a freeze. Minimum: 250 ms.");
+        var hitchThresholdMilliseconds = configFile.Bind(
+            "freeze-detection", "HitchThresholdMilliseconds", 250,
+            "Recovered frame delay that is logged as a hitch. Minimum: 50 ms.");
+        var watchdogPollMilliseconds = configFile.Bind(
+            "freeze-detection", "WatchdogPollMilliseconds", 100,
+            "How often the background watchdog checks the main-thread heartbeat. Range: 50-1000 ms.");
+        var detectWhileUnfocused = configFile.Bind(
+            "freeze-detection", "DetectWhileUnfocused", false,
+            "Report freezes while the game is unfocused or paused. Disabled by default to avoid false positives.");
+
+        if (legacyProfilerConfig)
+        {
+            enableMod.Value = true;
+            RemoveLegacyProfilerSettings(configFile);
+            configFile.Save();
+        }
 
         return new RuntimeProfilerConfig(
             enableMod,
-            enableLogging,
-            targetAssemblies,
-            includeNamespacePrefixes,
-            targetMethodPatterns,
-            excludeNamespacePrefixes,
-            includePropertyAccessors,
-            includeConstructors,
-            includeCompilerGenerated,
-            maxPatchedMethods,
-            warmupSeconds,
-            reportAfterSeconds,
-            topMethodCount,
-            topEdgeCount);
+            logInteractions,
+            logItemActions,
+            logSkillsAndPerks,
+            logBuffsAndStuns,
+            logButtonPresses,
+            freezeThresholdMilliseconds,
+            hitchThresholdMilliseconds,
+            watchdogPollMilliseconds,
+            detectWhileUnfocused);
+    }
+
+    private static void BindLegacyProfilerSettings(ConfigFile configFile)
+    {
+        configFile.Bind("general", "EnableLogging", false, "Obsolete profiler setting.");
+        configFile.Bind("targeting", "TargetAssemblies", string.Empty, "Obsolete profiler setting.");
+        configFile.Bind("targeting", "IncludeNamespacePrefixes", string.Empty, "Obsolete profiler setting.");
+        configFile.Bind("targeting", "TargetMethodPatterns", string.Empty, "Obsolete profiler setting.");
+        configFile.Bind("targeting", "ExcludeNamespacePrefixes", string.Empty, "Obsolete profiler setting.");
+        configFile.Bind("targeting", "IncludePropertyAccessors", false, "Obsolete profiler setting.");
+        configFile.Bind("targeting", "IncludeConstructors", false, "Obsolete profiler setting.");
+        configFile.Bind("targeting", "IncludeCompilerGenerated", false, "Obsolete profiler setting.");
+        configFile.Bind("targeting", "MaxPatchedMethods", 0, "Obsolete profiler setting.");
+        configFile.Bind("report", "TopMethodCount", 0, "Obsolete profiler setting.");
+        configFile.Bind("report", "WarmupSeconds", 0, "Obsolete profiler setting.");
+        configFile.Bind("report", "ReportAfterSeconds", 0, "Obsolete profiler setting.");
+        configFile.Bind("report", "TopEdgeCount", 0, "Obsolete profiler setting.");
+    }
+
+    private static void RemoveLegacyProfilerSettings(ConfigFile configFile)
+    {
+        foreach (var definition in new[]
+                 {
+                     new ConfigDefinition("general", "EnableLogging"),
+                     new ConfigDefinition("targeting", "TargetAssemblies"),
+                     new ConfigDefinition("targeting", "IncludeNamespacePrefixes"),
+                     new ConfigDefinition("targeting", "TargetMethodPatterns"),
+                     new ConfigDefinition("targeting", "ExcludeNamespacePrefixes"),
+                     new ConfigDefinition("targeting", "IncludePropertyAccessors"),
+                     new ConfigDefinition("targeting", "IncludeConstructors"),
+                     new ConfigDefinition("targeting", "IncludeCompilerGenerated"),
+                     new ConfigDefinition("targeting", "MaxPatchedMethods"),
+                     new ConfigDefinition("report", "TopMethodCount"),
+                     new ConfigDefinition("report", "WarmupSeconds"),
+                     new ConfigDefinition("report", "ReportAfterSeconds"),
+                     new ConfigDefinition("report", "TopEdgeCount")
+                 })
+        {
+            configFile.Remove(definition);
+        }
+    }
+
+    private static bool HasConfigKey(ConfigFile configFile, string section, string key)
+    {
+        try
+        {
+            var configPath = configFile.GetType()
+                .GetProperty("ConfigFilePath")?
+                .GetValue(configFile) as string;
+            if (string.IsNullOrWhiteSpace(configPath) || !File.Exists(configPath))
+            {
+                return false;
+            }
+
+            var currentSection = string.Empty;
+            foreach (var rawLine in File.ReadLines(configPath))
+            {
+                var line = rawLine.Trim();
+                if (line.StartsWith("[", StringComparison.Ordinal)
+                    && line.EndsWith("]", StringComparison.Ordinal))
+                {
+                    currentSection = line[1..^1].Trim();
+                    continue;
+                }
+
+                if (!string.Equals(currentSection, section, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var equalsIndex = line.IndexOf('=');
+                if (equalsIndex > 0
+                    && string.Equals(line[..equalsIndex].Trim(), key, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+        }
+        catch
+        {
+            return false;
+        }
+
+        return false;
     }
 }

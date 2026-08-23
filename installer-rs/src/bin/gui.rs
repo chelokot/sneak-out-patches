@@ -37,6 +37,7 @@ const BUTTON_HEIGHT: f32 = 44.0;
 const SECTION_FONT_FAMILY: &str = "Open Sans Bold";
 const SECTION_FONT_DATA: &str = "open-sans-bold";
 const LOBBY_TEST_BOT_ID: &str = "lobby-test-bot";
+const RUNTIME_EVENT_LOGGER_ID: &str = "runtime-profiler";
 
 enum WorkerMessage {
     Progress(ProgressEvent),
@@ -805,6 +806,7 @@ fn debug_selection(manifest: &[RuntimeMod], legacy_ids: &HashSet<String>) -> Has
             runtime_mod_is_visible(runtime_mod)
                 && (runtime_mod.default_enabled
                     || runtime_mod.option_id == LOBBY_TEST_BOT_ID
+                    || runtime_mod.option_id == RUNTIME_EVENT_LOGGER_ID
                     || legacy_ids.contains(&runtime_mod.option_id))
         })
         .map(|runtime_mod| runtime_mod.option_id.clone())
@@ -1493,13 +1495,14 @@ mod tests {
     }
 
     #[test]
-    fn debug_preset_selects_defaults_lobby_bot_and_every_legacy_mod() {
+    fn debug_preset_selects_defaults_debug_tools_and_every_legacy_mod() {
         let mut stable = runtime_mod("stable", "Stable");
         stable.default_enabled = true;
         let manifest = vec![
             stable,
             runtime_mod("optional", "Optional"),
             runtime_mod(LOBBY_TEST_BOT_ID, "Lobby Test Bot"),
+            runtime_mod(RUNTIME_EVENT_LOGGER_ID, "Runtime Event Logger"),
             runtime_mod("local-development", "Local Development"),
         ];
         let legacy_ids = HashSet::from(["local-development".to_owned()]);
@@ -1509,6 +1512,7 @@ mod tests {
             HashSet::from([
                 "stable".to_owned(),
                 LOBBY_TEST_BOT_ID.to_owned(),
+                RUNTIME_EVENT_LOGGER_ID.to_owned(),
                 "local-development".to_owned(),
                 FORCED_HIDDEN_RUNTIME_MOD_ID.to_owned(),
             ])

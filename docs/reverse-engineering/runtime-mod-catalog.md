@@ -52,7 +52,7 @@ It does not unlock hunters. Normal profiles keep their real character list and c
 - `lobby-test-bot`
 - `runtime-profiler`
 
-The lobby skill panel, slide, and networked prop-change are part of the default install. The test bot and profiler are not enabled by default.
+The lobby skill panel, slide, and networked prop-change are part of the default install. The test bot and event logger are not enabled by default.
 
 They stay separate because:
 
@@ -60,7 +60,7 @@ They stay separate because:
 - lobby prop-change uses the stock RPC only as transport, while every modded client renders a collider-free visual copied from lobby scenery; it never enters the map-only `PropPool`/registry path
 - the lobby skill panel reuses an existing view model and stays unavailable when the normal UI graph is not initialized
 - `lobby-test-bot` is a host-only match-start tool that uses the authoritative Fusion runner and the stock `SceneSpawner` bot initializer instead of faking player counts
-- `runtime-profiler` is instrumentation, not gameplay behavior
+- `runtime-profiler` is chronological event/freeze instrumentation, not gameplay behavior
 
 ## Why some mods are not merged
 

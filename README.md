@@ -80,7 +80,7 @@ not Developer ID signed or notarized; if necessary, Control-click it and choose
 | Id | Name | Default | Description |
 | --- | --- | :---: | --- |
 | `lobby-test-bot` | Lobby Test Bot | No | Lets the host add a test bot, choose it as the Classic-mode hunter, start private test matches, and use Plus to switch the camera, movement, interaction, attack, skill, and emote controls. |
-| `runtime-profiler` | Runtime Profiler (Debug) | No | Creates a performance report when the game closes to help diagnose slow mods and game functions. |
+| `runtime-profiler` | Runtime Event Logger (Debug) | No | Writes a chronological gameplay trace and marks main-thread hitches/freezes with the event active at the time. |
 
 ## Command line
 

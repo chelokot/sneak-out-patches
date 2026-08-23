@@ -295,8 +295,8 @@
   },
   {
     "option_id": "runtime-profiler",
-    "label": "Runtime Profiler (Debug)",
-    "details": "Creates a performance report when the game closes to help diagnose slow mods and game functions.",
+    "label": "Runtime Event Logger (Debug)",
+    "details": "Writes a chronological gameplay trace for interactions, doors, item actions, stuns, skills, and UI buttons, and marks main-thread hitches and freezes with the active event.",
     "category": "debug",
     "default_enabled": false,
     "stable": true,
